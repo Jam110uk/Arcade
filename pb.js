@@ -1294,15 +1294,3 @@ export default (function() {
 
   return { newGame, destroy, togglePause, getCurrentScore: () => score };
 })();
-
-window.pbNewGame     = () => PB.newGame();
-window.pbTogglePause = () => PB.togglePause();
-
-
-window.pbTogglePause = () => PB.togglePause();
-
-
-// ============================================================
-// ZUMA ENGINE
-// ============================================================
-window.ZM = (function () {

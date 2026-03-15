@@ -1,7 +1,7 @@
 // C4 game module
 // Auto-extracted from monolithic index.html
 
-const C4 = (() => {
+export default (() => {
   const COLS = 7, ROWS = 6;
 
   let board, turn, myNum, myName, oppName, roomCode, unsubs, gameOver, fromSharedLobby;
@@ -289,24 +289,3 @@ const C4 = (() => {
 
   return { init, destroy, playAgain, roomCode: null };
 })();
-
-// Make C4.roomCode readable as property
-Object.defineProperty(C4, 'roomCode', {
-  get: () => { try { return C4._rc; } catch(e){ return null; } },
-  set: (v) => { C4._rc = v; }
-});
-
-window.c4PlayAgain = () => C4.playAgain();
-
-function c4LaunchFromLobby(isHost, myName, oppName, gameCode) {
-  document.getElementById('main-title').textContent    = '🔴 CONNECT FOUR';
-  document.getElementById('main-subtitle').textContent = 'DROP — CONNECT — WIN';
-  C4._rc = gameCode;
-  showScreen('connectfour-screen');
-  setTimeout(() => C4.init(isHost, myName, oppName, gameCode, true), 80);
-}
-
-// ??????????????????????????????????????????????
-//  ROAD RAGE ENGINE  (enhanced)
-// ??????????????????????????????????????????????
-export default (() => {

@@ -533,13 +533,3 @@ export default (function() {
 
   return { init, start, destroy, togglePause };
 })();
-
-window.tetInit        = () => TET.init();
-window.tetStart       = () => TET.start();
-window.tetTogglePause = () => TET.togglePause();
-
-
-// ============================================================
-// HANGMAN ENGINE
-// ============================================================
-window.HM = (function() {

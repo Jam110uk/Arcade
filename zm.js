@@ -834,12 +834,3 @@ export default (function () {
 
   return{init,newGame,destroy,togglePause};
 })();
-
-window.zmNewGame     = () => ZM.newGame();
-window.zmTogglePause = () => ZM.togglePause();
-
-
-// ============================================================
-// TETRIS ENGINE
-// ============================================================
-window.TET = (function() {

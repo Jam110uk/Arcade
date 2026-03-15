@@ -592,19 +592,3 @@ export default (() => {
     },
   };
 })();
-
-function pokerLaunchFromLobby(isHost, myName, oppName, gameCode) {
-  document.getElementById('main-title').textContent = '🃏 POKER';
-  document.getElementById('main-subtitle').textContent = 'TEXAS HOLD\'EM — ONLINE';
-  document.getElementById('header-room-code').textContent = gameCode;
-  document.getElementById('room-code-display').style.display = '';
-  showScreen('poker-screen');
-  PKR.launchMulti(isHost, myName, oppName, gameCode);
-}
-
-
-// ============================================================
-// CHESS ENGINE — Solo vs AI (minimax) + 2P Online
-// ============================================================
-
-window.CHESS = (() => {

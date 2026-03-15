@@ -1386,26 +1386,3 @@ export default (() => {
 
   return { init, destroy, start, newGame, usePower, useReverse, useBomb, getCurrentScore: () => score };
 })();
-</script>
-
-<script>
-// ── Page Visibility: pause all RAF loops when tab is hidden ──────────────
-// This prevents the browser's spinning loading indicator on inactive tabs.
-document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) {
-    // Tab became visible — restart any loops that should be running
-    if (typeof startStarLoop === 'function') {
-      const screen = document.querySelector('.screen.active');
-      const screenId = screen ? screen.id : 'game-select-screen';
-      if (screenId === 'game-select-screen') startStarLoop();
-    }
-  }
-  // When hidden: all loops check document.hidden at the top of their RAF
-  // callbacks and skip work (but keep the RAF handle alive so they resume cleanly).
-});
-</script>
-<script>
-// ── AUTO PERFORMANCE DETECTION ──────────────────────────────────────────────
-// Monitors real FPS for the first 180 frames after page load.
-// If median FPS < 45, enables LOW_QUALITY mode which zeros all shadowBlur
-// calls globally via a CanvasRenderingContext2D prototype patch.

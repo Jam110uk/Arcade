@@ -1614,14 +1614,3 @@ export default (function() {
     get gameOver() { return gameOver; }, set gameOver(v) { gameOver = v; },
   };
 })();
-
-window.bbNewGame     = () => BB.newGame();
-window.bbTogglePause = () => BB.togglePause();
-
-
-
-
-// ============================================================
-// BUST-A-MOVE ENGINE  (Puzzle Bobble reimagined)
-// ============================================================
-window.PB = (function() {

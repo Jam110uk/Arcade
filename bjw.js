@@ -1180,16 +1180,3 @@ export default (() => {
 
   return { init, start, newGame, resume, pause, destroy };
 })();
-</script>
-
-<!-- ============================================================ -->
-<!-- MONOPOLY SCREEN -->
-<!-- ============================================================ -->
-<div class="screen" id="monopoly-screen" style="padding:0;overflow:hidden;background:#060e1a;position:relative;">
-</div>
-
-<script>
-// ============================================================
-// MONOPOLY ENGINE — Single Player vs 3 AI opponents
-// ============================================================
-window.MONO = (function () {
