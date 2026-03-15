@@ -4923,7 +4923,7 @@
         <div class="game-name">CHESS</div>
         <div class="game-desc">Play chess head-to-head — 2 players online.</div>
       </div>
-      <div class="game-card" style="--card-accent:#00ffff;display:none" data-multi-game onclick="TRON.showOnlineMenu()">
+      <div class="game-card" style="--card-accent:#00ffff;display:none" data-multi-game onclick="window.TRON?.showOnlineMenu()">
         <span class="game-icon">⚡</span>
         <div class="game-name">TRON</div>
         <div class="game-desc">Light cycle racing — 2 players online.</div>
@@ -5566,7 +5566,7 @@
       <canvas id="bb-tut-canvas" width="160" height="160" style="border-radius:8px;background:rgba(0,10,30,0.7);margin-bottom:10px;"></canvas>
       <div id="bb-tut-name" style="font-size:1.3rem;font-family:'Orbitron',sans-serif;color:#00f5ff;text-shadow:0 0 14px #00f5ff;margin-bottom:8px;letter-spacing:0.15em;"></div>
       <div id="bb-tut-desc" style="font-size:0.8rem;font-family:'Share Tech Mono',monospace;color:#c8e8ff;text-align:center;max-width:280px;line-height:1.6;margin-bottom:18px;padding:0 10px;"></div>
-      <button onclick="BB.tutDismiss()" style="padding:10px 32px;background:transparent;border:1px solid #00f5ff;color:#00f5ff;font-family:'Share Tech Mono',monospace;font-size:0.85rem;letter-spacing:0.12em;cursor:pointer;">GOT IT — LET'S GO!</button>
+      <button onclick="window.BB?.tutDismiss()" style="padding:10px 32px;background:transparent;border:1px solid #00f5ff;color:#00f5ff;font-family:'Share Tech Mono',monospace;font-size:0.85rem;letter-spacing:0.12em;cursor:pointer;">GOT IT — LET'S GO!</button>
     </div>
     <div class="bb-hint" id="bb-hint">Click a group of 2+ matching bubbles to pop them</div>
   </div>
@@ -5811,12 +5811,12 @@
     <div class="poker-action-bar">
       <div class="pk-status-msg" id="pk-status-msg">Starting game...</div>
       <div class="pk-action-btns" id="pk-action-btns" style="display:none">
-        <button class="pk-btn fold"  id="pk-fold-btn"  onclick="PKR.doAction('fold')">FOLD</button>
-        <button class="pk-btn check" id="pk-check-btn" onclick="PKR.doAction('check')">CHECK</button>
-        <button class="pk-btn call"  id="pk-call-btn"  onclick="PKR.doAction('call')">CALL</button>
+        <button class="pk-btn fold"  id="pk-fold-btn"  onclick="window.PKR?.doAction('fold')">FOLD</button>
+        <button class="pk-btn check" id="pk-check-btn" onclick="window.PKR?.doAction('check')">CHECK</button>
+        <button class="pk-btn call"  id="pk-call-btn"  onclick="window.PKR?.doAction('call')">CALL</button>
         <div class="pk-raise-row">
           <input type="range" id="pk-raise-slider" min="0" max="500" value="50" oninput="PKR.updateRaiseDisplay()">
-          <button class="pk-btn raise" id="pk-raise-btn" onclick="PKR.doAction('raise')">RAISE <span id="pk-raise-amt">50</span></button>
+          <button class="pk-btn raise" id="pk-raise-btn" onclick="window.PKR?.doAction('raise')">RAISE <span id="pk-raise-amt">50</span></button>
         </div>
       </div>
     </div>
@@ -5862,7 +5862,7 @@
         </div>
       </div>
       <div style="display:flex;gap:6px;align-items:center">
-        <button class="ch-btn dim" id="ch-flip-btn" onclick="CHESS.flipBoard()" title="Flip board">⇅</button>
+        <button class="ch-btn dim" id="ch-flip-btn" onclick="window.CHESS?.flipBoard()" title="Flip board">⇅</button>
         <button class="arcade-back-btn" onclick="confirmLeave('chess')">🕹 ARCADE</button>
       </div>
     </div>
@@ -5875,25 +5875,25 @@
         <div class="ch-pre-section">
           <div class="ch-pre-label">DIFFICULTY</div>
           <div class="ch-pre-btns">
-            <button class="ch-pre-diff-btn" id="ch-pre-easy" onclick="CHESS.preSetDiff(1)">EASY</button>
-            <button class="ch-pre-diff-btn active" id="ch-pre-med" onclick="CHESS.preSetDiff(3)">MEDIUM</button>
-            <button class="ch-pre-diff-btn" id="ch-pre-hard" onclick="CHESS.preSetDiff(5)">HARD</button>
+            <button class="ch-pre-diff-btn" id="ch-pre-easy" onclick="window.CHESS?.preSetDiff(1)">EASY</button>
+            <button class="ch-pre-diff-btn active" id="ch-pre-med" onclick="window.CHESS?.preSetDiff(3)">MEDIUM</button>
+            <button class="ch-pre-diff-btn" id="ch-pre-hard" onclick="window.CHESS?.preSetDiff(5)">HARD</button>
           </div>
         </div>
         <div class="ch-pre-section">
           <div class="ch-pre-label">PLAY AS</div>
           <div class="ch-pre-btns">
-            <button class="ch-pre-color-btn active" id="ch-pre-white" onclick="CHESS.preSetColor(1)">
+            <button class="ch-pre-color-btn active" id="ch-pre-white" onclick="window.CHESS?.preSetColor(1)">
               <span class="ch-pre-piece">♔</span>
               <span>WHITE</span>
             </button>
-            <button class="ch-pre-color-btn" id="ch-pre-black" onclick="CHESS.preSetColor(-1)">
+            <button class="ch-pre-color-btn" id="ch-pre-black" onclick="window.CHESS?.preSetColor(-1)">
               <span class="ch-pre-piece">♚</span>
               <span>BLACK</span>
             </button>
           </div>
         </div>
-        <button class="ch-pre-start-btn" onclick="CHESS.startFromPrescreen()">START MATCH ▶</button>
+        <button class="ch-pre-start-btn" onclick="window.CHESS?.startFromPrescreen()">START MATCH ▶</button>
         <button class="arcade-back-btn" onclick="confirmLeave('chess')">🕹 ARCADE</button>
       </div>
       <div id="ch-overlay" class="ch-overlay">
@@ -5925,13 +5925,13 @@
       <!-- AI difficulty selector hidden — now shown in pre-game overlay -->
       <div id="ch-solo-controls" style="display:none">
         <span class="ch-diff-label">DIFFICULTY:</span>
-        <button class="ch-diff-btn" id="ch-diff-easy"   onclick="CHESS.setDiff(1)">EASY</button>
-        <button class="ch-diff-btn active" id="ch-diff-med" onclick="CHESS.setDiff(3)">MEDIUM</button>
-        <button class="ch-diff-btn" id="ch-diff-hard"   onclick="CHESS.setDiff(5)">HARD</button>
+        <button class="ch-diff-btn" id="ch-diff-easy"   onclick="window.CHESS?.setDiff(1)">EASY</button>
+        <button class="ch-diff-btn active" id="ch-diff-med" onclick="window.CHESS?.setDiff(3)">MEDIUM</button>
+        <button class="ch-diff-btn" id="ch-diff-hard"   onclick="window.CHESS?.setDiff(5)">HARD</button>
       </div>
       <!-- Confirm/Undo move buttons: multiplayer only, shown after player stages a move -->
-      <button class="ch-confirm-btn" id="ch-end-turn-btn" style="display:none" onclick="CHESS.confirmMove()">✔ CONFIRM MOVE</button>
-      <button class="ch-undo-btn" id="ch-undo-btn" style="display:none" onclick="CHESS.undoMove()">✖ UNDO</button>
+      <button class="ch-confirm-btn" id="ch-end-turn-btn" style="display:none" onclick="window.CHESS?.confirmMove()">✔ CONFIRM MOVE</button>
+      <button class="ch-undo-btn" id="ch-undo-btn" style="display:none" onclick="window.CHESS?.undoMove()">✖ UNDO</button>
     </div>
 
     <div class="chat-widget" id="chat-chess">
@@ -7695,18 +7695,18 @@ window.leaveConfirmYes = function() {
     notifyAndLeave(path, () => { chatDestroy('connectfour'); hideHeaderLeave(); if (!fromSharedLobby) backToGameSelect(); });
   } else if (ctx === 'poker') {
     const path = PKR.roomCode ? `poker/${PKR.roomCode}` : null;
-    notifyAndLeave(path, () => { chatDestroy('poker'); hideHeaderLeave(); PKR.destroy(); backToGameSelect(); });
+    notifyAndLeave(path, () => { chatDestroy('poker'); hideHeaderLeave(); window.PKR?.destroy(); backToGameSelect(); });
   } else if (ctx === 'chess') {
     const path = CHESS.roomCode ? `chess/${CHESS.roomCode}` : null;
-    notifyAndLeave(path, () => { chatDestroy('chess'); hideHeaderLeave(); CHESS.destroy(); backToGameSelect(); });
+    notifyAndLeave(path, () => { chatDestroy('chess'); hideHeaderLeave(); window.CHESS?.destroy(); backToGameSelect(); });
   } else if (ctx === 'pokemon') {
     const path = PKM.roomCode ? `pokemon/${PKM.roomCode}` : null;
-    notifyAndLeave(path, () => { chatDestroy('pokemon'); hideHeaderLeave(); PKM.destroy(); backToGameSelect(); });
+    notifyAndLeave(path, () => { chatDestroy('pokemon'); hideHeaderLeave(); window.PKM?.destroy(); backToGameSelect(); });
   } else if (ctx === 'uno') {
     const path = UNO.roomCode ? `uno/${UNO.roomCode}` : null;
-    notifyAndLeave(path, () => { chatDestroy('uno'); hideHeaderLeave(); UNO.destroy(); backToGameSelect(); });
+    notifyAndLeave(path, () => { chatDestroy('uno'); hideHeaderLeave(); window.UNO?.destroy(); backToGameSelect(); });
   } else if (ctx === 'tron') {
-    TRON.destroy(); hideHeaderLeave(); backToGameSelect();
+    window.TRON?.destroy(); hideHeaderLeave(); backToGameSelect();
   } else {
     backToGameSelect();
   }
@@ -10264,7 +10264,7 @@ function trvShowResults(scores) {
   msg.textContent = `${p1name}: ${s0} / ${TRV_TOTAL_QUESTIONS}\n${p2name}: ${s1} / ${TRV_TOTAL_QUESTIONS}`;
   overlay.classList.add('active');
   // Offer high score submit for the local player's score
-  if (myScore > 0) setTimeout(() => HS.promptSubmit('trivia', myScore, `${myScore}/${TRV_TOTAL_QUESTIONS}`), 500);
+  if (myScore > 0) setTimeout(() => window.HS?.promptSubmit('trivia', myScore, `${myScore}/${TRV_TOTAL_QUESTIONS}`), 500);
 }
 
 window.triviaPlayAgain = async function() {
@@ -10427,7 +10427,7 @@ function trvSoloShowResults() {
   const playAgainBtn = overlay.querySelector('.btn.solid');
   playAgainBtn.onclick = triviaSoloPlayAgain;
 
-  if (score > 0) setTimeout(() => HS.promptSubmit('trivia', score, `${score}/${TRV_TOTAL_QUESTIONS}`), 500);
+  if (score > 0) setTimeout(() => window.HS?.promptSubmit('trivia', score, `${score}/${TRV_TOTAL_QUESTIONS}`), 500);
 }
 
 window.triviaSoloPlayAgain = function() {
@@ -11020,7 +11020,7 @@ function solCheckWin() {
     document.getElementById('sol-win-msg').textContent =
       `Completed in ${m}:${String(s).padStart(2,'0')} with ${SOL.moves} moves — Score: ${SOL.score}`;
     document.getElementById('sol-win-overlay').classList.add('active');
-    if (SOL.score > 0) setTimeout(() => HS.promptSubmit('solitaire', SOL.score, SOL.score.toLocaleString()), 400);
+    if (SOL.score > 0) setTimeout(() => window.HS?.promptSubmit('solitaire', SOL.score, SOL.score.toLocaleString()), 400);
   }
 }
 
@@ -11234,7 +11234,7 @@ function msClick(r, c) {
     // High score (lower time = better)
     const elT = document.getElementById('ms-timer');
     const secs = elT ? parseInt(elT.textContent, 10) : 0;
-    if (secs > 0) setTimeout(() => HS.promptSubmit('minesweeper', secs, `${secs}s`), 300);
+    if (secs > 0) setTimeout(() => window.HS?.promptSubmit('minesweeper', secs, `${secs}s`), 300);
   }
 
   msUpdateMineCount();
@@ -12282,8 +12282,8 @@ window.sharedLobbyBack = function() {
 // BUBBLE BREAKER ENGINE — Neon Walls + Real Physics
 // ============================================================
 
-window.bbNewGame     = () => BB.newGame();
-window.bbTogglePause = () => BB.togglePause();
+window.bbNewGame     = () => window.BB?.newGame();
+window.bbTogglePause = () => window.BB?.togglePause();
 
 
 
@@ -12292,37 +12292,37 @@ window.bbTogglePause = () => BB.togglePause();
 // BUST-A-MOVE ENGINE  (Puzzle Bobble reimagined)
 // ============================================================
 
-window.pbNewGame     = () => PB.newGame();
-window.pbTogglePause = () => PB.togglePause();
+window.pbNewGame     = () => window.PB?.newGame();
+window.pbTogglePause = () => window.PB?.togglePause();
 
 
-window.pbTogglePause = () => PB.togglePause();
+window.pbTogglePause = () => window.PB?.togglePause();
 
 
 // ============================================================
 // ZUMA ENGINE
 // ============================================================
 
-window.zmNewGame     = () => ZM.newGame();
-window.zmTogglePause = () => ZM.togglePause();
+window.zmNewGame     = () => window.ZM?.newGame();
+window.zmTogglePause = () => window.ZM?.togglePause();
 
 
 // ============================================================
 // TETRIS ENGINE
 // ============================================================
 
-window.tetInit        = () => TET.init();
-window.tetStart       = () => TET.start();
-window.tetTogglePause = () => TET.togglePause();
+window.tetInit        = () => window.TET?.init();
+window.tetStart       = () => window.TET?.start();
+window.tetTogglePause = () => window.TET?.togglePause();
 
 
 // ============================================================
 // HANGMAN ENGINE
 // ============================================================
 
-window.hmInitSolo       = () => HM.initSolo();
-window.hmNewGame        = () => HM.newGame();
-window.hmConfirmWord    = () => HM.confirmWord();
+window.hmInitSolo       = () => window.HM?.initSolo();
+window.hmNewGame        = () => window.HM?.newGame();
+window.hmConfirmWord    = () => window.HM?.confirmWord();
 window.hmMultiPlayAgain = () => backToGameSelect();
 
 function hangmanLaunchFromLobby(isHost, myName, oppName, gameCode) {
@@ -12334,21 +12334,21 @@ function hangmanLaunchFromLobby(isHost, myName, oppName, gameCode) {
 //  SNAKE GAME
 // ??????????????????????????????????????????????
 
-window.snkStart       = () => SNK.newGame();
-window.snkNewGame     = () => SNK.newGame();
-window.snkTogglePause = () => SNK.togglePause();
-window.snkDir         = (dx, dy) => SNK.setDir(dx, dy);
+window.snkStart       = () => window.SNK?.newGame();
+window.snkNewGame     = () => window.SNK?.newGame();
+window.snkTogglePause = () => window.SNK?.togglePause();
+window.snkDir         = (dx, dy) => window.SNK?.setDir(dx, dy);
 
-window.snkStart       = () => SNK.newGame();
-window.snkNewGame     = () => SNK.newGame();
-window.snkTogglePause = () => SNK.togglePause();
-window.snkDir         = (dx, dy) => SNK.setDir(dx, dy);
+window.snkStart       = () => window.SNK?.newGame();
+window.snkNewGame     = () => window.SNK?.newGame();
+window.snkTogglePause = () => window.SNK?.togglePause();
+window.snkDir         = (dx, dy) => window.SNK?.setDir(dx, dy);
 
 // ??????????????????????????????????????????????
 //  WORDLE ENGINE
 // ??????????????????????????????????????????????
 
-window.wrdNewGame = () => WRD.newGame();
+window.wrdNewGame = () => window.WRD?.newGame();
 
 // ??????????????????????????????????????????????
 //  CONNECT FOUR ENGINE
@@ -12362,7 +12362,7 @@ window._setupC4 = function(C4module) {
     get: () => { try { return C4._rc; } catch(e){ return null; } },
     set: (v) => { C4._rc = v; }
   });
-  window.c4PlayAgain = () => C4.playAgain();
+  window.c4PlayAgain = () => window.C4?.playAgain();
 };
 
 function c4LaunchFromLobby(isHost, myName, oppName, gameCode) {
@@ -12371,26 +12371,26 @@ function c4LaunchFromLobby(isHost, myName, oppName, gameCode) {
   if (!window.C4) return;
   C4._rc = gameCode;
   showScreen('connectfour-screen');
-  setTimeout(() => C4.init(isHost, myName, oppName, gameCode, true), 80);
+  setTimeout(() => window.C4?.init(isHost, myName, oppName, gameCode, true), 80);
 }
 
 // ??????????????????????????????????????????????
 //  ROAD RAGE ENGINE  (enhanced)
 // ??????????????????????????????????????????????
 
-window.rcNewGame     = () => RC.newGame();
-window.rcTogglePause = () => RC.togglePause();
+window.rcNewGame     = () => window.RC?.newGame();
+window.rcTogglePause = () => window.RC?.togglePause();
 
 // ??????????????????????????????????????????????
 //  OFFICE HIGH SCORES ENGINE
 // ??????????????????????????????????????????????
 
 // Global wrappers
-window.hsSubmitConfirm = () => HS.submitConfirm();
-window.hsSubmitClose   = () => HS.submitClose();
-window.hsViewOpen      = (tab) => HS.viewOpen(tab);
-window.hsViewClose     = () => HS.viewClose();
-window.hsTabSelect     = (key) => HS.tabSelect(key);
+window.hsSubmitConfirm = () => window.HS?.submitConfirm();
+window.hsSubmitClose   = () => window.HS?.submitClose();
+window.hsViewOpen      = (tab) => window.HS?.viewOpen(tab);
+window.hsViewClose     = () => window.HS?.viewClose();
+window.hsTabSelect     = (key) => window.HS?.tabSelect(key);
 
 // ── Solo game exit handlers — must live after HS is defined ──────────────
 window.orbitExitToArcade = function() {
@@ -14972,9 +14972,9 @@ document.addEventListener('click', (e) => {
     <p style="color:var(--dim);font-size:0.72rem;letter-spacing:0.1em;text-align:center;margin-bottom:20px">40 RANDOM CHARACTERS · YES/NO QUESTIONS</p>
     <div id="gw-lobby-entry">
       <input type="text" id="gw-name" placeholder="Your name..." maxlength="14" style="margin-bottom:12px">
-      <button class="btn" onclick="GW.startVsAI()">🤖 PLAY VS AI</button>
+      <button class="btn" onclick="window.GW?.startVsAI()">🤖 PLAY VS AI</button>
       <div style="text-align:center;font-size:0.6rem;color:var(--dim);letter-spacing:0.15em;margin:12px 0">— OR PLAY ONLINE —</div>
-      <button class="btn" onclick="GW.hostOnline()" style="border-color:#f472b6;color:#f472b6">🏠 HOST GAME</button>
+      <button class="btn" onclick="window.GW?.hostOnline()" style="border-color:#f472b6;color:#f472b6">🏠 HOST GAME</button>
       <div style="font-size:0.62rem;color:var(--dim);letter-spacing:0.12em;text-align:center;margin:10px 0 6px">— OR JOIN OPEN GAME —</div>
       <div class="lobby-list-scroll" id="gw-lobby-list" style="max-height:160px"><div class="lobby-list-loading">SCANNING—</div></div>
     </div>
@@ -14985,7 +14985,7 @@ document.addEventListener('click', (e) => {
       </div>
       <div id="gw-lobby-status" style="text-align:center;font-size:0.7rem;color:var(--dim);letter-spacing:0.12em;min-height:24px"></div>
     </div>
-    <button class="arcade-back-btn" onclick="GW.destroy();backToGameSelect()">🕹 ARCADE</button>
+    <button class="arcade-back-btn" onclick="window.GW?.destroy();backToGameSelect()">🕹 ARCADE</button>
   </div>
 </div>
 
@@ -15254,7 +15254,7 @@ document.addEventListener('click', (e) => {
     <div class="gw-turn-badge" id="gw-my-badge">YOU</div>
     <div class="gw-status-msg" id="gw-status">—</div>
     <div class="gw-turn-badge opponent" id="gw-opp-badge">OPPONENT</div>
-    <button class="arcade-back-btn" onclick="GW.destroy();backToGameSelect()">🕹 ARCADE</button>
+    <button class="arcade-back-btn" onclick="window.GW?.destroy();backToGameSelect()">🕹 ARCADE</button>
   </div>
 
   <div class="gw-main">
@@ -15276,17 +15276,17 @@ document.addEventListener('click', (e) => {
     <div class="gw-q-grid" id="gw-q-grid"></div>
     <!-- Answer row (shown when opponent asks us) -->
     <div class="gw-answer-row" id="gw-answer-row" style="display:none">
-      <button class="gw-yes-btn" onclick="GW.answerQuestion(true)">✓ YES</button>
-      <button class="gw-no-btn"  onclick="GW.answerQuestion(false)">✗ NO</button>
+      <button class="gw-yes-btn" onclick="window.GW?.answerQuestion(true)">✓ YES</button>
+      <button class="gw-no-btn"  onclick="window.GW?.answerQuestion(false)">✗ NO</button>
     </div>
-    <button class="gw-guess-btn" id="gw-guess-btn" onclick="GW.enterGuessMode()">🎯 MAKE A GUESS</button>
+    <button class="gw-guess-btn" id="gw-guess-btn" onclick="window.GW?.enterGuessMode()">🎯 MAKE A GUESS</button>
   </div>
 
   <div id="gw-end-overlay">
     <div id="gw-end-title">—</div>
     <div id="gw-end-msg"></div>
-    <button class="btn" onclick="GW.newGame()" style="margin-top:6px">🔄 PLAY AGAIN</button>
-    <button class="arcade-back-btn" onclick="GW.destroy();backToGameSelect()">🕹 ARCADE</button>
+    <button class="btn" onclick="window.GW?.newGame()" style="margin-top:6px">🔄 PLAY AGAIN</button>
+    <button class="arcade-back-btn" onclick="window.GW?.destroy();backToGameSelect()">🕹 ARCADE</button>
   </div>
 </div>
 </div>
@@ -15455,9 +15455,9 @@ document.addEventListener('click', (e) => {
     </div>
     <div class="pac-lives" id="pac-lives"></div>
     <div class="pac-topbar-btns">
-      <button class="pac-btn" id="pac-pause-btn" onclick="PAC.togglePause()">⏸ PAUSE</button>
-      <button class="pac-btn" onclick="PAC.newGame()">🆕 NEW</button>
-      <button class="arcade-back-btn" onclick="PAC.destroy();backToGameSelect()">🕹 ARCADE</button>
+      <button class="pac-btn" id="pac-pause-btn" onclick="window.PAC?.togglePause()">⏸ PAUSE</button>
+      <button class="pac-btn" onclick="window.PAC?.newGame()">🆕 NEW</button>
+      <button class="arcade-back-btn" onclick="window.PAC?.destroy();backToGameSelect()">🕹 ARCADE</button>
     </div>
   </div>
 
@@ -15467,22 +15467,22 @@ document.addEventListener('click', (e) => {
       <div class="pac-ov-title" id="pac-ov-title">PAC-MAN</div>
       <div class="pac-ov-sub" id="pac-ov-sub">Arrow keys / WASD to move</div>
       <div class="pac-ov-score" id="pac-ov-score"></div>
-      <button class="pac-btn" style="font-size:0.75rem;padding:8px 20px;border-color:#ffe600;color:#ffe600;margin-top:6px" onclick="PAC.startGame()">▶ START</button>
-      <button class="arcade-back-btn" onclick="PAC.destroy();backToGameSelect()">🕹 ARCADE</button>
+      <button class="pac-btn" style="font-size:0.75rem;padding:8px 20px;border-color:#ffe600;color:#ffe600;margin-top:6px" onclick="window.PAC?.startGame()">▶ START</button>
+      <button class="arcade-back-btn" onclick="window.PAC?.destroy();backToGameSelect()">🕹 ARCADE</button>
     </div>
   </div>
 
   <div class="pac-dpad">
     <div class="pac-dpad-row">
-      <button class="pac-dpad-btn" onclick="PAC.queueDir(0,-1)">▲</button>
+      <button class="pac-dpad-btn" onclick="window.PAC?.queueDir(0,-1)">▲</button>
     </div>
     <div class="pac-dpad-row">
-      <button class="pac-dpad-btn" onclick="PAC.queueDir(-1,0)">◀</button>
-      <button class="pac-dpad-btn center" onclick="PAC.togglePause()">⏸</button>
-      <button class="pac-dpad-btn" onclick="PAC.queueDir(1,0)">▶</button>
+      <button class="pac-dpad-btn" onclick="window.PAC?.queueDir(-1,0)">◀</button>
+      <button class="pac-dpad-btn center" onclick="window.PAC?.togglePause()">⏸</button>
+      <button class="pac-dpad-btn" onclick="window.PAC?.queueDir(1,0)">▶</button>
     </div>
     <div class="pac-dpad-row">
-      <button class="pac-dpad-btn" onclick="PAC.queueDir(0,1)">▼</button>
+      <button class="pac-dpad-btn" onclick="window.PAC?.queueDir(0,1)">▼</button>
     </div>
   </div>
 </div>
@@ -15675,9 +15675,9 @@ document.addEventListener('click', (e) => {
     <div id="tron-round-display" style="font-size:0.6rem;color:#555;letter-spacing:0.15em"></div>
     <div id="tron-arena-name" style="font-size:0.55rem;color:rgba(0,245,255,0.45);letter-spacing:0.2em;margin-top:1px"></div>
     <div class="tron-topbar-btns">
-      <button class="tron-btn" onclick="TRON.pause()">⏸</button>
-      <button class="tron-btn" onclick="TRON.showMenu()">☰ MENU</button>
-      <button class="arcade-back-btn" onclick="TRON.destroy();backToGameSelect()">🕹 ARCADE</button>
+      <button class="tron-btn" onclick="window.TRON?.pause()">⏸</button>
+      <button class="tron-btn" onclick="window.TRON?.showMenu()">☰ MENU</button>
+      <button class="arcade-back-btn" onclick="window.TRON?.destroy();backToGameSelect()">🕹 ARCADE</button>
     </div>
   </div>
   <div class="tron-canvas-wrap">
@@ -15688,8 +15688,8 @@ document.addEventListener('click', (e) => {
       <div class="tron-ov-sub" id="tron-ov-sub">LIGHT CYCLE RACING</div>
       <div class="tron-ov-score" id="tron-ov-score"></div>
       <div class="tron-mode-btns" id="tron-mode-btns">
-        <button class="tron-mode-btn" onclick="TRON.startSolo()">⚡ VS AI</button>
-        <button class="arcade-back-btn" onclick="TRON.destroy();backToGameSelect()">🕹 ARCADE</button>
+        <button class="tron-mode-btn" onclick="window.TRON?.startSolo()">⚡ VS AI</button>
+        <button class="arcade-back-btn" onclick="window.TRON?.destroy();backToGameSelect()">🕹 ARCADE</button>
       </div>
     </div>
   </div>
@@ -15727,7 +15727,7 @@ document.addEventListener('click', (e) => {
     <p style="color:var(--dim);font-size:0.68rem;letter-spacing:0.1em;text-align:center;margin-bottom:16px">REAL-TIME LIGHT CYCLE BATTLE</p>
     <div id="tron-lobby-entry">
       <input type="text" id="tron-online-name" placeholder="Your name..." maxlength="12" style="margin-bottom:12px">
-      <button class="btn" onclick="TRON.onlineHost()" style="border-color:#00ffff;color:#00ffff;margin-bottom:8px">🏠 HOST GAME</button>
+      <button class="btn" onclick="window.TRON?.onlineHost()" style="border-color:#00ffff;color:#00ffff;margin-bottom:8px">🏠 HOST GAME</button>
       <div style="font-size:0.6rem;color:var(--dim);letter-spacing:0.15em;text-align:center;margin:8px 0 6px">— OR JOIN —</div>
       <div class="lobby-list-scroll" id="tron-online-list" style="max-height:150px"><div class="lobby-list-loading">SCANNING—</div></div>
     </div>
@@ -15739,7 +15739,7 @@ document.addEventListener('click', (e) => {
       <div class="lobby-player-list" id="tron-lobby-players"></div>
       <div id="tron-lobby-status" style="text-align:center;font-size:0.68rem;color:#00ffff;letter-spacing:0.12em;min-height:24px;margin-top:8px"></div>
     </div>
-    <button class="btn" onclick="TRON.onlineBack()" style="margin-top:14px;border-color:var(--dim);color:var(--dim);font-size:0.78rem;opacity:0.7">◀ BACK</button>
+    <button class="btn" onclick="window.TRON?.onlineBack()" style="margin-top:14px;border-color:var(--dim);color:var(--dim);font-size:0.78rem;opacity:0.7">◀ BACK</button>
   </div>
 </div>
 
@@ -15756,7 +15756,7 @@ document.addEventListener('click', (e) => {
   <div class="card" style="max-width:360px">
     <h2>🃏 UNO</h2>
     <input type="text" id="uno-player-name" placeholder="Enter your name..." maxlength="12" style="margin-bottom:12px">
-    <button class="btn" onclick="UNO.startSolo()" style="border-color:#ff4757;color:#ff4757;width:100%;margin-bottom:8px">▶ PLAY VS AI</button>
+    <button class="btn" onclick="window.UNO?.startSolo()" style="border-color:#ff4757;color:#ff4757;width:100%;margin-bottom:8px">▶ PLAY VS AI</button>
     <div style="text-align:center;font-size:0.6rem;color:var(--dim);letter-spacing:0.15em;margin:10px 0">— OR PLAY ONLINE —</div>
     <button class="btn" onclick="openMultiLobby('uno')" style="width:100%;margin-bottom:16px">🌐 FIND OPPONENT</button>
     <button class="arcade-back-btn" onclick="backToGameSelect()">🕹 ARCADE</button>
@@ -15897,7 +15897,7 @@ document.addEventListener('click', (e) => {
 
     <!-- Pile area: draw + discard -->
     <div class="uno-pile-area">
-      <div class="uno-draw-pile" id="uno-draw-pile" onclick="UNO.drawCard()" title="Draw a card">
+      <div class="uno-draw-pile" id="uno-draw-pile" onclick="window.UNO?.drawCard()" title="Draw a card">
         <div class="uno-card back"></div>
       </div>
       <div id="uno-discard"></div>
@@ -15905,8 +15905,8 @@ document.addEventListener('click', (e) => {
 
     <!-- Action buttons -->
     <div class="uno-actions" id="uno-actions">
-      <button class="uno-btn gold" id="uno-uno-btn" onclick="UNO.callUno()" style="display:none">🔔 UNO!</button>
-      <button class="uno-btn" id="uno-play-btn" onclick="UNO.playSelected()" style="display:none">▶ PLAY CARD</button>
+      <button class="uno-btn gold" id="uno-uno-btn" onclick="window.UNO?.callUno()" style="display:none">🔔 UNO!</button>
+      <button class="uno-btn" id="uno-play-btn" onclick="window.UNO?.playSelected()" style="display:none">▶ PLAY CARD</button>
     </div>
 
     <!-- Player's hand -->
@@ -15928,10 +15928,10 @@ document.addEventListener('click', (e) => {
   <div class="uno-overlay" id="uno-color-overlay">
     <div class="uno-ov-title">CHOOSE A COLOUR</div>
     <div class="uno-color-pick">
-      <button class="uno-color-btn red"    onclick="UNO.pickColor('red')"></button>
-      <button class="uno-color-btn blue"   onclick="UNO.pickColor('blue')"></button>
-      <button class="uno-color-btn green"  onclick="UNO.pickColor('green')"></button>
-      <button class="uno-color-btn yellow" onclick="UNO.pickColor('yellow')"></button>
+      <button class="uno-color-btn red"    onclick="window.UNO?.pickColor('red')"></button>
+      <button class="uno-color-btn blue"   onclick="window.UNO?.pickColor('blue')"></button>
+      <button class="uno-color-btn green"  onclick="window.UNO?.pickColor('green')"></button>
+      <button class="uno-color-btn yellow" onclick="window.UNO?.pickColor('yellow')"></button>
     </div>
   </div>
 
@@ -15971,15 +15971,15 @@ document.addEventListener('click', (e) => {
           <div id="pkm-coin-display-lobby" style="font-family:'Orbitron',sans-serif;font-size:0.82rem;color:#fbbf24;text-shadow:0 0 8px rgba(251,191,36,0.5)">0</div>
         </div>
       </div>
-      <button onclick="PKM.openShop()" style="padding:5px 12px;background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.5);color:#fbbf24;font-family:'Share Tech Mono',monospace;font-size:0.58rem;letter-spacing:0.12em;cursor:pointer;border-radius:3px;transition:all 0.2s" onmouseover="this.style.background='rgba(251,191,36,0.22)'" onmouseout="this.style.background='rgba(251,191,36,0.12)'">&#x1F6D2; ITEM SHOP</button>
-      <button onclick="PKM.openLobbyBag()" style="padding:5px 12px;background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.5);color:#fbbf24;font-family:'Share Tech Mono',monospace;font-size:0.58rem;letter-spacing:0.12em;cursor:pointer;border-radius:3px;transition:all 0.2s" onmouseover="this.style.background='rgba(251,191,36,0.22)'" onmouseout="this.style.background='rgba(251,191,36,0.12)'">&#x1F392; BAG</button>
+      <button onclick="window.PKM?.openShop()" style="padding:5px 12px;background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.5);color:#fbbf24;font-family:'Share Tech Mono',monospace;font-size:0.58rem;letter-spacing:0.12em;cursor:pointer;border-radius:3px;transition:all 0.2s" onmouseover="this.style.background='rgba(251,191,36,0.22)'" onmouseout="this.style.background='rgba(251,191,36,0.12)'">&#x1F6D2; ITEM SHOP</button>
+      <button onclick="window.PKM?.openLobbyBag()" style="padding:5px 12px;background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.5);color:#fbbf24;font-family:'Share Tech Mono',monospace;font-size:0.58rem;letter-spacing:0.12em;cursor:pointer;border-radius:3px;transition:all 0.2s" onmouseover="this.style.background='rgba(251,191,36,0.22)'" onmouseout="this.style.background='rgba(251,191,36,0.12)'">&#x1F392; BAG</button>
     </div>
 
     <!-- Tab buttons -->
     <div style="display:flex;gap:6px;margin-bottom:14px">
-      <button id="pkm-tab-starter" onclick="PKM.switchLobbyTab('starter')" style="flex:1;padding:7px 4px;background:rgba(0,245,255,0.12);border:1px solid var(--accent);color:var(--accent);font-family:'Share Tech Mono',monospace;font-size:0.6rem;letter-spacing:0.1em;cursor:pointer;transition:all 0.2s">⭐ STARTER</button>
-      <button id="pkm-tab-custom" onclick="PKM.switchLobbyTab('custom')" style="flex:1;padding:7px 4px;background:transparent;border:1px solid var(--dim);color:var(--dim);font-family:'Share Tech Mono',monospace;font-size:0.6rem;letter-spacing:0.1em;cursor:pointer;transition:all 0.2s">🛠 CUSTOM TEAM</button>
-      <button id="pkm-tab-random" onclick="PKM.switchLobbyTab('random')" style="flex:1;padding:7px 4px;background:transparent;border:1px solid var(--dim);color:var(--dim);font-family:'Share Tech Mono',monospace;font-size:0.6rem;letter-spacing:0.1em;cursor:pointer;transition:all 0.2s">🎲 RANDOM</button>
+      <button id="pkm-tab-starter" onclick="window.PKM?.switchLobbyTab('starter')" style="flex:1;padding:7px 4px;background:rgba(0,245,255,0.12);border:1px solid var(--accent);color:var(--accent);font-family:'Share Tech Mono',monospace;font-size:0.6rem;letter-spacing:0.1em;cursor:pointer;transition:all 0.2s">⭐ STARTER</button>
+      <button id="pkm-tab-custom" onclick="window.PKM?.switchLobbyTab('custom')" style="flex:1;padding:7px 4px;background:transparent;border:1px solid var(--dim);color:var(--dim);font-family:'Share Tech Mono',monospace;font-size:0.6rem;letter-spacing:0.1em;cursor:pointer;transition:all 0.2s">🛠 CUSTOM TEAM</button>
+      <button id="pkm-tab-random" onclick="window.PKM?.switchLobbyTab('random')" style="flex:1;padding:7px 4px;background:transparent;border:1px solid var(--dim);color:var(--dim);font-family:'Share Tech Mono',monospace;font-size:0.6rem;letter-spacing:0.1em;cursor:pointer;transition:all 0.2s">🎲 RANDOM</button>
     </div>
 
     <!-- STARTER TAB -->
@@ -16000,7 +16000,7 @@ document.addEventListener('click', (e) => {
       <!-- Preset save/load -->
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
         <div style="font-size:0.58rem;color:var(--dim);letter-spacing:0.12em">TEAM PRESETS</div>
-        <button id="pkm-preset-edit-btn" onclick="PKM.togglePresetEditMode()" style="font-size:0.48rem;padding:2px 7px;background:transparent;border:1px solid rgba(255,255,255,0.2);color:var(--dim);font-family:'Share Tech Mono',monospace;letter-spacing:0.1em;cursor:pointer;border-radius:3px;transition:all 0.2s">✏️ EDIT</button>
+        <button id="pkm-preset-edit-btn" onclick="window.PKM?.togglePresetEditMode()" style="font-size:0.48rem;padding:2px 7px;background:transparent;border:1px solid rgba(255,255,255,0.2);color:var(--dim);font-family:'Share Tech Mono',monospace;letter-spacing:0.1em;cursor:pointer;border-radius:3px;transition:all 0.2s">✏️ EDIT</button>
       </div>
       <div id="pkm-presets-row" style="display:flex;gap:5px;margin-bottom:10px"></div>
     </div>
@@ -16009,11 +16009,11 @@ document.addEventListener('click', (e) => {
     <div id="pkm-panel-random" style="display:none">
       <div style="font-size:0.6rem;color:var(--dim);letter-spacing:0.15em;margin-bottom:12px;text-align:center">SURPRISE ME — FULLY RANDOM TEAM</div>
       <div id="pkm-random-preview" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px"></div>
-      <button onclick="PKM.rerollPreview()" style="width:100%;padding:8px;background:transparent;border:1px solid #a78bfa;color:#a78bfa;font-family:'Share Tech Mono',monospace;font-size:0.65rem;letter-spacing:0.12em;cursor:pointer;margin-bottom:10px;transition:all 0.2s" onmouseover="this.style.background='rgba(167,139,250,0.1)'" onmouseout="this.style.background='transparent'">🎲 RE-ROLL TEAM</button>
+      <button onclick="window.PKM?.rerollPreview()" style="width:100%;padding:8px;background:transparent;border:1px solid #a78bfa;color:#a78bfa;font-family:'Share Tech Mono',monospace;font-size:0.65rem;letter-spacing:0.12em;cursor:pointer;margin-bottom:10px;transition:all 0.2s" onmouseover="this.style.background='rgba(167,139,250,0.1)'" onmouseout="this.style.background='transparent'">🎲 RE-ROLL TEAM</button>
     </div>
 
     <!-- Battle / separator -->
-    <button class="btn" onclick="PKM.startSolo()" id="pkm-solo-btn" style="border-color:#ef4444;color:#ef4444;width:100%;margin-bottom:10px;opacity:0.4;pointer-events:none" disabled>▶ BATTLE VS AI</button>
+    <button class="btn" onclick="window.PKM?.startSolo()" id="pkm-solo-btn" style="border-color:#ef4444;color:#ef4444;width:100%;margin-bottom:10px;opacity:0.4;pointer-events:none" disabled>▶ BATTLE VS AI</button>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
       <div style="flex:1;height:1px;background:rgba(255,255,255,0.08)"></div>
       <span style="font-size:0.58rem;color:var(--dim);letter-spacing:0.15em">OR</span>
@@ -16030,7 +16030,7 @@ document.addEventListener('click', (e) => {
         </div>
       </div>
       <div id="pkm-lobby-shop-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%;max-width:500px"></div>
-    <button onclick="PKM.closeLobbyShop()" style="margin-top:12px;padding:8px 24px;background:transparent;border:1px solid rgba(255,255,255,0.2);color:#94a3b8;font-family:'Share Tech Mono',monospace;font-size:0.65rem;letter-spacing:0.12em;cursor:pointer">✖ CLOSE SHOP</button>
+    <button onclick="window.PKM?.closeLobbyShop()" style="margin-top:12px;padding:8px 24px;background:transparent;border:1px solid rgba(255,255,255,0.2);color:#94a3b8;font-family:'Share Tech Mono',monospace;font-size:0.65rem;letter-spacing:0.12em;cursor:pointer">✖ CLOSE SHOP</button>
     </div>
 
     <!-- Lobby Bag overlay -->
@@ -16045,9 +16045,9 @@ document.addEventListener('click', (e) => {
       <div id="pkm-lobby-bag-picker" style="display:none;width:100%;max-width:500px">
         <div style="font-size:0.58rem;color:#fbbf24;letter-spacing:0.12em;margin-bottom:8px;text-align:center">SELECT A POKÉMON TO MAKE SHINY</div>
         <div id="pkm-lobby-bag-picker-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px"></div>
-        <button onclick="PKM.cancelLobbyItemTarget()" style="margin-top:10px;width:100%;padding:6px;background:transparent;border:1px solid rgba(255,255,255,0.2);color:#94a3b8;font-family:'Share Tech Mono',monospace;font-size:0.6rem;letter-spacing:0.12em;cursor:pointer">✖ CANCEL</button>
+        <button onclick="window.PKM?.cancelLobbyItemTarget()" style="margin-top:10px;width:100%;padding:6px;background:transparent;border:1px solid rgba(255,255,255,0.2);color:#94a3b8;font-family:'Share Tech Mono',monospace;font-size:0.6rem;letter-spacing:0.12em;cursor:pointer">✖ CANCEL</button>
       </div>
-      <button id="pkm-lobby-bag-close-btn" onclick="PKM.closeLobbyBag()" style="margin-top:12px;padding:8px 24px;background:transparent;border:1px solid rgba(255,255,255,0.2);color:#94a3b8;font-family:'Share Tech Mono',monospace;font-size:0.65rem;letter-spacing:0.12em;cursor:pointer">✖ CLOSE BAG</button>
+      <button id="pkm-lobby-bag-close-btn" onclick="window.PKM?.closeLobbyBag()" style="margin-top:12px;padding:8px 24px;background:transparent;border:1px solid rgba(255,255,255,0.2);color:#94a3b8;font-family:'Share Tech Mono',monospace;font-size:0.65rem;letter-spacing:0.12em;cursor:pointer">✖ CLOSE BAG</button>
     </div>
 
     <button class="arcade-back-btn" onclick="backToGameSelect()">🕹 ARCADE</button>
@@ -16862,10 +16862,10 @@ document.addEventListener('click', (e) => {
 
     <!-- Actions -->
     <div class="pkm-actions">
-      <button class="pkm-action-btn" id="pkm-switch-btn" onclick="PKM.openSwitch()">⇄ SWITCH</button>
-      <button class="pkm-action-btn" id="pkm-bag-btn" onclick="PKM.openBag()" style="border-color:rgba(251,191,36,0.4);color:#ca8a04">🎒 BAG</button>
+      <button class="pkm-action-btn" id="pkm-switch-btn" onclick="window.PKM?.openSwitch()">⇄ SWITCH</button>
+      <button class="pkm-action-btn" id="pkm-bag-btn" onclick="window.PKM?.openBag()" style="border-color:rgba(251,191,36,0.4);color:#ca8a04">🎒 BAG</button>
       <div class="pkm-vol-wrap">
-        <button class="pkm-vol-icon" id="pkm-mute-btn" onclick="PKM.toggleMute()" title="Toggle Sound">🔊</button>
+        <button class="pkm-vol-icon" id="pkm-mute-btn" onclick="window.PKM?.toggleMute()" title="Toggle Sound">🔊</button>
         <input class="pkm-vol-slider" id="pkm-vol-slider" type="range" min="0" max="100" value="20"
                oninput="PKM.setVolume(this.value)" title="Volume">
       </div>
@@ -16875,7 +16875,7 @@ document.addEventListener('click', (e) => {
     <div class="pkm-switch-overlay" id="pkm-switch-overlay">
       <div class="pkm-switch-title">CHOOSE POKÉMON</div>
       <div class="pkm-switch-grid" id="pkm-switch-grid"></div>
-      <button class="arcade-back-btn" onclick="PKM.closeSwitch()" id="pkm-switch-cancel" style="margin-top:4px">✖ CANCEL</button>
+      <button class="arcade-back-btn" onclick="window.PKM?.closeSwitch()" id="pkm-switch-cancel" style="margin-top:4px">✖ CANCEL</button>
     </div>
 
     <!-- Result overlay -->
@@ -16909,7 +16909,7 @@ document.addEventListener('click', (e) => {
         </div>
       </div>
       <div id="pkm-shop-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%"></div>
-      <button class="arcade-back-btn" onclick="PKM.closeShop()" style="margin-top:10px">✖ CLOSE</button>
+      <button class="arcade-back-btn" onclick="window.PKM?.closeShop()" style="margin-top:10px">✖ CLOSE</button>
     </div>
 
     <!-- Bag overlay (in-battle) -->
@@ -16927,9 +16927,9 @@ document.addEventListener('click', (e) => {
       <div id="pkm-bag-target" style="display:none;margin-top:8px;width:100%">
         <div style="font-size:0.56rem;color:#fbbf24;letter-spacing:0.12em;margin-bottom:6px;text-align:center">USE ON WHICH POKÉMON?</div>
         <div id="pkm-bag-target-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px"></div>
-        <button onclick="PKM.cancelItemTarget()" style="margin-top:8px;padding:5px 14px;background:transparent;border:1px solid rgba(255,255,255,0.15);color:#64748b;font-family:'Share Tech Mono',monospace;font-size:0.56rem;cursor:pointer;width:100%">✖ CANCEL</button>
+        <button onclick="window.PKM?.cancelItemTarget()" style="margin-top:8px;padding:5px 14px;background:transparent;border:1px solid rgba(255,255,255,0.15);color:#64748b;font-family:'Share Tech Mono',monospace;font-size:0.56rem;cursor:pointer;width:100%">✖ CANCEL</button>
       </div>
-      <button class="arcade-back-btn" id="pkm-bag-close-btn" onclick="PKM.closeBag()" style="margin-top:8px">✖ CLOSE</button>
+      <button class="arcade-back-btn" id="pkm-bag-close-btn" onclick="window.PKM?.closeBag()" style="margin-top:8px">✖ CLOSE</button>
     </div>
 
     <!-- Chat (multiplayer only) -->
@@ -16981,7 +16981,7 @@ document.addEventListener('click', (e) => {
         </div>
       </div>
       <div class="bjw-topbar-btns">
-        <button class="bjw-btn" onclick="BJW.newGame()">🆕 NEW</button>
+        <button class="bjw-btn" onclick="window.BJW?.newGame()">🆕 NEW</button>
         <button class="arcade-back-btn" onclick="backToGameSelect()">🕹 ARCADE</button>
       </div>
     </div>
@@ -16992,7 +16992,7 @@ document.addEventListener('click', (e) => {
         <div class="bjw-ov-score" id="bjw-ov-score"></div>
         <div class="bjw-ov-msg" id="bjw-ov-msg">Click or tap two adjacent gems to swap them.<br>Match 3 or more to score!</div>
         <div class="bjw-ov-btns" id="bjw-ov-btns">
-          <button class="bjw-btn" onclick="BJW.start()">▶ START</button>
+          <button class="bjw-btn" onclick="window.BJW?.start()">▶ START</button>
           <button class="arcade-back-btn" onclick="backToGameSelect()">🕹 ARCADE</button>
         </div>
       </div>
@@ -17341,10 +17341,10 @@ window._setupMONO = function(MONOmodule) {
         <button class="plinko-chip-btn active" data-rows="12">12</button>
         <button class="plinko-chip-btn" data-rows="16">16</button>
       </div>
-      <button class="plinko-drop-btn" id="plinko-drop-btn" onclick="PLINKO.drop()">▼ DROP</button>
-      <button class="plinko-drop-btn" id="plinko-auto-btn" onclick="PLINKO.toggleAuto()" style="margin-top:4px;border-color:rgba(245,158,11,0.45);color:rgba(245,158,11,0.7)">⟳ AUTO</button>
-      <button class="plinko-drop-btn" onclick="PLINKO.newGame()" style="margin-top:4px;border-color:rgba(245,158,11,0.45);color:rgba(245,158,11,0.7)">🆕 RESET</button>
-      <button class="arcade-back-btn-amber" onclick="PLINKO.destroy(); backToGameSelect()">🕹 ARCADE</button>
+      <button class="plinko-drop-btn" id="plinko-drop-btn" onclick="window.PLINKO?.drop()">▼ DROP</button>
+      <button class="plinko-drop-btn" id="plinko-auto-btn" onclick="window.PLINKO?.toggleAuto()" style="margin-top:4px;border-color:rgba(245,158,11,0.45);color:rgba(245,158,11,0.7)">⟳ AUTO</button>
+      <button class="plinko-drop-btn" onclick="window.PLINKO?.newGame()" style="margin-top:4px;border-color:rgba(245,158,11,0.45);color:rgba(245,158,11,0.7)">🆕 RESET</button>
+      <button class="arcade-back-btn-amber" onclick="window.PLINKO?.destroy(); backToGameSelect()">🕹 ARCADE</button>
     </div>
 
 </script>
@@ -17679,14 +17679,14 @@ window._setupMONO = function(MONOmodule) {
         <div id="orbit-overlay">
           <div id="orbit-overlay-title">ORBIT</div>
           <div id="orbit-overlay-sub">CLEAR ALL ORBITS TO ADVANCE</div>
-          <button id="orbit-overlay-btn" onclick="ORBIT.start()">▶ PLAY</button>
+          <button id="orbit-overlay-btn" onclick="window.ORBIT?.start()">▶ PLAY</button>
         </div>
       </div>
 
       <!-- RIGHT PANEL -->
       <div class="orbit-side right">
         <div style="margin-top:auto;display:flex;flex-direction:column;gap:5px;">
-          <button class="orbit-btn" onclick="ORBIT.newGame()">🆕 RESET</button>
+          <button class="orbit-btn" onclick="window.ORBIT?.newGame()">🆕 RESET</button>
           <button class="orbit-btn danger-c" onclick="orbitExitToArcade()">🕹 ARCADE</button>
         </div>
       </div>
@@ -17695,7 +17695,7 @@ window._setupMONO = function(MONOmodule) {
 
     <!-- POWERUP BAR -->
     <div class="orbit-power-bar">
-      <button id="orbit-power-btn" onclick="ORBIT.usePower()" disabled>
+      <button id="orbit-power-btn" onclick="window.ORBIT?.usePower()" disabled>
         <span class="orbit-pw-empty">— SHOOT A POWER-UP ITEM TO COLLECT —</span>
       </button>
     </div>

@@ -1,10 +1,6 @@
 // PLINKO game module
 // Auto-extracted from monolithic index.html
 
-  </div>
-</div>
-
-<script>
 export default (() => {
   'use strict';
 
