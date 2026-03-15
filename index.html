@@ -7608,6 +7608,14 @@ window.chatSend = function(gameKey) {
 // ?? Leave confirmation system ??????????????????????????????
 let _leaveContext = null;
 
+// Legacy SL object still used by slLaunchGame
+const SL = {
+  code: null,
+  isHost: false,
+  playerName: '',
+  unsubs: [],
+};
+
 window.confirmLeave = function(context) {
   // Solo trivia — no Firebase, no opponent, just leave directly
   if (context === 'trivia' && TRV.isLocal) { triviaLeave(); return; }
@@ -12346,17 +12354,21 @@ window.wrdNewGame = () => WRD.newGame();
 //  CONNECT FOUR ENGINE
 // ??????????????????????????????????????????????
 
-// Make C4.roomCode readable as property
-Object.defineProperty(C4, 'roomCode', {
-  get: () => { try { return C4._rc; } catch(e){ return null; } },
-  set: (v) => { C4._rc = v; }
-});
-
-window.c4PlayAgain = () => C4.playAgain();
+// C4 setup — runs after c4.js loads (called from games.js loadGame)
+window._setupC4 = function(C4module) {
+  window.C4 = C4module;
+  // Make C4.roomCode readable as property
+  Object.defineProperty(C4, 'roomCode', {
+    get: () => { try { return C4._rc; } catch(e){ return null; } },
+    set: (v) => { C4._rc = v; }
+  });
+  window.c4PlayAgain = () => C4.playAgain();
+};
 
 function c4LaunchFromLobby(isHost, myName, oppName, gameCode) {
   document.getElementById('main-title').textContent    = '🔴 CONNECT FOUR';
   document.getElementById('main-subtitle').textContent = 'DROP — CONNECT — WIN';
+  if (!window.C4) return;
   C4._rc = gameCode;
   showScreen('connectfour-screen');
   setTimeout(() => C4.init(isHost, myName, oppName, gameCode, true), 80);
@@ -12717,13 +12729,7 @@ window.mlBack = async function() {
 window.showSharedLobby = function() { backToGameSelect(); };
 window.sharedLobbyBack = function() { backToGameSelect(); };
 
-// Legacy SL object still used by slLaunchGame
-const SL = {
-  code: null,
-  isHost: false,
-  playerName: '',
-  unsubs: [],
-};
+
 function slSetStatus() {}  // no-op — ML has its own status
 
 </script>

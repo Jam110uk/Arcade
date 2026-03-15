@@ -67,6 +67,9 @@ export async function loadGame(gameKey) {
     // Support both `export default` (object) and named exports
     const api = mod.default ?? mod;
     _cache[gameKey] = api;
+    // Run any post-load setup hooks registered by index.html
+    const setupFn = window[`_setup${gameKey.toUpperCase()}`];
+    if (typeof setupFn === 'function') setupFn(api);
     def.init(api);
   } catch (err) {
     console.error(`[games] Failed to load ${gameKey}:`, err);
