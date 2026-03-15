@@ -17116,10 +17116,13 @@ document.addEventListener('click', (e) => {
 // MONOPOLY ENGINE — Single Player vs 3 AI opponents
 // ============================================================
 
-// Patch after MONO is created (in case HTML buttons fire before init)
-window.MONO._btn = function(i) {
-  const b = document.getElementById('mono-ctx-btns');
-  if (b && b._handlers && b._handlers[i]) b._handlers[i]();
+// MONO._btn patched after mono.js loads via _setupMONO hook in games.js
+window._setupMONO = function(MONOmodule) {
+  window.MONO = MONOmodule;
+  window.MONO._btn = function(i) {
+    const b = document.getElementById('mono-ctx-btns');
+    if (b && b._handlers && b._handlers[i]) b._handlers[i]();
+  };
 };
 </script>
 
