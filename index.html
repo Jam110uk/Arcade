@@ -17160,7 +17160,7 @@ window._setupMONO = function(MONOmodule) {
     align-items: stretch;
     justify-content: flex-start;
   }
-  #plinko-screen.active { display: flex; }
+  #plinko-screen.active { display: flex; height: calc(100vh - var(--header-h)); }
 
   .plinko-root {
     display: flex;
@@ -17382,7 +17382,7 @@ window._setupMONO = function(MONOmodule) {
     position: relative;
     overflow: hidden;
   }
-  #orbit-screen.active { display: flex; flex-direction: column; padding: 0; }
+  #orbit-screen.active { display: flex; flex-direction: column; padding: 0; height: calc(100vh - var(--header-h)); }
 
   .orbit-root {
     display: flex;
