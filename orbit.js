@@ -1326,6 +1326,13 @@ export default (() => {
     nextCanvas = $('orbit-next-canvas');
     nextCtx    = nextCanvas.getContext('2d');
 
+    // If the canvas wrap has no size yet (layout not ready), retry after a frame
+    const wrap = canvas.parentElement;
+    if (!wrap.clientWidth || !wrap.clientHeight) {
+      setTimeout(() => init(), 60);
+      return;
+    }
+
     score = 0; best = parseInt(localStorage.getItem('orbit-best') || '0'); level = 1; numRings = BASE_RINGS;
     heldPower = null; activePower = null;
     freezeTimer = 0; dilateTimer = 0; blackHoles = []; wormholes = [];

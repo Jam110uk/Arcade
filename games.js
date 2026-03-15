@@ -24,7 +24,7 @@ export const GAMES = {
   bejeweled:    { label: '💎 Bejeweled',        module: './bjw.js',    screen: 'bejeweled-screen',     global: 'BJW',   init: m => m.init() },
   monopoly:     { label: '🏦 Monopoly',         module: './mono.js',   screen: 'monopoly-screen',      global: 'MONO',  init: m => m.init() },
   plinko:       { label: '🪙 Plinko',           module: './plinko.js', screen: 'plinko-screen',                         init: m => m.init() },
-  orbit:        { label: '🪐 Orbit',            module: './orbit.js',  screen: 'orbit-screen',                          init: m => m.init() },
+  orbit:        { label: '🪐 Orbit',            module: './orbit.js',  screen: 'orbit-screen',                          init: m => setTimeout(() => m.init(), 50) },
 
   // ── VS AI games ────────────────────────────────────────────
   poker:        { label: '🃏 Poker',            module: './pkr.js',    screen: 'poker-screen',         global: 'PKR',   init: m => m.initSolo() },
