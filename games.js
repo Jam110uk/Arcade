@@ -39,7 +39,7 @@ export const GAMES = {
   connectfour:  { label: '🔴 Connect Four',      module: './c4.js',     screen: 'connectfour-screen',   global: 'C4',    init: () => {} },
   uno:          { label: '🃏 Uno',               module: './uno.js',    screen: 'uno-lobby-screen',     global: 'UNO',   init: () => {} },
   pokemon:      { label: '⚡ Pokémon',            module: './pkm.js',    screen: 'pokemon-lobby-screen', global: 'PKM',   init: m => m.init() },
-  guesswho:     { label: '🎭 Guess Who',         module: './gw.js',     screen: 'guesswho-lobby-screen',global: 'GW',    init: () => {} },
+  guesswho:     { label: '🎭 Guess Who',         module: './gw.js',     screen: 'guesswho-lobby-screen',global: 'GW',    init: m => { m.stopLobbyBrowse?.(); m.startLobbyBrowse?.(); } },
 };
 
 // Cache of already-loaded modules (avoid re-importing)

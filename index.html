@@ -9768,9 +9768,9 @@ function slLaunchGame(game, room) {
   } else if (game === 'chess') {
     chessLaunchFromLobby(isHost, myName, oppName, gameCode);
   } else if (game === 'uno') {
-    UNO.launchMulti(isHost, myName, oppName, gameCode);
+    window.UNO?.launchMulti(isHost, myName, oppName, gameCode);
   } else if (game === 'pokemon') {
-    PKM.launchMulti(isHost, myName, oppName, gameCode);
+    window.PKM?.launchMulti(isHost, myName, oppName, gameCode);
   }
 }
 
@@ -12327,7 +12327,7 @@ window.hmMultiPlayAgain = () => backToGameSelect();
 
 function hangmanLaunchFromLobby(isHost, myName, oppName, gameCode) {
   document.getElementById('main-title').textContent = '🪢 HANGMAN';
-  HM.launchFromLobby(isHost, myName, oppName, gameCode);
+  window.HM?.launchFromLobby(isHost, myName, oppName, gameCode);
 }
 
 // ??????????????????????????????????????????????
@@ -12368,10 +12368,14 @@ window._setupC4 = function(C4module) {
 function c4LaunchFromLobby(isHost, myName, oppName, gameCode) {
   document.getElementById('main-title').textContent    = '🔴 CONNECT FOUR';
   document.getElementById('main-subtitle').textContent = 'DROP — CONNECT — WIN';
-  if (!window.C4) return;
-  C4._rc = gameCode;
-  showScreen('connectfour-screen');
-  setTimeout(() => window.C4?.init(isHost, myName, oppName, gameCode, true), 80);
+  const launch = () => {
+    if (!window.C4) { console.warn('[C4] module not loaded'); return; }
+    C4._rc = gameCode;
+    showScreen('connectfour-screen');
+    setTimeout(() => window.C4?.init(isHost, myName, oppName, gameCode, true), 80);
+  };
+  if (window.C4) { launch(); }
+  else { import('./c4.js').then(mod => { window.C4 = mod.default ?? mod; launch(); }); }
 }
 
 // ??????????????????????????????????????????????
@@ -12392,11 +12396,15 @@ window.hsViewOpen      = (tab) => window.HS?.viewOpen(tab);
 window.hsViewClose     = () => window.HS?.viewClose();
 window.hsTabSelect     = (key) => window.HS?.tabSelect(key);
 
-// ── Solo game exit handlers — must live after HS is defined ──────────────
+// ── Load HS (High Scores) eagerly — needed across all games ──────────────
+import('./hs.js').then(mod => { window.HS = mod.default ?? mod; })
+  .catch(err => console.warn('[HS] Failed to load:', err));
+
+// ── Solo game exit handlers ───────────────────────────────────────────────
 window.orbitExitToArcade = function() {
   const score = (typeof ORBIT !== 'undefined' && typeof ORBIT.getCurrentScore === 'function') ? ORBIT.getCurrentScore() : 0;
   if (typeof ORBIT !== 'undefined') ORBIT.destroy();
-  if (score > 0) {
+  if (score > 0 && window.HS) {
     HS.promptSubmitOnExit('orbit', score, score.toLocaleString(), () => backToGameSelect());
   } else {
     backToGameSelect();
@@ -12406,7 +12414,7 @@ window.orbitExitToArcade = function() {
 window.pbExitToArcade = function() {
   const score = (typeof PB !== 'undefined' && typeof PB.getCurrentScore === 'function') ? PB.getCurrentScore() : 0;
   if (typeof PB !== 'undefined') PB.destroy();
-  if (score > 0) {
+  if (score > 0 && window.HS) {
     HS.promptSubmitOnExit('puzzlebobble', score, score.toLocaleString(), () => backToGameSelect());
   } else {
     backToGameSelect();
@@ -12428,7 +12436,7 @@ function pokerLaunchFromLobby(isHost, myName, oppName, gameCode) {
   document.getElementById('header-room-code').textContent = gameCode;
   document.getElementById('room-code-display').style.display = '';
   showScreen('poker-screen');
-  PKR.launchMulti(isHost, myName, oppName, gameCode);
+  window.PKR?.launchMulti(isHost, myName, oppName, gameCode);
 }
 
 
@@ -12443,7 +12451,7 @@ function chessLaunchFromLobby(isHost,myName,oppName,gameCode){
   document.getElementById('header-room-code').textContent=gameCode;
   document.getElementById('room-code-display').style.display='';
   showScreen('chess-screen');
-  CHESS.launchMulti(isHost,myName,oppName,gameCode);
+  window.CHESS?.launchMulti(isHost,myName,oppName,gameCode);
 }
 
 // ???????????????????????????????????????????????????????????
@@ -12498,6 +12506,21 @@ window.openMultiLobby = function(game) {
 
   showScreen('multi-lobby-screen');
   mlListStart();
+
+  // Pre-load the game module now so it's ready when the match starts
+  import('./games.js').then(({ loadGame, GAMES }) => {
+    const def = GAMES[game];
+    if (def && def.module && !window[def.global || game.toUpperCase()]) {
+      import(def.module).then(mod => {
+        const api = mod.default ?? mod;
+        const globalName = def.global || game.toUpperCase();
+        window[globalName] = api;
+        if (globalName !== game.toUpperCase()) window[game.toUpperCase()] = api;
+        const setupFn = window[`_setup${globalName}`] || window[`_setup${game.toUpperCase()}`];
+        if (typeof setupFn === 'function') setupFn(api);
+      }).catch(err => console.warn(`[multilobby] Failed to preload ${game}:`, err));
+    }
+  });
 };
 
 // ── Status helper ─────────────────────────────────────────────
@@ -17700,6 +17723,9 @@ window._setupMONO = function(MONOmodule) {
         <span class="orbit-pw-empty">— SHOOT A POWER-UP ITEM TO COLLECT —</span>
       </button>
     </div>
+
+  </div>
+</div>
 
 </script>
 
