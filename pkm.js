@@ -7015,8 +7015,17 @@ const PKM_BATTLE_BGS = [
       document.getElementById('room-code-display').style.display='';
       chatInit('pokemon',`pokemon/${code}/chat`,mName);
 
-      myTeam=buildRandTeam();
-      oppTeam=buildRandTeam(); // placeholder until Firebase syncs
+      // Build myTeam from whatever the player selected in the lobby
+      // (same logic as startSolo — respects starter, custom preset, or random tab)
+      if (_lobbyTab === 'custom' && _customSelected.length === 6) {
+        myTeam = _customSelected.map(p => makeMon(p));
+      } else if (_lobbyTab === 'random' && _randPreview.length === 6) {
+        myTeam = _randPreview.map(p => makeMon(p));
+      } else {
+        const starter = mySelectedStarter || STARTERS[0];
+        myTeam = buildTeam(starter);
+      }
+      oppTeam = buildRandTeam(); // placeholder until Firebase syncs opponent's real team
       myActive=0; oppActive=0;
       phase='battle';
       myTurn=isHost; // host goes first
