@@ -660,7 +660,7 @@ export default (function() {
     document.getElementById('bb-hint').textContent =
       hintOverride ? hintOverride :
       n>=10 ? `💥 MEGA POP! +${pts} pts` : n>=6 ? `🎉 BIG POP! +${pts} pts` : `+${pts} pts`;
-    hoveredGroup = null; hovered = null;
+    hoveredGroup = null;
     resetIdleHint();
     resettleBalls(allRemoved);
     updateUI();
