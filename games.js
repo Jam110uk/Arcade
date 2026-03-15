@@ -32,10 +32,10 @@ export const GAMES = {
   pool:         { label: '🎱 Pool',              module: null,          screen: 'pool-lobby-screen',   init: () => {} },
   scrabble:     { label: '🔤 Scrabble',          module: null,          screen: 'scrabble-lobby-screen', init: () => {} },
   trivia:       { label: '🧠 Trivia',            module: null,          screen: 'trivia-lobby-screen', init: () => {} },
-  hangman:      { label: '🪢 Hangman',           module: './hm.js',     screen: 'hangman-lobby-screen',init: () => {} },
+  hangman:      { label: '🪢 Hangman',           module: './hm.js',     screen: 'hangman-screen',      init: m => m.initSolo() },
   connectfour:  { label: '🔴 Connect Four',      module: './c4.js',     screen: 'connectfour-screen',  init: () => {} },
   uno:          { label: '🃏 Uno',               module: './uno.js',    screen: 'uno-lobby-screen',    init: () => {} },
-  pokemon:      { label: '⚡ Pokémon',            module: './pkm.js',    screen: 'pokemon-lobby-screen', init: () => {} },
+  pokemon:      { label: '⚡ Pokémon',            module: './pkm.js',    screen: 'pokemon-lobby-screen', init: m => m.init() },
   guesswho:     { label: '🎭 Guess Who',         module: './gw.js',     screen: 'guesswho-lobby-screen', init: () => {} },
 };
 
@@ -67,6 +67,9 @@ export async function loadGame(gameKey) {
     // Support both `export default` (object) and named exports
     const api = mod.default ?? mod;
     _cache[gameKey] = api;
+    // Expose module as a global (e.g. window.ZM, window.SNK) so HTML button
+    // wrappers like zmNewGame = () => window.ZM?.newGame() work after load
+    window[gameKey.toUpperCase()] = api;
     // Run any post-load setup hooks registered by index.html
     const setupFn = window[`_setup${gameKey.toUpperCase()}`];
     if (typeof setupFn === 'function') setupFn(api);

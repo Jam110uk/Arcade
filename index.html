@@ -16954,7 +16954,8 @@ document.addEventListener('click', (e) => {
   const _orig = window.showScreen;
   window.showScreen = function(id) {
     _orig(id);
-    if (id==='pokemon-lobby-screen') PKM.init();
+    // PKM.init() is called by games.js after pkm.js loads — no need to call here
+    if (id==='pokemon-lobby-screen' && window.PKM) window.PKM.init();
   };
 })();
 </script>
