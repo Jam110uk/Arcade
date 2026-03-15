@@ -10,10 +10,10 @@ export const GAMES = {
   snake:        { label: '🐍 Snake',          module: './snk.js',    screen: 'snake-screen',        init: m => m.init() },
   wordle:       { label: '📝 Wordle',          module: './wrd.js',    screen: 'wordle-screen',       init: m => m.init() },
   tetris:       { label: '🧱 Tetris',          module: './tet.js',    screen: 'tetris-screen',       init: () => window.tetInit?.() },
-  minesweeper:  { label: '💣 Minesweeper',     module: null,          screen: 'minesweeper-screen',  init: () => {} },
-  solitaire:    { label: '🃏 Solitaire',       module: null,          screen: 'solitaire-screen',    init: () => {} },
+  minesweeper:  { label: '💣 Minesweeper',     module: null,          screen: 'minesweeper-screen',  init: () => window.msInit?.() },
+  solitaire:    { label: '🃏 Solitaire',       module: null,          screen: 'solitaire-screen',    init: () => window.solNewGame?.() },
   bubblebreaker:{ label: '🫧 Bubble Breaker',  module: './bb.js',     screen: 'bubblebreaker-screen',init: m => m.newGame?.() },
-  puzzlebobble: { label: '🎯 Puzzle Bobble',   module: './pb.js',     screen: 'puzzlebobble-screen', init: m => m.init?.() },
+  puzzlebobble: { label: '🎯 Puzzle Bobble',   module: './pb.js',     screen: 'puzzlebobble-screen', init: m => m.newGame?.() },
   zuma:         { label: '🔴 Zuma',            module: './zm.js',     screen: 'zuma-screen',         init: m => m.init() },
   racer:        { label: '🚗 Road Rage',        module: './rc.js',     screen: 'racer-screen',        init: m => m.init() },
   pacman:       { label: '🟡 Pac-Man',          module: './pac.js',    screen: 'pacman-screen',       init: m => m.init() },
@@ -54,7 +54,8 @@ export async function loadGame(gameKey) {
   }
 
   // No module = handled entirely by index.html (multiplayer lobbies etc.)
-  if (!def.module) return;
+  // Still call init() in case it needs to kick off setup (e.g. solNewGame, msInit)
+  if (!def.module) { def.init(null); return; }
 
   // Return cached module if already loaded
   if (_cache[gameKey]) {
