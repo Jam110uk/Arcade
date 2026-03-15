@@ -1274,8 +1274,16 @@ export default (() => {
   function resize() {
     if (!canvas) return;
     const wrap = canvas.parentElement;
-    W = wrap.clientWidth  || 500;
-    H = wrap.clientHeight || 600;
+    // Try wrap first, then the orbit-screen container, then window as last resort
+    const screen = document.getElementById('orbit-screen');
+    const refEl  = (wrap.clientWidth && wrap.clientHeight) ? wrap
+                 : (screen && screen.clientWidth && screen.clientHeight) ? screen
+                 : null;
+    W = refEl ? refEl.clientWidth  : (window.innerWidth  * 0.65) | 0;
+    H = refEl ? refEl.clientHeight : (window.innerHeight - 64)   | 0;
+    // Clamp to sensible minimums
+    if (W < 200) W = 500;
+    if (H < 200) H = 600;
     canvas.width  = W;
     canvas.height = H;
     CX = W / 2;
@@ -1326,9 +1334,12 @@ export default (() => {
     nextCanvas = $('orbit-next-canvas');
     nextCtx    = nextCanvas.getContext('2d');
 
-    // If the canvas wrap has no size yet (layout not ready), retry after a frame
-    const wrap = canvas.parentElement;
-    if (!wrap.clientWidth || !wrap.clientHeight) {
+    // If neither the wrap nor the screen element has size yet, retry after a frame
+    const wrap   = canvas.parentElement;
+    const screen = document.getElementById('orbit-screen');
+    const hasSize = (wrap.clientWidth && wrap.clientHeight)
+                 || (screen && screen.clientWidth && screen.clientHeight);
+    if (!hasSize) {
       setTimeout(() => init(), 60);
       return;
     }
