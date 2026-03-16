@@ -160,18 +160,356 @@ function poolSetupBalls() {
 }
 
 function poolGetCanvas() {
+  // Keep the 2D canvas for mouse coordinate mapping (poolGetMousePos uses getBoundingClientRect)
   POOL.canvas = document.getElementById('pool-canvas');
-  POOL.ctx = POOL.canvas.getContext('2d');
-  // Set logical size
-  POOL.canvas.width = POOL.TW;
+  POOL.canvas.width  = POOL.TW;
   POOL.canvas.height = POOL.TH;
+  // Make it invisible but keep it in layout so rect calculations still work
+  POOL.canvas.style.cssText = 'position:absolute;opacity:0;pointer-events:none;width:100%;height:100%;';
+  POOL.ctx = POOL.canvas.getContext('2d'); // kept alive so nothing else breaks
 
-  // Attach to document so mouse doesn't need to stay over canvas
-  document.addEventListener('mousemove', poolMouseMove);
-  document.addEventListener('click', poolMouseClick);
-  document.addEventListener('touchmove', poolTouchMove, {passive:false});
-  document.addEventListener('touchend', poolTouchEnd);
+  // Attach input listeners to document (same as before)
+  document.addEventListener('mousemove',  poolMouseMove);
+  document.addEventListener('click',      poolMouseClick);
+  document.addEventListener('touchmove',  poolTouchMove, {passive:false});
+  document.addEventListener('touchend',   poolTouchEnd);
   POOL._docListeners = true;
+
+  // Boot the Three.js renderer
+  pool3DInit();
+}
+
+// ── THREE.JS POOL RENDERER ─────────────────────────────────────────────────
+// All game logic stays in POOL.* untouched.
+// This section owns: scene, camera, renderer, ball meshes, table, cue mesh.
+// poolDraw() (below) syncs meshes from POOL.balls[] and renders each frame.
+
+const P3 = {
+  scene: null, camera: null, renderer: null,
+  ballMeshes: [],      // indexed by ball.id (0-15)
+  cueMesh: null,
+  aimLineMesh: null,
+  tableGroup: null,
+  THREE: null,
+  ready: false,
+  container: null,
+};
+
+async function pool3DInit() {
+  // Load Three.js (reuse same loader pattern as coinpusher)
+  async function loadMod(src) {
+    const base = document.baseURI || location.href;
+    const url = src.startsWith('http') ? src : new URL(src, base).href;
+    return await import(/* webpackIgnore: true */ url);
+  }
+
+  let THREE;
+  try {
+    const mod = await loadMod('./three_module_min.js');
+    if (mod && mod.WebGLRenderer) THREE = mod;
+  } catch(e) {}
+  if (!THREE) THREE = await loadMod('https://unpkg.com/three@0.128.0/build/three.module.js');
+  P3.THREE = THREE;
+
+  // Container — sits over the hidden canvas
+  const screenEl = document.getElementById('pool-screen');
+  const canvasParent = POOL.canvas.parentElement;
+  const container = document.createElement('div');
+  container.id = 'pool-3d-container';
+  container.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:1;';
+  canvasParent.style.position = 'relative';
+  canvasParent.appendChild(container);
+  P3.container = container;
+
+  // Renderer
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
+  renderer.domElement.style.cssText = 'width:100%;height:100%;display:block;';
+  container.appendChild(renderer.domElement);
+  P3.renderer = renderer;
+
+  // Scene
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0a0a12);
+  P3.scene = scene;
+
+  // Camera — fixed top-down angled view matching the 2D canvas perspective
+  const tw = POOL.TW, th = POOL.TH;
+  const aspect = tw / th;
+  const camera = new THREE.PerspectiveCamera(38, aspect, 0.1, 2000);
+  // Position above the table centre, looking down at a slight angle
+  camera.position.set(tw * 0.5, tw * 0.72, th * 1.15);
+  camera.lookAt(tw * 0.5, 0, th * 0.5);
+  P3.camera = camera;
+
+  // Lighting
+  scene.add(new THREE.AmbientLight(0xffeedd, 0.55));
+
+  const sun = new THREE.DirectionalLight(0xfff5e0, 1.1);
+  sun.position.set(tw * 0.5, tw * 0.9, th * 0.2);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 1024);
+  sun.shadow.camera.left   = -tw * 0.6;
+  sun.shadow.camera.right  =  tw * 0.6;
+  sun.shadow.camera.top    =  th * 0.7;
+  sun.shadow.camera.bottom = -th * 0.7;
+  scene.add(sun);
+
+  // Warm overhead fill lights
+  [tw*0.25, tw*0.5, tw*0.75].forEach((x, i) => {
+    const pl = new THREE.PointLight([0xfff0c0, 0xe8f4ff, 0xfff0c0][i], 0.7, tw * 0.9);
+    pl.position.set(x, tw * 0.55, th * 0.5);
+    scene.add(pl);
+  });
+
+  // Build table geometry
+  pool3DBuildTable(THREE, scene, tw, th);
+
+  // Build ball meshes (one per ball id 0-15)
+  pool3DBuildBalls(THREE, scene);
+
+  // Build cue mesh
+  pool3DBuildCue(THREE, scene);
+
+  // Aim line (dashed line rendered as thin box segments)
+  pool3DBuildAimLine(THREE, scene);
+
+  P3.ready = true;
+
+  // Resize handler
+  function onResize() {
+    if (!P3.renderer || !P3.camera) return;
+    const rect = container.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    P3.renderer.setSize(rect.width, rect.height, false);
+    P3.camera.aspect = rect.width / rect.height;
+    P3.camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', onResize);
+  setTimeout(onResize, 100);
+
+  // Initial draw
+  poolDraw();
+}
+
+function pool3DBuildTable(THREE, scene, tw, th) {
+  const pr = POOL.POCKET_R;
+
+  // Felt surface
+  const feltGeo = new THREE.PlaneGeometry(tw - pr*2, th - pr*2);
+  const feltCanvas = document.createElement('canvas');
+  feltCanvas.width = 512; feltCanvas.height = 256;
+  const fc = feltCanvas.getContext('2d');
+  const fg = fc.createRadialGradient(256,128,0, 256,128,280);
+  fg.addColorStop(0,   '#1e7a3c');
+  fg.addColorStop(0.5, '#196832');
+  fg.addColorStop(1,   '#124d25');
+  fc.fillStyle = fg; fc.fillRect(0,0,512,256);
+  // Felt noise
+  for (let i = 0; i < 4000; i++) {
+    fc.fillStyle = Math.random() > 0.5
+      ? `rgba(0,200,80,${(Math.random()*0.04).toFixed(3)})`
+      : `rgba(0,0,0,${(Math.random()*0.06).toFixed(3)})`;
+    fc.fillRect(Math.random()*512, Math.random()*256, 1, 1);
+  }
+  // Nap lines
+  fc.strokeStyle = 'rgba(255,255,255,0.02)'; fc.lineWidth = 1;
+  for (let y = 8; y < 256; y += 8) { fc.beginPath(); fc.moveTo(0,y); fc.lineTo(512,y); fc.stroke(); }
+  // Baulk line
+  const bx = (tw-pr*2)*0.20/tw * 512;
+  fc.strokeStyle='rgba(255,255,255,0.18)'; fc.lineWidth=1.5;
+  fc.beginPath(); fc.moveTo(bx,0); fc.lineTo(bx,256); fc.stroke();
+  // D arc
+  const dR = (th-pr*2)*0.28 / th * 256;
+  fc.beginPath(); fc.arc(bx,128,dR,-Math.PI/2,Math.PI/2);
+  fc.stroke();
+
+  const feltTex = new THREE.CanvasTexture(feltCanvas);
+  feltTex.wrapS = feltTex.wrapT = THREE.RepeatWrapping;
+  const feltMat = new THREE.MeshStandardMaterial({
+    map: feltTex, roughness: 0.92, metalness: 0.0, color: 0xffffff
+  });
+  const feltMesh = new THREE.Mesh(feltGeo, feltMat);
+  feltMesh.rotation.x = -Math.PI / 2;
+  feltMesh.position.set(tw/2, 0, th/2);
+  feltMesh.receiveShadow = true;
+  scene.add(feltMesh);
+
+  // Wooden rail (outer frame)
+  const railMat = new THREE.MeshStandardMaterial({ color: 0x3d1e08, roughness: 0.7, metalness: 0.05 });
+  [
+    // top rail
+    [tw, pr, tw/2, pr/2, pr/2],
+    // bottom rail
+    [tw, pr, tw/2, pr/2, th - pr/2],
+    // left rail
+    [pr, th, pr/2, tw/2 - (tw-pr)/2 - pr/2, th/2],
+    // right rail
+    [pr, th, pr/2, tw/2 + (tw-pr)/2 + pr/2, th/2],
+  ].forEach(([w, d, h, x, z]) => {
+    const g = new THREE.BoxGeometry(w, h, d);
+    const m = new THREE.Mesh(g, railMat);
+    m.position.set(x, h/2, z);
+    m.castShadow = true; m.receiveShadow = true;
+    scene.add(m);
+  });
+
+  // Cushions (green rubber bumpers)
+  const cushMat = new THREE.MeshStandardMaterial({ color: 0x166028, roughness: 0.6 });
+  const gap = POOL.MID_GAP;
+  const cH = pr * 0.7;
+  // Top/bottom cushion segments (split at middle pocket)
+  [
+    [tw/2-pr-gap*2, cH, tw/4+pr/2, cH/2, pr/2],
+    [tw/2-pr-gap*2, cH, tw*3/4-pr/2, cH/2, pr/2],
+    [tw/2-pr-gap*2, cH, tw/4+pr/2, cH/2, th-pr/2],
+    [tw/2-pr-gap*2, cH, tw*3/4-pr/2, cH/2, th-pr/2],
+    // Left/right cushions
+    [pr*0.6, th-pr*2-gap*2, cH, pr/2, th/2],
+    [pr*0.6, th-pr*2-gap*2, cH, tw-pr/2, th/2],
+  ].forEach(([w, d, h, x, z]) => {
+    const g = new THREE.BoxGeometry(w, h, d);
+    const m = new THREE.Mesh(g, cushMat);
+    m.position.set(x, h/2, z);
+    scene.add(m);
+  });
+
+  // Pockets (dark cylinders sunken at corners and midpoints)
+  const pocketMat = new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 1.0 });
+  POOL.POCKETS.forEach(p => {
+    const pg = new THREE.CylinderGeometry(pr, pr * 1.1, pr * 0.5, 20);
+    const pm = new THREE.Mesh(pg, pocketMat);
+    pm.position.set(p.x, -pr * 0.1, p.y);
+    scene.add(pm);
+    // Pocket rim ring
+    const ringGeo = new THREE.TorusGeometry(pr, 1.5, 8, 24);
+    const ringMat = new THREE.MeshStandardMaterial({ color: 0x4a3010, roughness: 0.5, metalness: 0.3 });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.rotation.x = Math.PI/2;
+    ring.position.set(p.x, 1, p.y);
+    scene.add(ring);
+  });
+}
+
+function pool3DBuildBalls(THREE, scene) {
+  const r = POOL.BALL_R;
+  P3.ballMeshes = [];
+
+  for (let id = 0; id <= 15; id++) {
+    // Draw ball onto a canvas for texture
+    const sz = 128;
+    const bc = document.createElement('canvas');
+    bc.width = bc.height = sz;
+    const bctx = bc.getContext('2d');
+    const color = POOL.BALL_COLORS[id];
+    const cx = sz/2, cy = sz/2, cr = sz*0.48;
+
+    if (id === 0) {
+      // Cue ball
+      const g = bctx.createRadialGradient(cx-cr*0.28,cy-cr*0.32,cr*0.04, cx+cr*0.05,cy,cr*1.05);
+      g.addColorStop(0,'#ffffff'); g.addColorStop(0.6,'#d8d8d8'); g.addColorStop(1,'#aaaaaa');
+      bctx.fillStyle=g; bctx.beginPath(); bctx.arc(cx,cy,cr,0,Math.PI*2); bctx.fill();
+    } else if (id >= 9) {
+      // Stripe
+      bctx.fillStyle='#eeeeee'; bctx.beginPath(); bctx.arc(cx,cy,cr,0,Math.PI*2); bctx.fill();
+      bctx.fillStyle=color; bctx.fillRect(cx-cr,cy-cr*0.4,cr*2,cr*0.8);
+    } else {
+      // Solid
+      const g = bctx.createRadialGradient(cx-cr*0.3,cy-cr*0.3,cr*0.04, cx,cy,cr*1.05);
+      g.addColorStop(0,'rgba(255,255,255,0.5)'); g.addColorStop(0.3,color); g.addColorStop(1,'rgba(0,0,0,0.85)');
+      bctx.fillStyle=g; bctx.beginPath(); bctx.arc(cx,cy,cr,0,Math.PI*2); bctx.fill();
+    }
+    if (id > 0) {
+      // Number circle
+      bctx.fillStyle='rgba(255,255,255,0.95)';
+      bctx.beginPath(); bctx.arc(cx,cy,cr*0.38,0,Math.PI*2); bctx.fill();
+      bctx.fillStyle='#111';
+      bctx.font=`bold ${Math.round(cr*(id>=10?0.5:0.62))}px Arial`;
+      bctx.textAlign='center'; bctx.textBaseline='middle';
+      bctx.fillText(id, cx, cy+cr*0.03);
+    }
+    // Specular highlight
+    bctx.beginPath(); bctx.arc(cx-cr*0.28,cy-cr*0.28,cr*0.2,0,Math.PI*2);
+    bctx.fillStyle='rgba(255,255,255,0.55)'; bctx.fill();
+
+    const tex = new THREE.CanvasTexture(bc);
+    const geo = new THREE.SphereGeometry(r, 32, 24);
+    const mat = new THREE.MeshStandardMaterial({
+      map: tex, roughness: 0.12, metalness: 0.08,
+      envMapIntensity: 0.6,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.castShadow = true;
+    mesh.receiveShadow = false;
+    mesh.position.set(0, r, 0);
+    mesh.visible = false;
+    scene.add(mesh);
+    P3.ballMeshes[id] = mesh;
+  }
+}
+
+function pool3DBuildCue(THREE, scene) {
+  // Cue stick — tapered cylinder (thin at tip, thick at butt)
+  const CUE_LEN = 160;
+  const pts = [];
+  for (let i = 0; i <= 20; i++) {
+    const t = i / 20;
+    pts.push(new THREE.Vector2(1.5 + t * 2.5, t * CUE_LEN));
+  }
+  const cueGeo = new THREE.LatheGeometry(pts, 12);
+  const cueTex = document.createElement('canvas');
+  cueTex.width = 4; cueTex.height = 256;
+  const ct = cueTex.getContext('2d');
+  const cg = ct.createLinearGradient(0,0,4,256);
+  cg.addColorStop(0,   '#e8d5a0');
+  cg.addColorStop(0.25,'#c8a060');
+  cg.addColorStop(1,   '#6b3a1f');
+  ct.fillStyle = cg; ct.fillRect(0,0,4,256);
+  const cueMat = new THREE.MeshStandardMaterial({
+    map: new THREE.CanvasTexture(cueTex), roughness: 0.35, metalness: 0.05
+  });
+  const cueMesh = new THREE.Mesh(cueGeo, cueMat);
+  cueMesh.castShadow = true;
+  cueMesh.visible = false;
+  scene.add(cueMesh);
+  P3.cueMesh = cueMesh;
+
+  // Tip sphere
+  const tipGeo = new THREE.SphereGeometry(2, 10, 8);
+  const tipMat = new THREE.MeshStandardMaterial({ color: 0x4488ff, roughness: 0.4 });
+  const tipMesh = new THREE.Mesh(tipGeo, tipMat);
+  tipMesh.visible = false;
+  scene.add(tipMesh);
+  P3.cueTipMesh = tipMesh;
+
+  // Aim trajectory line (rendered as thin flat box)
+  const aimGeo = new THREE.PlaneGeometry(1, 1);
+  const aimMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff, transparent: true, opacity: 0.45,
+    depthWrite: false, side: P3.THREE.DoubleSide
+  });
+  const aimMesh = new THREE.Mesh(aimGeo, aimMat);
+  aimMesh.rotation.x = -Math.PI/2;
+  aimMesh.visible = false;
+  scene.add(aimMesh);
+  P3.aimLineMesh = aimMesh;
+}
+
+function pool3DBuildAimLine(THREE, scene) {
+  // Dashed aim line rendered as repeating small boxes along a line
+  P3.aimDashes = [];
+  const dashMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5, depthWrite: false });
+  for (let i = 0; i < 20; i++) {
+    const dg = new THREE.BoxGeometry(1.5, 0.5, 6);
+    const dm = new THREE.Mesh(dg, dashMat);
+    dm.visible = false;
+    scene.add(dm);
+    P3.aimDashes.push(dm);
+  }
 }
 
 function poolGetScale() {
@@ -324,272 +662,100 @@ function poolTouchEnd(e) {
 }
 
 function poolDraw() {
-  const ctx = POOL.ctx;
+  if (!P3.ready || !P3.renderer) return;
+  const THREE = P3.THREE;
   const tw = POOL.TW, th = POOL.TH;
-  const pr = POOL.POCKET_R;
-  const cw = pr - 2; // cushion visual width
+  const r  = POOL.BALL_R;
 
-  // ── TABLE SURFACE — drawn to offscreen cache once ──────────────
-  if (!POOL._tableBg || POOL._tableBgW !== tw || POOL._tableBgH !== th) {
-    const off = document.createElement('canvas');
-    off.width = tw; off.height = th;
-    const oc = off.getContext('2d');
-    const gap2 = POOL.MID_GAP;
-
-    // Outer rail/frame
-    oc.fillStyle = '#2a1206';
-    oc.fillRect(0, 0, tw, th);
-
-    // Inner felt — noise texture for realistic felt look
-    const feltGrad = oc.createRadialGradient(tw*0.5, th*0.5, 0, tw*0.5, th*0.5, Math.max(tw,th)*0.65);
-    feltGrad.addColorStop(0,   '#1e7a3c');
-    feltGrad.addColorStop(0.5, '#196832');
-    feltGrad.addColorStop(1,   '#124d25');
-    oc.fillStyle = feltGrad;
-    oc.fillRect(pr, pr, tw - pr*2, th - pr*2);
-
-    // Felt noise texture — generated once on a small tile and tiled via pattern
-    const feltTile = document.createElement('canvas');
-    feltTile.width = 80; feltTile.height = 80;
-    const ftx = feltTile.getContext('2d');
-    ftx.fillStyle = 'rgba(0,0,0,0)';
-    ftx.fillRect(0, 0, 80, 80);
-    for (let i = 0; i < 1800; i++) {
-      ftx.fillStyle = Math.random() > 0.5
-        ? `rgba(0,200,80,${(Math.random() * 0.045).toFixed(3)})`
-        : `rgba(0,0,0,${(Math.random() * 0.07).toFixed(3)})`;
-      ftx.fillRect(Math.random() * 80, Math.random() * 80, 1, 1);
-    }
-    const feltPattern = oc.createPattern(feltTile, 'repeat');
-    oc.fillStyle = feltPattern;
-    oc.fillRect(pr, pr, tw - pr*2, th - pr*2);
-
-    // Felt nap lines
-    oc.strokeStyle = 'rgba(255,255,255,0.025)';
-    oc.lineWidth = 1;
-    for (let y = pr + 8; y < th - pr; y += 8) {
-      oc.beginPath(); oc.moveTo(pr, y); oc.lineTo(tw - pr, y); oc.stroke();
-    }
-
-    // Baulk line
-    const baulkX = pr + (tw - pr*2) * 0.20;
-    oc.beginPath(); oc.moveTo(baulkX, pr); oc.lineTo(baulkX, th - pr);
-    oc.strokeStyle = 'rgba(255,255,255,0.18)'; oc.lineWidth = 1.2; oc.stroke();
-
-    // D semi-circle
-    const dRadius = (th - pr*2) * 0.28;
-    oc.beginPath(); oc.arc(baulkX, th/2,Math.max(0,dRadius), -Math.PI/2, Math.PI/2);
-    oc.strokeStyle = 'rgba(255,255,255,0.18)'; oc.lineWidth = 1.2; oc.stroke();
-
-    // Spots
-    const cx = tw/2, cy = th/2;
-    [[cx, cy, 'rgba(255,255,255,0.35)'], [cx+(tw*0.5-pr)*0.5, cy, 'rgba(255,200,200,0.35)'],
-     [tw-pr-(tw-pr*2)*0.08, cy, 'rgba(200,200,255,0.3)'], [baulkX, cy, 'rgba(210,180,140,0.35)'],
-     [baulkX, cy-dRadius, 'rgba(255,220,50,0.35)'], [baulkX, cy+dRadius, 'rgba(50,220,100,0.35)']
-    ].forEach(([sx, sy, sc]) => {
-      oc.beginPath(); oc.arc(sx, sy, 2.5, 0, Math.PI*2);
-      oc.fillStyle = sc; oc.fill();
-    });
-
-    // Pockets
-    POOL.POCKETS.forEach(p => {
-      const pocketGrad = oc.createRadialGradient(p.x,p.y,0,p.x,p.y,Math.max(0.01,pr*1.1));
-      pocketGrad.addColorStop(0, '#000000'); pocketGrad.addColorStop(0.6, '#0a0a0a'); pocketGrad.addColorStop(1, '#1a1a1a');
-      oc.beginPath(); oc.arc(p.x, p.y,Math.max(0,pr*1.05), 0, Math.PI*2);
-      oc.fillStyle = pocketGrad; oc.fill();
-      oc.beginPath(); oc.arc(p.x, p.y,Math.max(0,pr*1.05), 0, Math.PI*2);
-      oc.strokeStyle = '#4a3010'; oc.lineWidth = 2.5; oc.stroke();
-      oc.beginPath(); oc.arc(p.x, p.y,Math.max(0,pr*1.05), 0, Math.PI*2);
-      oc.strokeStyle = 'rgba(120,80,30,0.5)'; oc.lineWidth = 1; oc.stroke();
-    });
-
-    // Cushions
-    oc.fillStyle = '#1e8040';
-    oc.fillRect(pr+gap2, 0, tw/2-pr-gap2*2, cw); oc.fillRect(tw/2+gap2, 0, tw/2-pr-gap2*2, cw);
-    oc.fillRect(pr+gap2, th-cw, tw/2-pr-gap2*2, cw); oc.fillRect(tw/2+gap2, th-cw, tw/2-pr-gap2*2, cw);
-    oc.fillRect(0, pr+gap2, cw, th-(pr+gap2)*2); oc.fillRect(tw-cw, pr+gap2, cw, th-(pr+gap2)*2);
-
-    // Cushion highlights
-    oc.strokeStyle = 'rgba(100,220,100,0.4)'; oc.lineWidth = 1.5;
-    [[pr+gap2,cw,tw/2-gap2,cw],[tw/2+gap2,cw,tw-pr-gap2,cw],
-     [pr+gap2,th-cw,tw/2-gap2,th-cw],[tw/2+gap2,th-cw,tw-pr-gap2,th-cw],
-     [cw,pr+gap2,cw,th-pr-gap2],[tw-cw,pr+gap2,tw-cw,th-pr-gap2]
-    ].forEach(([x1,y1,x2,y2]) => { oc.beginPath(); oc.moveTo(x1,y1); oc.lineTo(x2,y2); oc.stroke(); });
-
-    // Rail wood grain
-    oc.strokeStyle = 'rgba(80,40,10,0.4)'; oc.lineWidth = 1;
-    [4,9,14].forEach(off => {
-      oc.beginPath(); oc.moveTo(pr+gap2+off, 1); oc.lineTo(tw/2-gap2-off, 1); oc.stroke();
-      oc.beginPath(); oc.moveTo(tw/2+gap2+off, 1); oc.lineTo(tw-pr-gap2-off, 1); oc.stroke();
-    });
-
-    POOL._tableBg = off; POOL._tableBgW = tw; POOL._tableBgH = th;
-  }
-  ctx.drawImage(POOL._tableBg, 0, 0);
-
-  // ── CUE RENDERING ──────────────────────────────────────────────
-  if (!POOL.isMoving && POOL.myTurn && !POOL.cueBall.potted) {
-    const cb = POOL.cueBall;
-    const angle = POOL.shotState === 'locked' ? POOL.lockedAngle : POOL.aimAngle;
-    const power = POOL.shotState === 'locked' ? POOL.pullback : 0.3;
-
-    const aimLen = 60 + power * 140;
-    ctx.beginPath();
-    ctx.setLineDash([7, 6]);
-    ctx.strokeStyle = POOL.shotState === 'locked'
-      ? `rgba(255,${Math.round(200 - power*200)},0,0.7)`
-      : 'rgba(255,255,255,0.45)';
-    ctx.lineWidth = 1.5;
-    ctx.moveTo(cb.x, cb.y);
-    ctx.lineTo(cb.x + Math.cos(angle) * aimLen, cb.y + Math.sin(angle) * aimLen);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    const TIP_GAP = POOL.BALL_R + 2;
-    const CUE_LEN = 160;
-    const PULLBACK_MAX = 50;
-    const pullPx = POOL.shotState === 'locked' ? POOL.pullback * PULLBACK_MAX : 0;
-    const tipDist = TIP_GAP + pullPx;
-    const tipX = cb.x - Math.cos(angle) * tipDist;
-    const tipY = cb.y - Math.sin(angle) * tipDist;
-    const buttX = tipX - Math.cos(angle) * CUE_LEN;
-    const buttY = tipY - Math.sin(angle) * CUE_LEN;
-
-    const cueGrad = ctx.createLinearGradient(tipX, tipY, buttX, buttY);
-    cueGrad.addColorStop(0, '#e8d5a0');
-    cueGrad.addColorStop(0.25, '#c8a060');
-    cueGrad.addColorStop(1, '#6b3a1f');
-    ctx.beginPath();
-    ctx.strokeStyle = cueGrad;
-    ctx.lineWidth = 5;
-    ctx.lineCap = 'round';
-    ctx.moveTo(tipX, tipY);
-    ctx.lineTo(buttX, buttY);
-    ctx.stroke();
-
-    const perpX = -Math.sin(angle) * 1.5;
-    const perpY = Math.cos(angle) * 1.5;
-    ctx.beginPath();
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-    ctx.lineWidth = 1.5;
-    ctx.moveTo(tipX + perpX, tipY + perpY);
-    ctx.lineTo(buttX + perpX, buttY + perpY);
-    ctx.stroke();
-    ctx.lineCap = 'butt';
-
-    ctx.beginPath();
-    ctx.arc(tipX, tipY, 3, 0, Math.PI*2);
-    ctx.fillStyle = '#4488ff';
-    ctx.fill();
-  }
-
-  // Opponent's cue — only shown when it's their turn, not ours
-  if (!POOL.isMoving && !POOL.myTurn && POOL.oppCue && !POOL.cueBall.potted) {
-    const cb = POOL.cueBall;
-    const opp = POOL.oppCue;
-    const angle = opp.angle;
-    const pullback = opp.pullback || 0;
-    const isLocked = opp.state === 'locked';
-    const power = isLocked ? pullback : 0.3;
-
-    const aimLen = 60 + power * 140;
-    ctx.beginPath();
-    ctx.setLineDash([7, 6]);
-    ctx.strokeStyle = isLocked
-      ? `rgba(255,${Math.round(160 - pullback*160)},0,0.5)`
-      : 'rgba(255,180,0,0.35)';
-    ctx.lineWidth = 1.5;
-    ctx.moveTo(cb.x, cb.y);
-    ctx.lineTo(cb.x + Math.cos(angle) * aimLen, cb.y + Math.sin(angle) * aimLen);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    const TIP_GAP = POOL.BALL_R + 2;
-    const CUE_LEN = 160;
-    const PULLBACK_MAX = 50;
-    const pullPx = isLocked ? pullback * PULLBACK_MAX : 0;
-    const tipDist = TIP_GAP + pullPx;
-    const tipX = cb.x - Math.cos(angle) * tipDist;
-    const tipY = cb.y - Math.sin(angle) * tipDist;
-    const buttX = tipX - Math.cos(angle) * CUE_LEN;
-    const buttY = tipY - Math.sin(angle) * CUE_LEN;
-
-    ctx.save();
-    ctx.globalAlpha = 0.55;
-    const oppCueGrad = ctx.createLinearGradient(tipX, tipY, buttX, buttY);
-    oppCueGrad.addColorStop(0, '#ffe0a0');
-    oppCueGrad.addColorStop(0.25, '#e09040');
-    oppCueGrad.addColorStop(1, '#7a4010');
-    ctx.beginPath();
-    ctx.strokeStyle = oppCueGrad;
-    ctx.lineWidth = 5;
-    ctx.lineCap = 'round';
-    ctx.moveTo(tipX, tipY);
-    ctx.lineTo(buttX, buttY);
-    ctx.stroke();
-
-    const perpX = -Math.sin(angle) * 1.5;
-    const perpY = Math.cos(angle) * 1.5;
-    ctx.beginPath();
-    ctx.strokeStyle = 'rgba(255,220,150,0.3)';
-    ctx.lineWidth = 1.5;
-    ctx.moveTo(tipX + perpX, tipY + perpY);
-    ctx.lineTo(buttX + perpX, buttY + perpY);
-    ctx.stroke();
-    ctx.lineCap = 'butt';
-
-    ctx.beginPath();
-    ctx.arc(tipX, tipY, 3, 0, Math.PI*2);
-    ctx.fillStyle = '#ff9900';
-    ctx.fill();
-    ctx.restore();
-  }
-
-  // ── BALL DROP SHADOWS (render before balls) ─────────────────────
-  ctx.save();
-  ctx.shadowColor = 'rgba(0,0,0,0.5)';
-  ctx.shadowBlur = 6;
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  // ── Sync ball meshes from physics positions ───────────────────
   POOL.balls.forEach(ball => {
-    if (ball.potted) return;
-    const r = POOL.BALL_R;
-    ctx.beginPath();
-    ctx.ellipse(ball.x + 3, ball.y + 4, r * 0.85, r * 0.5, 0, 0, Math.PI*2);
-    ctx.fill();
+    const mesh = P3.ballMeshes[ball.id];
+    if (!mesh) return;
+    if (ball.potted) {
+      mesh.visible = false;
+      return;
+    }
+    mesh.visible = true;
+    // Map 2D physics coords (x: 0→TW, y: 0→TH) to 3D (x: 0→TW, z: 0→TH, y = ball radius)
+    mesh.position.set(ball.x, r, ball.y);
+    // Rotate ball based on accumulated roll angle for visual spin
+    if (ball._rollAcc) {
+      const dir = Math.atan2(ball.vy || 0, ball.vx || 0);
+      mesh.rotation.z =  Math.cos(dir) * ball._rollAcc;
+      mesh.rotation.x = -Math.sin(dir) * ball._rollAcc;
+    }
   });
-  ctx.restore();
 
-  // ── COLLISION SPARKS ────────────────────────────────────────────
-  if (POOL._sparks && POOL._sparks.length) {
-    for (let _si = POOL._sparks.length - 1; _si >= 0; _si--) {
-      const sp = POOL._sparks[_si];
-      ctx.beginPath();
-      ctx.arc(sp.x, sp.y,Math.max(0,sp.r), 0, Math.PI * 2);
-      ctx.fillStyle = sp.isCue
-        ? `rgba(0, 245, 255, ${sp.life.toFixed(2)})`
-        : `rgba(255, 220, 80, ${sp.life.toFixed(2)})`;
-      ctx.fill();
-      sp.x += sp.vx; sp.y += sp.vy;
-      sp.vx *= 0.88; sp.vy *= 0.88;
-      sp.life -= 0.055;
-      if (sp.life <= 0) { POOL._sparks[_si] = POOL._sparks[POOL._sparks.length - 1]; POOL._sparks.pop(); }
-    }
-  }
+  // ── Sparks (reuse 2D spark data — draw as 3D point sprites) ──
+  // (skipped — sparks are fast enough to ignore in 3D; physics still generates them)
 
-  // ── BALLS ───────────────────────────────────────────────────────
-  POOL.balls.forEach(ball => {
-    if (ball.potted) return;
-    const r = POOL.BALL_R, bx = ball.x, by = ball.y;
-    const spr = POOL._ballSprites && POOL._ballSprites[ball.id];
-    if (spr) {
-      const off = spr.width / 2;
-      ctx.drawImage(spr, bx - off, by - off);
+  // ── Cue stick ─────────────────────────────────────────────────
+  const showMyCue    = !POOL.isMoving && POOL.myTurn && POOL.cueBall && !POOL.cueBall.potted;
+  const showOppCue   = !POOL.isMoving && !POOL.myTurn && POOL.oppCue && POOL.cueBall && !POOL.cueBall.potted;
+  const showAnyCue   = showMyCue || showOppCue;
+
+  if (P3.cueMesh) {
+    if (showAnyCue) {
+      const cb     = POOL.cueBall;
+      const angle  = showMyCue
+        ? (POOL.shotState === 'locked' ? POOL.lockedAngle : POOL.aimAngle)
+        : POOL.oppCue.angle;
+      const power  = showMyCue
+        ? (POOL.shotState === 'locked' ? POOL.pullback : 0.3)
+        : (POOL.oppCue.pullback || 0.3);
+      const PULLBACK_MAX = 50;
+      const TIP_GAP      = r + 2;
+      const pullPx       = (showMyCue ? (POOL.shotState === 'locked' ? POOL.pullback : 0) : (POOL.oppCue.state === 'locked' ? (POOL.oppCue.pullback || 0) : 0)) * PULLBACK_MAX;
+      const tipDist      = TIP_GAP + pullPx;
+
+      // Tip world position
+      const tipX3  = cb.x  - Math.cos(angle) * tipDist;
+      const tipZ3  = cb.y  - Math.sin(angle) * tipDist;
+      const buttX3 = tipX3 - Math.cos(angle) * 160;
+      const buttZ3 = tipZ3 - Math.sin(angle) * 160;
+
+      // Position cue pivot at tip, rotate to point toward butt
+      P3.cueMesh.position.set(tipX3, r * 1.1, tipZ3);
+      P3.cueMesh.rotation.set(Math.PI/2, 0, 0);
+      P3.cueMesh.rotation.y = -(angle + Math.PI/2);
+      P3.cueMesh.visible = true;
+
+      if (P3.cueTipMesh) {
+        P3.cueTipMesh.position.set(tipX3, r * 1.1, tipZ3);
+        P3.cueTipMesh.visible = true;
+      }
+
+      // Color cue based on whose turn / power
+      const isMy = showMyCue && POOL.shotState === 'locked';
+      P3.cueMesh.material && (P3.cueMesh.material.color?.setHex(showMyCue ? 0xd4b070 : 0xe09040));
+
+      // Aim dashes
+      if (P3.aimDashes) {
+        const aimLen  = 60 + power * 140;
+        const numDash = P3.aimDashes.length;
+        const dashSpc = aimLen / numDash;
+        P3.aimDashes.forEach((d, i) => {
+          const t    = (i + 0.5) * dashSpc;
+          const dx3  = cb.x  + Math.cos(angle) * t;
+          const dz3  = cb.y  + Math.sin(angle) * t;
+          d.position.set(dx3, 0.8, dz3);
+          d.rotation.y = -angle;
+          const alpha = showMyCue
+            ? (POOL.shotState === 'locked' ? 0.6 : 0.4)
+            : 0.3;
+          d.material.opacity = alpha * (1 - i / numDash * 0.6);
+          d.visible = true;
+        });
+      }
     } else {
-      // Fallback plain circle
-      ctx.beginPath(); ctx.arc(bx, by,Math.max(0,r), 0, Math.PI*2);
-      ctx.fillStyle = POOL.BALL_COLORS[ball.id] || '#fff'; ctx.fill();
+      P3.cueMesh.visible = false;
+      if (P3.cueTipMesh) P3.cueTipMesh.visible = false;
+      if (P3.aimDashes)  P3.aimDashes.forEach(d => d.visible = false);
     }
-  });
+  }
+
+  // ── Render ────────────────────────────────────────────────────
+  P3.renderer.render(P3.scene, P3.camera);
 }
 
 function poolPhysicsSubStep(balls, r, tw, th, pr, gap, cushionY, cushionX, midTopX, midBotX) {
