@@ -16,9 +16,9 @@ export default (() => {
   let canvas, ctx, W, H, cellSize;
   let grid = [], score = 0, best = 0, level = 1, movesLeft = 20;
   let particles = [], floaters = [];
-  let powerups = {}; // key -> { type, count }
+  let powerups = {};
   let selectedPU = null;
-  let raf = null, destroyed = false;
+  let raf = null, destroyed = false, gameOver = false;
   let animating = false;
 
   function $id(id){ return document.getElementById(id); }
@@ -93,8 +93,25 @@ export default (() => {
 
   function checkWin(){
     const any = grid.some(row=>row.some(v=>v!==null));
-    if(!any){ score+=1000*level; level++; _sfx.levelup(); setTimeout(()=>{ newGrid(); },600); }
-    if(movesLeft<=0 && any){ setTimeout(()=>showOver(),400); }
+    if(!any){ score+=1000*level; level++; _sfx.levelup(); setTimeout(()=>{ newGrid(); },600); return; }
+    if(movesLeft<=0 && !gameOver){ gameOver=true; setTimeout(()=>showOver(),400); return; }
+    // Also check if no valid group of 2+ exists — if so, game over
+    if(!hasValidMove() && !gameOver){ gameOver=true; setTimeout(()=>showOver(),400); }
+  }
+
+  function hasValidMove(){
+    // Check if any bubble has an adjacent same-colour neighbour
+    for(let r=0;r<ROWS;r++){
+      for(let c=0;c<COLS;c++){
+        const v=grid[r][c];
+        if(v===null||v<0) continue;
+        for(const [dr,dc] of [[-1,0],[1,0],[0,-1],[0,1]]){
+          const nr=r+dr, nc=c+dc;
+          if(nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&grid[nr][nc]===v) return true;
+        }
+      }
+    }
+    return false;
   }
 
   function showOver(){
@@ -102,7 +119,8 @@ export default (() => {
     _sfx.gameover();
     $id('bburst-over-score').textContent = score.toLocaleString();
     $id('bburst-over').style.display='flex';
-    if(score>0 && window.HS) setTimeout(()=>HS.promptSubmit('bubbleburst', score, score.toLocaleString()), 800);
+    // Show HS prompt after game-over overlay has been visible for a moment
+    if(score>0 && window.HS) setTimeout(()=>HS.promptSubmit('bubbleburst', score, score.toLocaleString()), 1500);
   }
 
   // ── Power-ups ────────────────────────────────────────────────
@@ -276,7 +294,7 @@ export default (() => {
 
   // ── Click ────────────────────────────────────────────────────
   function onClick(e){
-    if(animating) return;
+    if(animating || gameOver) return;
     const rect=canvas.getBoundingClientRect();
     const scaleX=canvas.width/rect.width, scaleY=canvas.height/rect.height;
     const cx=(e.clientX-rect.left)*scaleX, cy=(e.clientY-rect.top)*scaleY;
@@ -288,7 +306,9 @@ export default (() => {
     if(v<0){
       collectPU(puTypeFromVal(v));
       spawnBurst(colX(c)+cellSize/2, rowY(r)+cellSize/2, '#ffe600');
-      grid[r][c]=null; gravity(); movesLeft--; updateHUD(); return;
+      grid[r][c]=null; gravity(); movesLeft--; updateHUD();
+      checkWin(); // must check after PU collection too
+      return;
     }
 
     if(selectedPU){
@@ -302,7 +322,7 @@ export default (() => {
 
   // ── Init / destroy ───────────────────────────────────────────
   function init(){
-    destroyed=false; particles=[]; floaters=[]; score=0; level=1;
+    destroyed=false; gameOver=false; particles=[]; floaters=[]; score=0; level=1;
     try{ best=parseInt(localStorage.getItem('bburst_best')||'0'); }catch(e){}
     powerups={}; selectedPU=null;
 
@@ -335,8 +355,7 @@ export default (() => {
     window.removeEventListener('resize',resize);
   }
 
-  window.bburstNewGame=()=>{ score=0; level=1; powerups={}; selectedPU=null; $id('bburst-over').style.display='none'; newGrid(); renderPUBar(); };
-  window.bburstExitToArcade=function(){ destroy(); if(score>0&&window.HS){ HS.promptSubmitOnExit('bubbleburst',score,score.toLocaleString(),()=>backToGameSelect()); } else { backToGameSelect(); } };
+  window.bburstNewGame=()=>{ score=0; level=1; gameOver=false; powerups={}; selectedPU=null; $id('bburst-over').style.display='none'; newGrid(); renderPUBar(); };
 
   return { init, destroy, getCurrentScore: ()=>score };
 })();

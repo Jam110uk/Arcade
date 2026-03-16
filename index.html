@@ -7988,10 +7988,13 @@ window.pbExitToArcade = function() {
 
 window.bburstExitToArcade = function() {
   const score = (typeof BBURST !== 'undefined' && typeof BBURST.getCurrentScore === 'function') ? BBURST.getCurrentScore() : 0;
-  if (typeof BBURST !== 'undefined') BBURST.destroy();
   if (score > 0 && window.HS) {
-    HS.promptSubmitOnExit('bubbleburst', score, score.toLocaleString(), () => backToGameSelect());
+    HS.promptSubmitOnExit('bubbleburst', score, score.toLocaleString(), () => {
+      if (typeof BBURST !== 'undefined') BBURST.destroy();
+      backToGameSelect();
+    });
   } else {
+    if (typeof BBURST !== 'undefined') BBURST.destroy();
     backToGameSelect();
   }
 };
