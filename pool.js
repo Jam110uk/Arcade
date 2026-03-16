@@ -371,12 +371,12 @@ async function pool3DInit() {
 }
 
 function pool3DBuildTable(THREE, scene, tw3, th3) {
-  const pr3 = POOL.POCKET_R * P3.SCALE;
-  const gap3 = POOL.MID_GAP * P3.SCALE;
-  const cw3 = pr3 * 0.7; // cushion height
+  const pr3  = POOL.POCKET_R * P3.SCALE;
+  const gap3 = POOL.MID_GAP  * P3.SCALE;
+  const rh   = pr3 * 0.65;   // rail height above felt
+  const pocketR = pr3 * 1.05; // visual pocket radius (slightly larger than physics)
 
-  // Felt surface
-  const feltGeo = new THREE.PlaneGeometry(tw3 - pr3*2, th3 - pr3*2);
+  // ── Felt surface ────────────────────────────────────────────────
   const feltCanvas = document.createElement('canvas');
   feltCanvas.width = 512; feltCanvas.height = 256;
   const fc = feltCanvas.getContext('2d');
@@ -391,71 +391,145 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
   }
   fc.strokeStyle='rgba(255,255,255,0.02)'; fc.lineWidth=1;
   for (let y=8;y<256;y+=8){fc.beginPath();fc.moveTo(0,y);fc.lineTo(512,y);fc.stroke();}
-  const bx3pct = 0.20;
-  const bxPx = bx3pct * 512;
+  const bxPx = 0.20 * 512;
   fc.strokeStyle='rgba(255,255,255,0.18)'; fc.lineWidth=1.5;
   fc.beginPath();fc.moveTo(bxPx,0);fc.lineTo(bxPx,256);fc.stroke();
-  const dRpx = (th3 - pr3*2) / (th3) * 256 * 0.28;
+  const dRpx = 256 * 0.28;
   fc.beginPath();fc.arc(bxPx,128,dRpx,-Math.PI/2,Math.PI/2);fc.stroke();
-
   const feltTex = new THREE.CanvasTexture(feltCanvas);
-  const feltMat = new THREE.MeshStandardMaterial({ map: feltTex, roughness: 0.92, metalness: 0.0 });
-  const feltMesh = new THREE.Mesh(feltGeo, feltMat);
+  const feltMat = new THREE.MeshStandardMaterial({ map:feltTex, roughness:0.92, metalness:0.0 });
+  const feltMesh = new THREE.Mesh(new THREE.PlaneGeometry(tw3 - pr3*2, th3 - pr3*2), feltMat);
   feltMesh.rotation.x = -Math.PI/2;
   feltMesh.position.set(tw3/2, 0, th3/2);
   feltMesh.receiveShadow = true;
   scene.add(feltMesh);
 
-  // Wooden rail boxes
-  const railMat = new THREE.MeshStandardMaterial({ color:0x3d1e08, roughness:0.7, metalness:0.05 });
-  const rh = pr3 * 0.6; // rail height
-  [
-    {w:tw3, d:pr3, x:tw3/2,   z:pr3/2},
-    {w:tw3, d:pr3, x:tw3/2,   z:th3-pr3/2},
-    {w:pr3, d:th3, x:pr3/2,   z:th3/2},
-    {w:pr3, d:th3, x:tw3-pr3/2, z:th3/2},
-  ].forEach(({w,d,x,z}) => {
+  // ── Rail material ───────────────────────────────────────────────
+  const railMat = new THREE.MeshStandardMaterial({ color:0x5a2e0a, roughness:0.65, metalness:0.06 });
+
+  // Helper — add a rail segment box
+  function addRail(w, d, x, z) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, rh, d), railMat);
     m.position.set(x, rh/2, z);
     m.castShadow = true; m.receiveShadow = true;
     scene.add(m);
-  });
+  }
 
-  // Green cushions
-  const cushMat = new THREE.MeshStandardMaterial({ color:0x167030, roughness:0.55 });
-  const ch = cw3;
-  // top/bottom segments (2 each, split at mid pocket)
-  const topLeft  = tw3/2 - pr3/2 - gap3;
-  const topRight = tw3/2 + pr3/2 + gap3;
-  [
-    {w:topLeft-pr3, d:cw3*0.6, x:pr3+(topLeft-pr3)/2,     z:pr3/2},
-    {w:tw3-topRight-pr3, d:cw3*0.6, x:topRight+(tw3-topRight-pr3)/2, z:pr3/2},
-    {w:topLeft-pr3, d:cw3*0.6, x:pr3+(topLeft-pr3)/2,     z:th3-pr3/2},
-    {w:tw3-topRight-pr3, d:cw3*0.6, x:topRight+(tw3-topRight-pr3)/2, z:th3-pr3/2},
-    // left/right
-    {w:cw3*0.6, d:th3-pr3*2-gap3*2, x:pr3/2, z:th3/2},
-    {w:cw3*0.6, d:th3-pr3*2-gap3*2, x:tw3-pr3/2, z:th3/2},
-  ].forEach(({w,d,x,z}) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, ch, d), cushMat);
-    m.position.set(x, ch/2, z);
+  // Corner pocket positions (in 3D units) — centred in the wooden corner
+  const cpr = pocketR * 0.85; // clearance around corner pocket centre
+  // Long-rail mid-pocket gap half-width
+  const mpg = gap3 * 1.1;
+
+  // TOP RAIL (z ≈ 0): two segments, gap at mid pocket, notched at corners
+  const topMidX = tw3 / 2;
+  addRail(topMidX - pr3 - cpr - mpg,    pr3,  pr3 + cpr + (topMidX-pr3-cpr-mpg)/2,  0);
+  addRail(topMidX - pr3 - cpr - mpg,    pr3,  topMidX + mpg + cpr + (topMidX-pr3-cpr-mpg)/2, 0);
+
+  // BOTTOM RAIL (z ≈ th3): mirror of top
+  addRail(topMidX - pr3 - cpr - mpg,    pr3,  pr3 + cpr + (topMidX-pr3-cpr-mpg)/2,  th3);
+  addRail(topMidX - pr3 - cpr - mpg,    pr3,  topMidX + mpg + cpr + (topMidX-pr3-cpr-mpg)/2, th3);
+
+  // LEFT RAIL (x ≈ 0): one segment, notched at corners
+  addRail(pr3, th3 - pr3*2 - cpr*2,  0, th3/2);
+
+  // RIGHT RAIL (x ≈ tw3): mirror
+  addRail(pr3, th3 - pr3*2 - cpr*2, tw3, th3/2);
+
+  // Corner fill blocks (square blocks at each corner between the two rails)
+  [[0, 0],[tw3, 0],[0, th3],[tw3, th3]].forEach(([x,z]) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(pr3, rh, pr3), railMat);
+    m.position.set(x, rh/2, z);
+    m.castShadow = true;
     scene.add(m);
   });
 
-  // Pockets
-  const pocketMat = new THREE.MeshStandardMaterial({ color:0x050505, roughness:1.0 });
-  const ringMat   = new THREE.MeshStandardMaterial({ color:0x5a3a10, roughness:0.5, metalness:0.3 });
-  POOL.POCKETS.forEach(p => {
-    const px3 = p.x * P3.SCALE, pz3 = p.y * P3.SCALE;
-    const prr = pr3 * 1.05;
-    const pg = new THREE.CylinderGeometry(prr, prr*1.1, pr3*0.4, 20);
-    const pm = new THREE.Mesh(pg, pocketMat);
-    pm.position.set(px3, -pr3*0.05, pz3);
-    scene.add(pm);
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(prr, pr3*0.06, 8, 24), ringMat);
-    ring.rotation.x = Math.PI/2;
-    ring.position.set(px3, pr3*0.05, pz3);
-    scene.add(ring);
+  // ── Green cushions (rubber bumpers inside the rails) ─────────────
+  const cushMat = new THREE.MeshStandardMaterial({ color:0x167030, roughness:0.55 });
+  const ch  = pr3 * 0.55;
+  const cwd = pr3 * 0.38; // cushion depth
+
+  // Top/bottom cushions split at mid pocket gap
+  const segW = topMidX - pr3 - mpg - pr3;
+  [[pr3 + segW/2, 0],[topMidX + mpg + segW/2, 0],
+   [pr3 + segW/2, th3],[topMidX + mpg + segW/2, th3]].forEach(([x,z]) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(segW, ch, cwd), cushMat);
+    m.position.set(x, ch/2, z < th3/2 ? cwd/2 : th3 - cwd/2);
+    scene.add(m);
   });
+  // Left/right cushions
+  [[0, th3/2],[tw3, th3/2]].forEach(([x,z]) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(cwd, ch, th3 - pr3*2 - mpg*2), cushMat);
+    m.position.set(x < tw3/2 ? cwd/2 : tw3 - cwd/2, ch/2, z);
+    scene.add(m);
+  });
+
+  // ── Pockets — sunk into the rail, flush at felt level ────────────
+  const pocketMat = new THREE.MeshStandardMaterial({ color:0x050505, roughness:1.0 });
+  const rimMat    = new THREE.MeshStandardMaterial({ color:0x7a4a15, roughness:0.45, metalness:0.35 });
+
+  // Corner pockets: sit at the exact corners of the table
+  const cornerPositions = [
+    [0,    0   ],  // TL
+    [tw3,  0   ],  // TR
+    [0,    th3 ],  // BL
+    [tw3,  th3 ],  // BR
+  ];
+  // Mid pockets: centred on long rails at table midpoint
+  const midPositions = [
+    [tw3/2, 0   ],  // top mid
+    [tw3/2, th3 ],  // bottom mid
+  ];
+
+  [...cornerPositions, ...midPositions].forEach(([px, pz]) => {
+    const isMid = (px === tw3/2);
+    const pr = isMid ? pocketR * 0.92 : pocketR;
+    // Dark hole cylinder — sits at felt level and goes down through rail
+    const pg = new THREE.CylinderGeometry(pr, pr * 1.08, rh * 1.4, 24);
+    const pm = new THREE.Mesh(pg, pocketMat);
+    pm.position.set(px, rh * 0.1, pz);
+    scene.add(pm);
+    // Brass/leather rim ring at felt surface level
+    const rim = new THREE.Mesh(
+      new THREE.TorusGeometry(pr, pr * 0.09, 8, 24),
+      rimMat
+    );
+    rim.rotation.x = Math.PI/2;
+    rim.position.set(px, 0.02, pz);
+    scene.add(rim);
+    // Dark disc at bottom of pocket
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(pr * 0.9, 20), pocketMat);
+    disc.rotation.x = -Math.PI/2;
+    disc.position.set(px, -rh * 0.6, pz);
+    scene.add(disc);
+  });
+
+  // ── Green cushions ──────────────────────────────────────────────
+  // (already added above)
+
+  // ── Table body — thick skirt panels ─────────────────────────────
+  const skirtMat = new THREE.MeshStandardMaterial({ color:0x2e1406, roughness:0.8, metalness:0.05 });
+  const legMat   = new THREE.MeshStandardMaterial({ color:0x1e0d04, roughness:0.6, metalness:0.1 });
+  const skirtH   = pr3 * 1.8;
+  [
+    {w:tw3, d:pr3*0.35, x:tw3/2, z:0   },
+    {w:tw3, d:pr3*0.35, x:tw3/2, z:th3 },
+    {w:pr3*0.35, d:th3, x:0,    z:th3/2},
+    {w:pr3*0.35, d:th3, x:tw3,  z:th3/2},
+  ].forEach(({w,d,x,z}) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, skirtH, d), skirtMat);
+    m.position.set(x, -skirtH/2, z);
+    m.castShadow = true; m.receiveShadow = true;
+    scene.add(m);
+  });
+  // Corner legs
+  const legW = pr3 * 0.6, legH = skirtH * 1.1;
+  [[pr3*0.3, th3*0.1],[tw3-pr3*0.3, th3*0.1],[pr3*0.3, th3*0.9],[tw3-pr3*0.3, th3*0.9]]
+    .forEach(([x,z]) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(legW, legH, legW), legMat);
+      m.position.set(x, -legH/2, z);
+      m.castShadow = true;
+      scene.add(m);
+    });
 }
 
 function pool3DBuildBalls(THREE, scene, tw3, th3) {
@@ -552,14 +626,22 @@ function pool3DBuildCue(THREE, scene) {
 function pool3DBuildAimLine(THREE, scene) {
   const S = P3.SCALE;
   P3.aimDashes = [];
-  const dashMat = new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.5, depthWrite:false });
-  for (let i = 0; i < 24; i++) {
-    const dg = new THREE.BoxGeometry(POOL.BALL_R * S * 0.6, S * 0.5, S * 5);
-    const dm = new THREE.Mesh(dg, dashMat.clone());
+  // Each dash gets its own material so we can colour individually
+  for (let i = 0; i < 32; i++) {
+    const mat = new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.55, depthWrite:false });
+    const dg  = new THREE.BoxGeometry(POOL.BALL_R * S * 0.5, S * 0.4, S * 4.5);
+    const dm  = new THREE.Mesh(dg, mat);
     dm.visible = false;
     scene.add(dm);
     P3.aimDashes.push(dm);
   }
+  // Ghost ball showing predicted end-of-aim position
+  const ghostGeo = new THREE.SphereGeometry(POOL.BALL_R * S, 18, 12);
+  const ghostMat = new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.22, depthWrite:false });
+  const ghostMesh = new THREE.Mesh(ghostGeo, ghostMat);
+  ghostMesh.visible = false;
+  scene.add(ghostMesh);
+  P3.aimGhost = ghostMesh;
 }
 
 function poolGetScale() {
@@ -581,8 +663,6 @@ function poolGetMousePos(e) {
 }
 
 function poolHandleMove(mx, my, screenX, screenY) {
-  // Power adjustment (locked state) works anywhere on screen — no gate needed
-  // Aiming angle only updates when over the canvas
   if (POOL.isMoving || !POOL.myTurn || !POOL.cueBall || POOL.cueBall.potted) return;
   if (!POOL._screenEl) POOL._screenEl = document.getElementById('pool-screen');
   if (!POOL._screenEl.classList.contains('active')) return;
@@ -590,10 +670,34 @@ function poolHandleMove(mx, my, screenX, screenY) {
   POOL.mouseY = my;
 
   if (POOL.shotState === 'aiming') {
-    // Orbit mode: angle follows mouse around cue ball (canvas coords)
-    const dx = mx - POOL.cueBall.x;
-    const dy = my - POOL.cueBall.y;
-    POOL.aimAngle = Math.atan2(dy, dx);
+    // ── 3D raycast: find where mouse points on the felt plane (y=0) ──
+    // This makes aiming always match the camera view regardless of rotation.
+    if (P3.ready && P3.camera && P3.container) {
+      const rect   = P3.container.getBoundingClientRect();
+      const ndcX   = ((screenX - rect.left) / rect.width)  * 2 - 1;
+      const ndcY   = -((screenY - rect.top)  / rect.height) * 2 + 1;
+      const THREE  = P3.THREE;
+      const ray    = new THREE.Raycaster();
+      const mouse  = new THREE.Vector2(ndcX, ndcY);
+      ray.setFromCamera(mouse, P3.camera);
+      // Intersect with y=0 plane (the felt surface)
+      const plane  = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+      const target = new THREE.Vector3();
+      if (ray.ray.intersectPlane(plane, target)) {
+        const S   = P3.SCALE;
+        // Convert 3D hit back to 2D physics coords
+        const hitX2d = target.x / S;
+        const hitZ2d = target.z / S;
+        const dx = hitX2d - POOL.cueBall.x;
+        const dy = hitZ2d - POOL.cueBall.y;
+        POOL.aimAngle = Math.atan2(dy, dx);
+      }
+    } else {
+      // Fallback: plain 2D canvas coords
+      const dx = mx - POOL.cueBall.x;
+      const dy = my - POOL.cueBall.y;
+      POOL.aimAngle = Math.atan2(dy, dx);
+    }
 
   } else if (POOL.shotState === 'locked') {
     // Pull-back mode: use raw screen coords projected onto locked axis
@@ -779,24 +883,49 @@ function poolDraw() {
         P3.cueTipMesh.visible = true;
       }
 
-      // Aim dashes
+      // Aim dashes — length and colour show power
       if (P3.aimDashes) {
-        const power  = locked ? pullback : 0.3;
-        const aimLen = (60 + power * 140) * S;
-        const nd     = P3.aimDashes.length;
-        const spc    = aimLen / nd;
+        const power    = locked ? pullback : 0;
+        // Full shot aim length, dashes only shown up to power fraction when locked
+        const maxLen   = (60 + 140) * S;  // max possible
+        const aimLen   = locked ? (60 + power * 140) * S : (60 + 0.3 * 140) * S;
+        const nd       = P3.aimDashes.length;
+        const spc      = maxLen / nd;
+
+        // Power colour: white → orange → red
+        const r3c = Math.min(1, power * 2);
+        const g3c = Math.max(0, 1 - power * 1.8);
+        const THREE = P3.THREE;
+
         P3.aimDashes.forEach((d, i) => {
-          const t   = (i + 0.5) * spc;
-          d.position.set(cbx3 + Math.cos(angle)*t, 0.02, cbz3 + Math.sin(angle)*t);
+          const t     = (i + 0.5) * spc;
+          const inRange = t <= aimLen;
+          if (!inRange) { d.visible = false; return; }
+          d.position.set(cbx3 + Math.cos(angle)*t, 0.05, cbz3 + Math.sin(angle)*t);
           d.rotation.y = -angle;
-          d.material.opacity = (locked ? 0.6 : 0.4) * (1 - i/nd*0.5);
+          // Fade toward end of line, brighter at start
+          const fade  = 1 - (t / aimLen) * 0.55;
+          d.material.color.setRGB(1, g3c, 0);
+          d.material.opacity = (locked ? 0.75 : 0.4) * fade;
           d.visible = true;
         });
+
+        // Ghost ball at aim end point
+        if (P3.aimGhost) {
+          const endX = cbx3 + Math.cos(angle) * aimLen;
+          const endZ = cbz3 + Math.sin(angle) * aimLen;
+          P3.aimGhost.position.set(endX, POOL.BALL_R * S, endZ);
+          const ghostOpacity = locked ? 0.15 + power * 0.35 : 0.12;
+          P3.aimGhost.material.opacity  = ghostOpacity;
+          P3.aimGhost.material.color.setRGB(1, g3c, 0);
+          P3.aimGhost.visible = true;
+        }
       }
     } else {
       P3.cueMesh.visible = false;
       if (P3.cueTipMesh) P3.cueTipMesh.visible = false;
       if (P3.aimDashes)  P3.aimDashes.forEach(d => d.visible = false);
+      if (P3.aimGhost)   P3.aimGhost.visible = false;
     }
   }
 
