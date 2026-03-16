@@ -240,12 +240,20 @@ async function pool3DInit() {
   container.style.cssText = [
     'position:absolute',
     'top:0','left:0','right:0','bottom:0',
-    'z-index:2',
-    'pointer-events:none',
+    'z-index:1',   // below UI elements (power bar etc. are siblings, not children)
     'overflow:hidden',
   ].join(';');
   canvasParent.appendChild(container);
   P3.container = container;
+
+  // Camera orbit state
+  P3.camTheta  = 0;             // horizontal orbit angle
+  P3.camPhi    = 0.32;          // vertical tilt (0=side, PI/2=top-down)
+  P3.camDist   = tw3 * 0.85;   // distance from table centre
+  P3.camTarget = null;          // set after cx3/cz3 known
+  P3.isDragging = false;
+  P3.dragStartX = 0; P3.dragStartY = 0;
+  P3.dragTheta  = 0; P3.dragPhi    = 0;
 
   // Renderer — sized to fill the container
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
@@ -263,18 +271,26 @@ async function pool3DInit() {
   scene.background = new THREE.Color(0x0d0d18);
   P3.scene = scene;
 
-  // Camera — top-down perspective, looking at centre of table
-  // Table spans x: 0→tw3, z: 0→th3, y=0 is the felt surface
+  // Camera — orbit-controlled, initially looking from above at a slight angle
   const cx3 = tw3 * 0.5, cz3 = th3 * 0.5;
-  const camH = tw3 * 0.55;   // height above table
-  const camTilt = th3 * 0.35; // slight forward tilt (behind the table centre)
+  P3.camTarget = { x: cx3, y: 0, z: cz3 };
 
-  const aspect = 2; // will be updated by resize
-  const camera = new THREE.PerspectiveCamera(52, aspect, 0.1, 200);
-  camera.position.set(cx3, camH, cz3 + camTilt);
-  camera.lookAt(cx3, 0, cz3 - th3 * 0.05);
+  const aspect = 2;
+  const camera = new THREE.PerspectiveCamera(50, aspect, 0.1, 200);
   P3.camera = camera;
   P3.SCALE = SCALE;
+
+  function pool3DUpdateCamera() {
+    const { camTheta, camPhi, camDist, camTarget } = P3;
+    const phi = Math.max(0.12, Math.min(1.48, camPhi));
+    const x = camTarget.x + camDist * Math.sin(phi) * Math.sin(camTheta);
+    const y = camTarget.y + camDist * Math.cos(phi);
+    const z = camTarget.z + camDist * Math.sin(phi) * Math.cos(camTheta);
+    P3.camera.position.set(x, y, z);
+    P3.camera.lookAt(camTarget.x, camTarget.y, camTarget.z);
+  }
+  P3.pool3DUpdateCamera = pool3DUpdateCamera;
+  pool3DUpdateCamera();
 
   // Lighting
   scene.add(new THREE.AmbientLight(0xfff0e0, 0.6));
@@ -312,10 +328,44 @@ async function pool3DInit() {
     P3.camera.updateProjectionMatrix();
   }
   window.addEventListener('resize', onResize);
-  // Multiple attempts to catch layout settling
   setTimeout(onResize, 50);
   setTimeout(onResize, 300);
   setTimeout(onResize, 800);
+
+  // ── Camera orbit & zoom ────────────────────────────────────────
+  function onCamMouseDown(e) {
+    if (e.button !== 2 && e.button !== 1) return;
+    P3.isDragging = true;
+    P3.dragStartX = e.clientX; P3.dragStartY = e.clientY;
+    P3.dragTheta  = P3.camTheta; P3.dragPhi = P3.camPhi;
+    e.preventDefault();
+  }
+  function onCamMouseMove(e) {
+    if (!P3.isDragging) return;
+    const dx = (e.clientX - P3.dragStartX) / container.clientWidth;
+    const dy = (e.clientY - P3.dragStartY) / container.clientHeight;
+    P3.camTheta = P3.dragTheta - dx * Math.PI * 2;
+    P3.camPhi   = Math.max(0.12, Math.min(1.48, P3.dragPhi - dy * Math.PI));
+    pool3DUpdateCamera();
+    poolDraw();
+  }
+  function onCamMouseUp(e) {
+    if (e.button === 2 || e.button === 1) P3.isDragging = false;
+  }
+  function onCamWheel(e) {
+    e.preventDefault();
+    const tw3l = POOL.TW * P3.SCALE;
+    P3.camDist = Math.max(tw3l * 0.3, Math.min(tw3l * 2.0, P3.camDist + e.deltaY * 0.003));
+    pool3DUpdateCamera();
+    poolDraw();
+  }
+  function onCamContextMenu(e) { e.preventDefault(); }
+
+  container.addEventListener('mousedown',   onCamMouseDown);
+  container.addEventListener('mousemove',   onCamMouseMove);
+  container.addEventListener('mouseup',     onCamMouseUp);
+  container.addEventListener('wheel',       onCamWheel, { passive: false });
+  container.addEventListener('contextmenu', onCamContextMenu);
 
   poolDraw();
 }
@@ -634,6 +684,7 @@ function poolHandleClick(e) {
 }
 
 function poolMouseMove(e) {
+  if (P3.isDragging) return; // camera orbit in progress — don't update aim
   const p = poolGetMousePos(e);
   POOL._lastScreenX = p.screenX;
   POOL._lastScreenY = p.screenY;
@@ -703,16 +754,28 @@ function poolDraw() {
       const tipDist     = TIP_GAP + pullDist;
 
       const cbx3 = cb.x * S, cbz3 = cb.y * S;
-      const tipX3  = cbx3 - Math.cos(angle) * tipDist;
-      const tipZ3  = cbz3 - Math.sin(angle) * tipDist;
+      const tipX3 = cbx3 - Math.cos(angle) * tipDist;
+      const tipZ3 = cbz3 - Math.sin(angle) * tipDist;
+      // Butt is further back along the same direction
+      const buttX3 = tipX3 - Math.cos(angle) * CUE_LEN;
+      const buttZ3 = tipZ3 - Math.sin(angle) * CUE_LEN;
+      // Cue pivot is at the tip; the LatheGeometry grows along +Y.
+      // We want +Y to point from tip toward butt (opposite to shot direction).
+      // Use a quaternion: rotate from worldUp(0,1,0) to the butt direction.
+      const THREE = P3.THREE;
+      const buttDir = new THREE.Vector3(buttX3 - tipX3, 0, buttZ3 - tipZ3).normalize();
+      // Lay cue flat on table: tilt it down slightly so it rests at ball height
+      buttDir.y = -0.08;
+      buttDir.normalize();
+      const up   = new THREE.Vector3(0, 1, 0);
+      const quat = new THREE.Quaternion().setFromUnitVectors(up, buttDir);
 
-      P3.cueMesh.position.set(tipX3, r3 * 1.1, tipZ3);
-      P3.cueMesh.rotation.set(Math.PI/2, 0, 0);
-      P3.cueMesh.rotation.y = -(angle + Math.PI/2);
+      P3.cueMesh.position.set(tipX3, r3 * 1.05, tipZ3);
+      P3.cueMesh.quaternion.copy(quat);
       P3.cueMesh.visible = true;
 
       if (P3.cueTipMesh) {
-        P3.cueTipMesh.position.set(tipX3, r3 * 1.1, tipZ3);
+        P3.cueTipMesh.position.set(tipX3, r3 * 1.05, tipZ3);
         P3.cueTipMesh.visible = true;
       }
 
