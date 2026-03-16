@@ -62,6 +62,7 @@ export default (() => {
   let upperPusherMesh, lowerPusherMesh;
   let upperPusherDir = 1, lowerPusherDir = -1;
   const PUSH_SPEED   = 1.5;  // units/sec
+  const PUSH_H       = 0.18; // pusher plate height
 
   let fallingBody    = null;
   let fallingMesh    = null;
