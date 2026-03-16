@@ -3329,6 +3329,9 @@
   .hs-btn.secondary:hover { border-color: var(--text); color: var(--text); }
   .hs-submitted-msg { text-align: center; color: #22c55e; font-size: 0.75rem; letter-spacing: 0.12em; padding: 8px 0; display: none; }
   .hs-submitted-msg.visible { display: block; }
+  .hs-extra-stat { font-size: 0.65rem; letter-spacing: 0.18em; color: var(--dim); text-align: center; margin-top: -8px; margin-bottom: 14px; display: none; }
+  .hs-extra-stat.visible { display: block; }
+  .hs-extra-stat span { color: #00ff88; font-family: 'Orbitron', sans-serif; font-size: 0.82rem; }
   .hs-view-box { max-width: 520px; }
   .hs-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; justify-content: center; }
   .hs-tab {
@@ -4681,6 +4684,7 @@
     <div class="hs-box-title">🏆 HIGH SCORE!</div>
     <div class="hs-box-game" id="hs-submit-game-label">GAME</div>
     <div class="hs-score-display" id="hs-submit-score">0</div>
+    <div class="hs-extra-stat" id="hs-extra-stat"><span id="hs-extra-val"></span> <span id="hs-extra-label"></span></div>
     <div class="hs-input-label">ENTER YOUR NAME FOR THE OFFICE LEADERBOARD</div>
     <input class="hs-name-input" id="hs-name-input" maxlength="14" placeholder="Your name..." autocomplete="off" spellcheck="false" onkeydown="if(event.key==='Enter')hsSubmitConfirm()">
     <div class="hs-submitted-msg" id="hs-submitted-msg">✅ SCORE SUBMITTED!</div>
@@ -4872,7 +4876,7 @@
     <div class="game-card" style="--card-accent:#00e5ff" onclick="selectGame('stackit')">
       <span class="game-icon">🏗</span>
       <div class="game-name">STACK IT</div>
-      <div class="game-desc">Bounce blocks and stack them perfectly — reach row 15 to win. Overhangs are trimmed!</div>
+      <div class="game-desc">Bounce blocks and stack them perfectly — overhangs are trimmed, endless climb!</div>
     </div>
 
     <div class="game-card" style="--card-accent:#00f5ff" onclick="selectGame('orbit')">
@@ -7998,6 +8002,28 @@ window.bburstExitToArcade = function() {
   if (typeof BBURST !== 'undefined') BBURST.destroy();
   if (score > 0 && window.HS) {
     HS.promptSubmitOnExit('bubbleburst', score, score.toLocaleString(), () => backToGameSelect());
+  } else {
+    backToGameSelect();
+  }
+};
+
+window.stackitExitToArcade = function() {
+  const data = (typeof STACKIT !== 'undefined' && typeof STACKIT.getEndData === 'function') ? STACKIT.getEndData() : null;
+  if (typeof STACKIT !== 'undefined') STACKIT.destroy();
+  if (data && data.score > 0 && window.HS) {
+    // Show the extra "rows" stat in the submit modal
+    const extraEl  = document.getElementById('hs-extra-stat');
+    const extraVal = document.getElementById('hs-extra-val');
+    const extraLbl = document.getElementById('hs-extra-label');
+    if (extraEl && extraVal && extraLbl) {
+      extraVal.textContent = data.rows;
+      extraLbl.textContent = 'ROWS';
+      extraEl.classList.add('visible');
+    }
+    HS.promptSubmitOnExit('stackit', data.score, data.score.toLocaleString(), () => {
+      if (extraEl) extraEl.classList.remove('visible');
+      backToGameSelect();
+    });
   } else {
     backToGameSelect();
   }

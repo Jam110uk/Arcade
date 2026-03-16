@@ -407,6 +407,24 @@ export default (() => {
     return Math.round(BASE_SPEED * Math.pow(MIN_SPEED / BASE_SPEED, t));
   }
 
+  // ── High Score prompt ────────────────────────────────────────
+  function triggerHSPrompt() {
+    if (!window.HS || score <= 0) return;
+    // Inject the rows extra-stat into the shared modal
+    const extraEl  = document.getElementById('hs-extra-stat');
+    const extraVal = document.getElementById('hs-extra-val');
+    const extraLbl = document.getElementById('hs-extra-label');
+    if (extraEl && extraVal && extraLbl) {
+      extraVal.textContent = moverRow;
+      extraLbl.textContent = 'ROWS';
+      extraEl.classList.add('visible');
+    }
+    window.HS.promptSubmitOnExit('stackit', score, score.toLocaleString(), () => {
+      if (extraEl) extraEl.classList.remove('visible');
+      // After prompt closes, stay on game-over screen — player can tap to retry
+    });
+  }
+
   function newGame() {
     stack         = [];
     moverCol      = Math.floor((COLS - START_WIDTH) / 2);
@@ -451,6 +469,8 @@ export default (() => {
       sndFail();
       if (score > bestScore) bestScore = score;
       gameState = 'lose';
+      // Show HS prompt after the game-over animation has had a moment to show
+      if (score > 0) setTimeout(() => triggerHSPrompt(), 2000);
       return;
     }
 
@@ -616,7 +636,13 @@ export default (() => {
     ctx    = canvas.getContext('2d');
 
     container.querySelector('#stackit-new-btn').addEventListener('click',  () => { try { ac().resume(); } catch(e){} newGame(); });
-    container.querySelector('#stackit-back-btn').addEventListener('click', () => { window.backToGameSelect?.(); });
+    container.querySelector('#stackit-back-btn').addEventListener('click', () => {
+      if (typeof window.stackitExitToArcade === 'function') {
+        window.stackitExitToArcade();
+      } else {
+        window.backToGameSelect?.();
+      }
+    });
 
     wrap.addEventListener('click',      handleAction);
     wrap.addEventListener('touchstart', e => { e.preventDefault(); handleAction(); }, { passive: false });
@@ -647,5 +673,5 @@ export default (() => {
     if (screenEl) screenEl.innerHTML = '';
   }
 
-  return { init, destroy };
+  return { init, destroy, getEndData: () => ({ score, rows: moverRow }) };
 })();
