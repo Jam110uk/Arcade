@@ -16,6 +16,7 @@ export const GAMES = {
 
   // ── Solo / local games ─────────────────────────────────────
   stackit:      { label: '🏗 Stack It',        module: './stackit.js', screen: 'stackit-screen',       global: 'STACKIT', init: m => m.init() },
+  coinpusher:   { label: '🪙 Coin Pusher',     module: './coinpusher.js', screen: 'coinpusher-screen', global: 'COINPUSHER', init: m => m.init() },
   snake:        { label: '🐍 Snake',          module: './snk.js',    screen: 'snake-screen',         global: 'SNK',   init: m => m.init() },
   wordle:       { label: '📝 Wordle',          module: './wrd.js',    screen: 'wordle-screen',        global: 'WRD',   init: m => m.init() },
   tetris:       { label: '🧱 Tetris',          module: './tet.js',    screen: 'tetris-screen',        global: 'TET',   init: () => window.tetInit?.() },

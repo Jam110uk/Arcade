@@ -4873,6 +4873,12 @@
       <div class="game-desc">Click one bubble to trigger a chain reaction — the bigger the group, the bigger the score.</div>
     </div>
 
+    <div class="game-card" style="--card-accent:#c084fc" onclick="selectGame('coinpusher')">
+      <span class="game-icon">🪙</span>
+      <div class="game-name">COIN PUSHER</div>
+      <div class="game-desc">British beach arcade classic — drop 2p coins, push the pile off the edge and win big!</div>
+    </div>
+
     <div class="game-card" style="--card-accent:#00e5ff" onclick="selectGame('stackit')">
       <span class="game-icon">🏗</span>
       <div class="game-name">STACK IT</div>
@@ -6326,7 +6332,7 @@ const GAME_SCREEN_IDS = new Set([
   'solitaire-screen','minesweeper-screen','pool-screen','scrabble-screen',
   'trivia-screen','trivia-wait-screen','connectfour-screen','zuma-screen',
   'placement-screen','hm-set-screen','poker-screen','chess-screen','guesswho-screen','guesswho-lobby-screen','pacman-screen','tron-screen','tron-lobby-screen','monopoly-screen','plinko-screen','orbit-screen',
-  'bubbleburst-screen','stackit-screen',
+  'bubbleburst-screen','stackit-screen','coinpusher-screen',
 ]);
 
 function showScreen(id) {
@@ -13385,6 +13391,11 @@ window._setupMONO = function(MONOmodule) {
 </div>
 </div>
 
+
+<!-- ============================================================ -->
+<!-- COIN PUSHER SCREEN                                          -->
+<!-- ============================================================ -->
+<div class="screen" id="coinpusher-screen"></div>
 
 <!-- ============================================================ -->
 <!-- STACK IT SCREEN                                              -->
