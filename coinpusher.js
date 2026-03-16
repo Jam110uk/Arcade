@@ -222,7 +222,7 @@ export default (() => {
       pegColsP.forEach(xf => {
         const xOff = (ri % 2 === 0) ? 0 : (MW * 0.085);
         const body = new CANNON.Body({ mass:0 });
-        body.addShape(new CANNON.Cylinder(0.08, 0.08, MD*0.9, 10));
+        body.addShape(new CANNON.Cylinder(0.08, 0.08, MD*0.09, 10));
         body.position.set(xf * MW + xOff, CHUTE_BOT + yf * chuteH, 0);
         body.quaternion.setFromEuler(Math.PI/2, 0, 0);
         world.addBody(body);
@@ -376,8 +376,9 @@ export default (() => {
     trayLabel.position.set(0, TRAY_FLOOR + 0.50, TRAY_Z + TRAY_DEPTH/2 + 0.12);
     scene.add(trayLabel);
 
-    // ── Pegs — full width of back wall ──────────────────────────
-    const pegGeo = new THREE.CylinderGeometry(0.08, 0.08, MD * 0.9, 12);
+    // ── Pegs — short studs on back wall ─────────────────────────
+    const PEG_LEN = MD * 0.09;   // 1/10th of original length
+    const pegGeo = new THREE.CylinderGeometry(0.08, 0.08, PEG_LEN, 12);
     pegGeo.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI/2));
     const chuteH = CHUTE_TOP - CHUTE_BOT;
     const pegRows = [0.15, 0.30, 0.47, 0.62, 0.78];
@@ -689,17 +690,48 @@ export default (() => {
     });
 
     // Move pusher plates — sweep back→front, stop before front lip
-    upperPusherBody.position.z += PUSH_SPEED * upperPusherDir * dt;
+    const uDeltaZ = PUSH_SPEED * upperPusherDir * dt;
+    upperPusherBody.position.z += uDeltaZ;
     if (upperPusherBody.position.z > U_PUSH_FRONT) { upperPusherBody.position.z = U_PUSH_FRONT; upperPusherDir=-1; }
     if (upperPusherBody.position.z < U_PUSH_BACK)  { upperPusherBody.position.z = U_PUSH_BACK;  upperPusherDir= 1; }
     upperPusherMesh.position.copy(upperPusherBody.position);
     upperPusherMesh.position.y = UPPER_TOP + PUSH_H/2;
 
-    lowerPusherBody.position.z += PUSH_SPEED * lowerPusherDir * dt * 0.82;
+    const lDeltaZ = PUSH_SPEED * lowerPusherDir * dt * 0.82;
+    lowerPusherBody.position.z += lDeltaZ;
     if (lowerPusherBody.position.z > L_PUSH_FRONT) { lowerPusherBody.position.z = L_PUSH_FRONT; lowerPusherDir=-1; }
     if (lowerPusherBody.position.z < L_PUSH_BACK)  { lowerPusherBody.position.z = L_PUSH_BACK;  lowerPusherDir= 1; }
     lowerPusherMesh.position.copy(lowerPusherBody.position);
     lowerPusherMesh.position.y = LOWER_TOP + PUSH_H/2;
+
+    // Carry coins/items resting on top of a pusher along with it
+    const uTop  = UPPER_TOP + PUSH_H;   // top surface Y of upper pusher
+    const lTop  = LOWER_TOP + PUSH_H;   // top surface Y of lower pusher
+    const uMinZ = upperPusherBody.position.z - U_PUSH_HD;
+    const uMaxZ = upperPusherBody.position.z + U_PUSH_HD;
+    const lMinZ = lowerPusherBody.position.z - L_PUSH_HD;
+    const lMaxZ = lowerPusherBody.position.z + L_PUSH_HD;
+
+    coinBodies.forEach(obj => {
+      if (obj.shelf === 'falling') return;
+      const by = obj.body.position.y;
+      const bz = obj.body.position.z;
+      const bx = obj.body.position.x;
+      // Check resting on upper pusher
+      if (by >= uTop - CT && by <= uTop + CT*1.5 &&
+          bz >= uMinZ - CR && bz <= uMaxZ + CR &&
+          Math.abs(bx) <= MW/2) {
+        obj.body.position.z += uDeltaZ;
+        obj.body.velocity.z  = upperPusherDir * PUSH_SPEED * 0.92;
+      }
+      // Check resting on lower pusher
+      if (by >= lTop - CT && by <= lTop + CT*1.5 &&
+          bz >= lMinZ - CR && bz <= lMaxZ + CR &&
+          Math.abs(bx) <= MW/2) {
+        obj.body.position.z += lDeltaZ;
+        obj.body.velocity.z  = lowerPusherDir * PUSH_SPEED * 0.82 * 0.92;
+      }
+    });
 
     // Check fallen coins
     checkFallen();
