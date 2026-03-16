@@ -15,6 +15,7 @@ export const GAMES = {
   bubbleburst:  { label: '💥 Bubble Burst',     module: './bubbleburst.js',  screen: 'bubbleburst-screen',  global: 'BBURST', init: m => m.init() },
 
   // ── Solo / local games ─────────────────────────────────────
+  stackit:      { label: '🏗 Stack It',        module: './stackit.js', screen: 'stackit-screen',       global: 'STACKIT', init: m => m.init() },
   snake:        { label: '🐍 Snake',          module: './snk.js',    screen: 'snake-screen',         global: 'SNK',   init: m => m.init() },
   wordle:       { label: '📝 Wordle',          module: './wrd.js',    screen: 'wordle-screen',        global: 'WRD',   init: m => m.init() },
   tetris:       { label: '🧱 Tetris',          module: './tet.js',    screen: 'tetris-screen',        global: 'TET',   init: () => window.tetInit?.() },
@@ -45,7 +46,6 @@ export const GAMES = {
   uno:          { label: '🃏 Uno',               module: './uno.js',    screen: 'uno-lobby-screen',     global: 'UNO',   init: () => {} },
   pokemon:      { label: '⚡ Pokémon',            module: './pkm.js',    screen: 'pokemon-lobby-screen', global: 'PKM',   init: m => m.init() },
   guesswho:     { label: '🎭 Guess Who',         module: './gw.js',     screen: 'guesswho-lobby-screen',global: 'GW',    init: m => { m.stopLobbyBrowse?.(); m.startLobbyBrowse?.(); } },
-  bomberman:    { label: '💣 Bomberman',         module: './bomb.js',   screen: 'bomb-screen',          global: 'BOMB',  init: m => m.init() },
 };
 
 // Cache of already-loaded modules and scripts
