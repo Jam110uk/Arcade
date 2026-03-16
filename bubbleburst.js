@@ -119,8 +119,13 @@ export default (() => {
     _sfx.gameover();
     $id('bburst-over-score').textContent = score.toLocaleString();
     $id('bburst-over').style.display='flex';
-    // Show HS prompt after game-over overlay has been visible for a moment
-    if(score>0 && window.HS) setTimeout(()=>HS.promptSubmit('bubbleburst', score, score.toLocaleString()), 1500);
+    // After 1.5s show HS prompt — use promptSubmitOnExit (the only HS method that exists)
+    // Callback does nothing extra since we stay on the game screen until player chooses
+    if(score>0 && window.HS){
+      setTimeout(()=>{
+        HS.promptSubmitOnExit('bubbleburst', score, score.toLocaleString(), ()=>{});
+      }, 1500);
+    }
   }
 
   // ── Power-ups ────────────────────────────────────────────────
