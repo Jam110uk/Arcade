@@ -204,8 +204,8 @@ export default (() => {
     addStaticBox(MW, 0.20, WT, 0, LOWER_TOP+0.10, LOWER_SHELF_Z + LOWER_SHELF_D/2 + WT/2);
 
     // Win tray — sits just in front of lower shelf front lip
-    addStaticBox(MW, 0.1,  TRAY_DEPTH, 0, TRAY_FLOOR+0.05, trayZ);
-    addStaticBox(MW, 0.85, WT,        0, TRAY_FLOOR+0.42, trayZ + TRAY_DEPTH/2 + WT/2);
+    addStaticBox(MW, 0.1,  TRAY_DEPTH, 0, TRAY_FLOOR+0.05, TRAY_Z);
+    addStaticBox(MW, 0.85, WT,        0, TRAY_FLOOR+0.42, TRAY_Z + TRAY_DEPTH/2 + WT/2);
 
     // Pegs — full width grid across back wall chute area
     const chuteH = CHUTE_TOP - CHUTE_BOT;
@@ -224,17 +224,17 @@ export default (() => {
     });
 
     // Upper pusher — covers upper shelf (short)
-    const upperPShape = new CANNON.Box(new CANNON.Vec3(MW/2, PUSH_H/2, upperPusherHalfD));
+    const upperPShape = new CANNON.Box(new CANNON.Vec3(MW/2, PUSH_H/2, U_PUSH_HD));
     upperPusherBody = new CANNON.Body({ mass:0, type:CANNON.Body.KINEMATIC });
     upperPusherBody.addShape(upperPShape);
-    upperPusherBody.position.set(0, UPPER_TOP + PUSH_H/2, upperPusherBack);
+    upperPusherBody.position.set(0, UPPER_TOP + PUSH_H/2, U_PUSH_BACK);
     world.addBody(upperPusherBody);
 
     // Lower pusher — covers full lower shelf depth
-    const lowerPShape = new CANNON.Box(new CANNON.Vec3(MW/2, PUSH_H/2, lowerPusherHalfD));
+    const lowerPShape = new CANNON.Box(new CANNON.Vec3(MW/2, PUSH_H/2, L_PUSH_HD));
     lowerPusherBody = new CANNON.Body({ mass:0, type:CANNON.Body.KINEMATIC });
     lowerPusherBody.addShape(lowerPShape);
-    lowerPusherBody.position.set(0, LOWER_TOP + PUSH_H/2, lowerPusherBack);
+    lowerPusherBody.position.set(0, LOWER_TOP + PUSH_H/2, L_PUSH_BACK);
     world.addBody(lowerPusherBody);
   }
 
