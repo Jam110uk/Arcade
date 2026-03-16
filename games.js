@@ -5,7 +5,9 @@
 //   2. Add an entry below — that's it.
 //
 // `global`: the window.XXXX name the module and index.html use internally.
-//   If omitted, defaults to gameKey.toUpperCase() (fine for TRON, ORBIT etc.)
+//   If omitted, defaults to gameKey.toUpperCase()
+// `script`: for non-module legacy engines — path to a plain .js file to
+//   inject via <script> tag (loaded once, cached). Use instead of `module`.
 // ============================================================
 
 export const GAMES = {
@@ -13,8 +15,8 @@ export const GAMES = {
   snake:        { label: '🐍 Snake',          module: './snk.js',    screen: 'snake-screen',         global: 'SNK',   init: m => m.init() },
   wordle:       { label: '📝 Wordle',          module: './wrd.js',    screen: 'wordle-screen',        global: 'WRD',   init: m => m.init() },
   tetris:       { label: '🧱 Tetris',          module: './tet.js',    screen: 'tetris-screen',        global: 'TET',   init: () => window.tetInit?.() },
-  minesweeper:  { label: '💣 Minesweeper',     module: null,          screen: 'minesweeper-screen',                    init: () => window.msInit?.() },
-  solitaire:    { label: '🃏 Solitaire',       module: null,          screen: 'solitaire-screen',                      init: () => window.solNewGame?.() },
+  minesweeper:  { label: '💣 Minesweeper',     script: './minesweeper.js', screen: 'minesweeper-screen',  init: () => window.msInit?.() },
+  solitaire:    { label: '🃏 Solitaire',       script: './solitaire.js',   screen: 'solitaire-screen',    init: () => window.solNewGame?.() },
   bubblebreaker:{ label: '🫧 Bubble Breaker',  module: './bb.js',     screen: 'bubblebreaker-screen', global: 'BB',    init: m => m.newGame?.() },
   puzzlebobble: { label: '🎯 Puzzle Bobble',   module: './pb.js',     screen: 'puzzlebobble-screen',  global: 'PB',    init: m => m.newGame?.() },
   zuma:         { label: '🔴 Zuma',            module: './zm.js',     screen: 'zuma-screen',          global: 'ZM',    init: m => m.init() },
@@ -30,11 +32,11 @@ export const GAMES = {
   poker:        { label: '🃏 Poker',            module: './pkr.js',    screen: 'poker-screen',         global: 'PKR',   init: m => m.initSolo() },
   chess:        { label: '♟ Chess',             module: './chess.js',  screen: 'chess-screen',                          init: m => m.initSolo() },
 
-  // ── Multiplayer / lobby games (no module — handled by index.html) ──
+  // ── Multiplayer / lobby games ──────────────────────────────
   battleships:  { label: '🚢 Battleships',      module: null,          screen: 'lobby-screen',         init: () => {} },
-  pool:         { label: '🎱 Pool',              module: null,          screen: 'pool-lobby-screen',    init: () => {} },
-  scrabble:     { label: '🔤 Scrabble',          module: null,          screen: 'scrabble-lobby-screen',init: () => {} },
-  trivia:       { label: '🧠 Trivia',            module: null,          screen: 'trivia-lobby-screen',  init: () => {} },
+  pool:         { label: '🎱 Pool',              script: './pool.js',   screen: 'pool-lobby-screen',    init: () => {} },
+  scrabble:     { label: '🔤 Scrabble',          script: './scrabble.js', screen: 'scrabble-lobby-screen', init: () => {} },
+  trivia:       { label: '🧠 Trivia',            script: './trivia.js', screen: 'trivia-lobby-screen',  init: () => {} },
   hangman:      { label: '🪢 Hangman',           module: './hm.js',     screen: 'hangman-screen',       global: 'HM',    init: m => m.initSolo() },
   connectfour:  { label: '🔴 Connect Four',      module: './c4.js',     screen: 'connectfour-screen',   global: 'C4',    init: () => {} },
   uno:          { label: '🃏 Uno',               module: './uno.js',    screen: 'uno-lobby-screen',     global: 'UNO',   init: () => {} },
@@ -42,12 +44,24 @@ export const GAMES = {
   guesswho:     { label: '🎭 Guess Who',         module: './gw.js',     screen: 'guesswho-lobby-screen',global: 'GW',    init: m => { m.stopLobbyBrowse?.(); m.startLobbyBrowse?.(); } },
 };
 
-// Cache of already-loaded modules (avoid re-importing)
+// Cache of already-loaded modules and scripts
 const _cache = {};
+const _scriptLoaded = {};
+
+// Load a plain .js script by injecting a <script> tag (once only)
+function loadScript(src) {
+  if (_scriptLoaded[src]) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload  = () => { _scriptLoaded[src] = true; resolve(); };
+    s.onerror = () => reject(new Error(`Failed to load ${src}`));
+    document.head.appendChild(s);
+  });
+}
 
 /**
- * Load a game module and call its init function.
- * Returns a promise that resolves when the game is ready.
+ * Load a game and call its init function.
  */
 export async function loadGame(gameKey) {
   const def = GAMES[gameKey];
@@ -56,8 +70,18 @@ export async function loadGame(gameKey) {
     return;
   }
 
-  // No module = handled entirely by index.html (multiplayer lobbies etc.)
-  // Still call init() in case it needs to kick off setup (e.g. solNewGame, msInit)
+  // Plain script (legacy engine — pool, scrabble, trivia, solitaire, minesweeper)
+  if (def.script) {
+    try {
+      await loadScript(def.script);
+      def.init(null);
+    } catch (err) {
+      console.error(`[games] Failed to load script ${gameKey}:`, err);
+    }
+    return;
+  }
+
+  // No module and no script = handled entirely by index.html
   if (!def.module) { def.init(null); return; }
 
   // Return cached module if already loaded
@@ -68,12 +92,10 @@ export async function loadGame(gameKey) {
 
   try {
     const mod = await import(def.module);
-    // Support both `export default` (object) and named exports
     const api = mod.default ?? mod;
     _cache[gameKey] = api;
 
-    // Expose module on window using the name the module itself expects (e.g. SNK, WRD, PKR).
-    // Also set the gameKey-based name (e.g. SNAKE) as an alias for safety.
+    // Expose on window under both the short global name and gameKey.toUpperCase()
     const globalName = def.global || gameKey.toUpperCase();
     window[globalName] = api;
     if (globalName !== gameKey.toUpperCase()) {
