@@ -22,6 +22,7 @@ export default (() => {
     { key: 'poker',        label: 'POKER',          unit: 'chips' },
     { key: 'chess',        label: 'CHESS',          unit: 'wins' },
     { key: 'tron',         label: 'TRON',           unit: 'wins' },
+    { key: 'stackit',      label: 'STACK IT',       unit: 'pts',  extraKey: 'rows', extraLabel: 'ROWS' },
   ];
 
   let pendingGame  = null;
@@ -95,6 +96,13 @@ export default (() => {
       score: pendingScore,
       ts: Date.now(),
     };
+    // Attach any extra stat visible in the modal (e.g. rows for Stack It)
+    const extraVal = document.getElementById('hs-extra-val');
+    const extraLbl = document.getElementById('hs-extra-label');
+    if (extraVal && extraLbl && extraVal.textContent && extraLbl.textContent) {
+      entry.extra      = extraVal.textContent;
+      entry.extraLabel = extraLbl.textContent;
+    }
 
     try {
       const path = `highscores/${pendingGame}`;
@@ -185,11 +193,12 @@ export default (() => {
         <th style="width:28px">#</th>
         <th>NAME</th>
         <th>DATE</th>
+        ${game.extraKey ? `<th class="hs-th-score">${game.extraLabel || game.extraKey}</th>` : ''}
         <th class="hs-th-score">${game.unit.toUpperCase()}</th>
       </tr></thead><tbody>`;
 
       entries.slice(0, 15).forEach((e, i) => {
-        const medal = i === 0 ? '?' : i === 1 ? '?' : i === 2 ? '?' : `${i+1}`;
+        const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}`;
         const d = new Date(e.ts);
         const date = `${d.getDate()}/${d.getMonth()+1}`;
         const cls = i === 0 ? ' class="hs-gold"' : '';
@@ -198,6 +207,7 @@ export default (() => {
           <td class="hs-rank">${medal}</td>
           <td>${e.name}</td>
           <td class="hs-date">${date}</td>
+          ${game.extraKey ? `<td class="hs-td-score" style="color:#00ff88">${e.extra ?? '—'}</td>` : ''}
           <td class="hs-td-score">${scoreStr}</td>
         </tr>`;
       });
