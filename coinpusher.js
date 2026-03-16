@@ -473,17 +473,30 @@ export default (() => {
   }
 
   // ── Spawn a coin body + mesh ───────────────────────────────────
+  // faceForward=false → coin lies flat on shelf (axis vertical, face up)
+  // faceForward=true  → coin stands upright face-forward (axis horizontal, face toward camera)
   const coinGeo = () => new THREE.CylinderGeometry(CR, CR, CT, 22);
 
-  function spawnCoin(x, y, z, shelf='upper') {
+  function spawnCoin(x, y, z, shelf='upper', faceForward=false) {
     const mesh = new THREE.Mesh(coinGeo(), coinMat);
     mesh.castShadow = true; mesh.receiveShadow = true;
-    mesh.rotation.x = (Math.random()-0.5)*0.35;
-    mesh.rotation.z = (Math.random()-0.5)*0.35;
+    if (!faceForward) {
+      // Lying flat — small random tilt so they don't stack perfectly
+      mesh.rotation.x = (Math.random()-0.5)*0.3;
+      mesh.rotation.z = (Math.random()-0.5)*0.3;
+    }
     scene.add(mesh);
 
     const body = new CANNON.Body({ mass:0.005, linearDamping:0.42, angularDamping:0.65 });
-    body.addShape(new CANNON.Cylinder(CR, CR, CT, 12));
+    if (faceForward) {
+      // Rotate physics shape: cylinder axis along Z (face visible from front)
+      const sq = new CANNON.Quaternion();
+      sq.setFromEuler(Math.PI/2, 0, 0);
+      body.addShape(new CANNON.Cylinder(CR, CR, CT, 12), new CANNON.Vec3(0,0,0), sq);
+    } else {
+      // Default: cylinder axis along Y (lying flat on shelf)
+      body.addShape(new CANNON.Cylinder(CR, CR, CT, 12));
+    }
     body.position.set(x, y, z);
     body.velocity.set((Math.random()-0.5)*0.4, 0, (Math.random()-0.5)*0.4);
     world.addBody(body);
@@ -560,31 +573,21 @@ export default (() => {
     dropLocked = true;
     setTimeout(() => { dropLocked = false; }, 700);
 
-    const mesh = new THREE.Mesh(coinGeo(), coinMat);
-    mesh.castShadow = true;
-    // Rotate mesh so flat face points forward (toward camera / pegs on back wall)
-    mesh.rotation.x = Math.PI / 2;
-    scene.add(mesh);
-
-    const body = new CANNON.Body({ mass:0.005, linearDamping:0.18, angularDamping:0.40 });
-    // Rotate shape so cylinder axis is along Z — coin stands upright, face forward
-    const quat = new CANNON.Quaternion();
-    quat.setFromEuler(Math.PI / 2, 0, 0);
-    body.addShape(new CANNON.Cylinder(CR, CR, CT, 12), new CANNON.Vec3(0,0,0), quat);
     const dropX = (aimFrac - 0.5) * MW * 0.86;
-    // Drop near the back wall so it slides down past the pegs
-    const dropZ = -MD/2 + WT + CT/2 + 0.05;
-    body.position.set(dropX, CHUTE_TOP - 0.4, dropZ);
-    // Small sideways wobble, slight forward push into pegs, falls under gravity
-    body.velocity.set((Math.random()-0.5)*0.4, -1.8, 0.08);
-    // Spin around Y axis only (tumbling left/right as it falls, not forward roll)
-    body.angularVelocity.set(0, (Math.random()-0.5)*3, 0);
-    world.addBody(body);
+    // Drop right at the back wall so coin slides face-forward down past the pegs
+    const dropZ = -MD/2 + WT + CT/2 + 0.02;
 
-    fallingBody = body;
-    fallingMesh = mesh;
-    const obj = { mesh, body, type:'coin', value:2, shelf:'falling' };
-    coinBodies.push(obj);
+    const obj = spawnCoin(dropX, CHUTE_TOP - 0.4, dropZ, 'falling', true);
+
+    // Face-forward drop: falls straight down with slight sideways wobble
+    obj.body.velocity.set((Math.random()-0.5)*0.3, -1.8, 0.05);
+    // Spin around Z axis — coin tumbles naturally as it slides down the wall
+    obj.body.angularVelocity.set(0, 0, (Math.random()-0.5)*4);
+    obj.body.linearDamping  = 0.18;
+    obj.body.angularDamping = 0.35;
+
+    fallingBody = obj.body;
+    fallingMesh = obj.mesh;
   }
 
   // ── Collect a coin/bonus that fell into tray ───────────────────
