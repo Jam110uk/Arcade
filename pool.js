@@ -371,172 +371,12 @@ async function pool3DInit() {
 }
 
 function pool3DBuildTable(THREE, scene, tw3, th3) {
-  const pr3  = POOL.POCKET_R * P3.SCALE;
-  const gap3 = POOL.MID_GAP  * P3.SCALE;
-  const rh   = pr3 * 0.65;   // rail height above felt
-  const pocketR = pr3 * 1.05; // visual pocket radius (slightly larger than physics)
-
-  // ── Felt surface ────────────────────────────────────────────────
-  const feltCanvas = document.createElement('canvas');
-  feltCanvas.width = 512; feltCanvas.height = 256;
-  const fc = feltCanvas.getContext('2d');
-  const fg = fc.createRadialGradient(256,128,0, 256,128,280);
-  fg.addColorStop(0,'#1e7a3c'); fg.addColorStop(0.5,'#196832'); fg.addColorStop(1,'#124d25');
-  fc.fillStyle = fg; fc.fillRect(0,0,512,256);
-  for (let i = 0; i < 4000; i++) {
-    fc.fillStyle = Math.random() > 0.5
-      ? `rgba(0,200,80,${(Math.random()*0.04).toFixed(3)})`
-      : `rgba(0,0,0,${(Math.random()*0.06).toFixed(3)})`;
-    fc.fillRect(Math.random()*512, Math.random()*256, 1, 1);
-  }
-  fc.strokeStyle='rgba(255,255,255,0.02)'; fc.lineWidth=1;
-  for (let y=8;y<256;y+=8){fc.beginPath();fc.moveTo(0,y);fc.lineTo(512,y);fc.stroke();}
-  const bxPx = 0.20 * 512;
-  fc.strokeStyle='rgba(255,255,255,0.18)'; fc.lineWidth=1.5;
-  fc.beginPath();fc.moveTo(bxPx,0);fc.lineTo(bxPx,256);fc.stroke();
-  const dRpx = 256 * 0.28;
-  fc.beginPath();fc.arc(bxPx,128,dRpx,-Math.PI/2,Math.PI/2);fc.stroke();
-  const feltTex = new THREE.CanvasTexture(feltCanvas);
-  const feltMat = new THREE.MeshStandardMaterial({ map:feltTex, roughness:0.92, metalness:0.0 });
-  const feltMesh = new THREE.Mesh(new THREE.PlaneGeometry(tw3 - pr3*2, th3 - pr3*2), feltMat);
-  feltMesh.rotation.x = -Math.PI/2;
-  feltMesh.position.set(tw3/2, 0, th3/2);
-  feltMesh.receiveShadow = true;
-  scene.add(feltMesh);
-
-  // ── Rail material ───────────────────────────────────────────────
-  const railMat = new THREE.MeshStandardMaterial({ color:0x5a2e0a, roughness:0.65, metalness:0.06 });
-
-  // Helper — add a rail segment box
-  function addRail(w, d, x, z) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, rh, d), railMat);
-    m.position.set(x, rh/2, z);
-    m.castShadow = true; m.receiveShadow = true;
-    scene.add(m);
-  }
-
-  // Corner pocket positions (in 3D units) — centred in the wooden corner
-  const cpr = pocketR * 0.85; // clearance around corner pocket centre
-  // Long-rail mid-pocket gap half-width
-  const mpg = gap3 * 1.1;
-
-  // TOP RAIL (z ≈ 0): two segments, gap at mid pocket, notched at corners
-  const topMidX = tw3 / 2;
-  addRail(topMidX - pr3 - cpr - mpg,    pr3,  pr3 + cpr + (topMidX-pr3-cpr-mpg)/2,  0);
-  addRail(topMidX - pr3 - cpr - mpg,    pr3,  topMidX + mpg + cpr + (topMidX-pr3-cpr-mpg)/2, 0);
-
-  // BOTTOM RAIL (z ≈ th3): mirror of top
-  addRail(topMidX - pr3 - cpr - mpg,    pr3,  pr3 + cpr + (topMidX-pr3-cpr-mpg)/2,  th3);
-  addRail(topMidX - pr3 - cpr - mpg,    pr3,  topMidX + mpg + cpr + (topMidX-pr3-cpr-mpg)/2, th3);
-
-  // LEFT RAIL (x ≈ 0): one segment, notched at corners
-  addRail(pr3, th3 - pr3*2 - cpr*2,  0, th3/2);
-
-  // RIGHT RAIL (x ≈ tw3): mirror
-  addRail(pr3, th3 - pr3*2 - cpr*2, tw3, th3/2);
-
-  // Corner fill blocks (square blocks at each corner between the two rails)
-  [[0, 0],[tw3, 0],[0, th3],[tw3, th3]].forEach(([x,z]) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(pr3, rh, pr3), railMat);
-    m.position.set(x, rh/2, z);
-    m.castShadow = true;
-    scene.add(m);
-  });
-
-  // ── Green cushions (rubber bumpers inside the rails) ─────────────
-  const cushMat = new THREE.MeshStandardMaterial({ color:0x167030, roughness:0.55 });
-  const ch  = pr3 * 0.55;
-  const cwd = pr3 * 0.38; // cushion depth
-
-  // Top/bottom cushions split at mid pocket gap
-  const segW = topMidX - pr3 - mpg - pr3;
-  [[pr3 + segW/2, 0],[topMidX + mpg + segW/2, 0],
-   [pr3 + segW/2, th3],[topMidX + mpg + segW/2, th3]].forEach(([x,z]) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(segW, ch, cwd), cushMat);
-    m.position.set(x, ch/2, z < th3/2 ? cwd/2 : th3 - cwd/2);
-    scene.add(m);
-  });
-  // Left/right cushions
-  [[0, th3/2],[tw3, th3/2]].forEach(([x,z]) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(cwd, ch, th3 - pr3*2 - mpg*2), cushMat);
-    m.position.set(x < tw3/2 ? cwd/2 : tw3 - cwd/2, ch/2, z);
-    scene.add(m);
-  });
-
-  // ── Pockets — smooth rounded holes cut into rail face ──────────
-  const pocketMat = new THREE.MeshStandardMaterial({ color:0x0a0a0a, roughness:1.0, metalness:0.0 });
-  const rimMat    = new THREE.MeshStandardMaterial({ color:0x8a5a1a, roughness:0.4, metalness:0.5 });
-
-  function makePocket(px, pz, isCorner) {
-    const pr = isCorner ? pocketR * 1.1 : pocketR * 0.95;
-    // Dark hole: flat circle recessed into the table surface
-    const holeGeo = new THREE.CircleGeometry(pr, 32);
-    const hole    = new THREE.Mesh(holeGeo, pocketMat);
-    hole.rotation.x = -Math.PI/2;
-    hole.position.set(px, -0.01, pz);
-    scene.add(hole);
-
-    // Brass rim ring sitting at felt level
-    const rimInner = pr * 0.88;
-    const rimOuter = pr * 1.08;
-    const rimShape = new THREE.Shape();
-    rimShape.absarc(0, 0, rimOuter, 0, Math.PI*2, false);
-    const rimHole = new THREE.Path();
-    rimHole.absarc(0, 0, rimInner, 0, Math.PI*2, true);
-    rimShape.holes.push(rimHole);
-    const rimGeo = new THREE.ExtrudeGeometry(rimShape, {
-      depth: 0.018, bevelEnabled: false
-    });
-    const rim = new THREE.Mesh(rimGeo, rimMat);
-    rim.rotation.x = -Math.PI/2;
-    rim.position.set(px, 0.01, pz);
-    scene.add(rim);
-
-    // Leather-coloured collar cylinder just below felt surface
-    const collarGeo = new THREE.CylinderGeometry(pr * 0.95, pr * 1.05, rh * 0.9, 32);
-    const collarMat = new THREE.MeshStandardMaterial({ color:0x1a0a04, roughness:0.9 });
-    const collar    = new THREE.Mesh(collarGeo, collarMat);
-    collar.position.set(px, -rh * 0.45, pz);
-    scene.add(collar);
-  }
-
-  // Corner pockets — at the four table corners
-  makePocket(0,    0,    true);
-  makePocket(tw3,  0,    true);
-  makePocket(0,    th3,  true);
-  makePocket(tw3,  th3,  true);
-  // Mid pockets — centred on long sides
-  makePocket(tw3/2, 0,   false);
-  makePocket(tw3/2, th3, false);
-
-  // ── Green cushions ──────────────────────────────────────────────
-  // (already added above)
-
-  // ── Table body — thick skirt panels ─────────────────────────────
-  const skirtMat = new THREE.MeshStandardMaterial({ color:0x2e1406, roughness:0.8, metalness:0.05 });
-  const legMat   = new THREE.MeshStandardMaterial({ color:0x1e0d04, roughness:0.6, metalness:0.1 });
-  const skirtH   = pr3 * 1.8;
-  [
-    {w:tw3, d:pr3*0.35, x:tw3/2, z:0   },
-    {w:tw3, d:pr3*0.35, x:tw3/2, z:th3 },
-    {w:pr3*0.35, d:th3, x:0,    z:th3/2},
-    {w:pr3*0.35, d:th3, x:tw3,  z:th3/2},
-  ].forEach(({w,d,x,z}) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, skirtH, d), skirtMat);
-    m.position.set(x, -skirtH/2, z);
-    m.castShadow = true; m.receiveShadow = true;
-    scene.add(m);
-  });
-  // Corner legs
-  const legW = pr3 * 0.6, legH = skirtH * 1.1;
-  [[pr3*0.3, th3*0.1],[tw3-pr3*0.3, th3*0.1],[pr3*0.3, th3*0.9],[tw3-pr3*0.3, th3*0.9]]
-    .forEach(([x,z]) => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(legW, legH, legW), legMat);
-      m.position.set(x, -legH/2, z);
-      m.castShadow = true;
-      scene.add(m);
-    });
-}
+  const pr3    = POOL.POCKET_R * P3.SCALE;
+  const gap3   = POOL.MID_GAP  * P3.SCALE;
+  const rh     = pr3 * 0.7;      // rail height above felt
+  const pR     = pr3 * 1.08;     // pocket radius in rail
+  const railW  = pr3 * 1.1;      // width of each rail strip
+  const woodCol = 0xc47c1a;      // warm oak colour
 
 function pool3DBuildBalls(THREE, scene, tw3, th3) {
   const r3 = POOL.BALL_R * P3.SCALE;
@@ -826,7 +666,6 @@ function poolDraw() {
   if (!P3.ready || !P3.renderer) return;
   const S   = P3.SCALE;
   const r3  = POOL.BALL_R * S;
-  const rh3 = POOL.POCKET_R * S * 0.65;  // rail height (matches pool3DBuildTable rh)
 
   // ── Sync ball meshes from 2D physics positions ───────────────
   POOL.balls.forEach(ball => {
@@ -872,30 +711,40 @@ function poolDraw() {
 
       const THREE = P3.THREE;
 
-      // Cue tip stays at ball height. Butt rises as pullback increases so the
-      // cue arcs OVER the table rail instead of clipping through it.
-      // At zero pullback: cue nearly flat (tiny rise). At max pullback: butt is
-      // well clear of the rail top surface.
-      const railTop   = rh3;                      // height of rail top surface
-      const tipY      = r3 * 1.05;                // tip stays at ball equator
-      const minButtY  = tipY + CUE_LEN * 0.04;   // slight natural rise even when flat
-      const maxButtY  = tipY + CUE_LEN * 0.55;   // steeply raised at full pullback
-      const buttY     = minButtY + (maxButtY - minButtY) * pullback;
+      // Cue angle behaviour:
+      // - At 0 pullback: tip near ball, cue nearly flat with slight natural rise
+      // - As pullback grows: butt rises quickly until it clears the rail top
+      // - Once past rail height: cue levels out and runs flat ABOVE the rail,
+      //   with a slight downward tilt toward the ball at the tip end
+      const railTop    = POOL.POCKET_R * S * 0.7;   // rail height in 3D units
+      const tipY       = r3 * 1.05;
+      const clearance  = railTop + r3 * 0.5;         // butt target height above rail
+
+      // Ease: rise fast 0→0.4 pullback to clear the rail, then plateau and tilt
+      const risePhase   = Math.min(1, pullback / 0.4);
+      const levelPhase  = Math.max(0, (pullback - 0.4) / 0.6);
+
+      // Rising phase: butt lifts from tipY up to clearance
+      const buttRise    = tipY + (clearance - tipY) * risePhase;
+      // Level phase: butt stays at clearance but tip dips slightly for downward tilt
+      const tipDip      = levelPhase * r3 * 0.8;
+      const finalTipY   = tipY - tipDip;
+      const finalButtY  = buttRise + levelPhase * r3 * 0.2; // slight further lift to maintain angle
 
       const buttDir = new THREE.Vector3(
         buttX3 - tipX3,
-        buttY  - tipY,
+        finalButtY - finalTipY,
         buttZ3 - tipZ3
       ).normalize();
       const up   = new THREE.Vector3(0, 1, 0);
       const quat = new THREE.Quaternion().setFromUnitVectors(up, buttDir);
 
-      P3.cueMesh.position.set(tipX3, tipY, tipZ3);
+      P3.cueMesh.position.set(tipX3, finalTipY, tipZ3);
       P3.cueMesh.quaternion.copy(quat);
       P3.cueMesh.visible = true;
 
       if (P3.cueTipMesh) {
-        P3.cueTipMesh.position.set(tipX3, tipY, tipZ3);
+        P3.cueTipMesh.position.set(tipX3, finalTipY, tipZ3);
         P3.cueTipMesh.visible = true;
       }
 
