@@ -32,12 +32,14 @@ export default (() => {
         grid[r][c] = Math.floor(Math.random()*COLORS.length);
       }
     }
-    // Seed 1-2 power-up cells
-    for(let i=0;i<2;i++){
+    // Seed 3-5 power-up cells so players always have some to collect
+    const puCount = 3 + Math.floor(Math.random()*3);
+    for(let i=0;i<puCount;i++){
       const r=Math.floor(Math.random()*ROWS), c=Math.floor(Math.random()*COLS);
-      grid[r][c] = -1 - Math.floor(Math.random()*POWERUP_TYPES.length); // -1,-2,-3
+      grid[r][c] = -1 - Math.floor(Math.random()*POWERUP_TYPES.length);
     }
-    movesLeft = 15 + level*2;
+    // Generous moves — 30 base + 5 per level, so early levels are comfortable
+    movesLeft = 30 + level*5;
     updateHUD();
   }
 
@@ -105,6 +107,7 @@ export default (() => {
 
   // ── Power-ups ────────────────────────────────────────────────
   function usePowerup(r,c,type){
+    if(!powerups[type] || powerups[type]<=0){ selectedPU=null; renderPUBar(); return; }
     let cells=[];
     if(type==='bomb'){
       for(let dr=-2;dr<=2;dr++) for(let dc=-2;dc<=2;dc++){
@@ -116,11 +119,10 @@ export default (() => {
       for(let rr=0;rr<ROWS;rr++) if(grid[rr][c]!==null) cells.push([rr,c]);
       cells = [...new Set(cells.map(([a,b])=>a*COLS+b))].map(k=>[Math.floor(k/COLS),k%COLS]);
     } else if(type==='rainbow'){
-      const target=grid[r][c]; if(target===null||target<0) return;
+      const target=grid[r][c]; if(target===null||target<0){ selectedPU=null; renderPUBar(); return; }
       for(let rr=0;rr<ROWS;rr++) for(let cc=0;cc<COLS;cc++) if(grid[rr][cc]===target) cells.push([rr,cc]);
     }
-    if(cells.length){ _sfx.activate(); popCells(cells, '#ffffff'); }
-    powerups[type] = (powerups[type]||0)-1;
+    if(cells.length){ _sfx.activate(); popCells(cells, '#ffffff'); powerups[type]--; }
     selectedPU = null;
     renderPUBar();
   }
@@ -134,7 +136,11 @@ export default (() => {
   function renderPUBar(){
     POWERUP_TYPES.forEach(t=>{
       const el=$id('bburst-pu-'+t);
-      if(el){ el.textContent = puEmoji(t)+' '+(powerups[t]||0); el.classList.toggle('active', selectedPU===t); }
+      if(!el) return;
+      const count = powerups[t]||0;
+      el.textContent = puEmoji(t)+' '+count;
+      el.classList.toggle('active', selectedPU===t);
+      el.classList.toggle('empty', count<=0);
     });
   }
   function puEmoji(t){ return t==='bomb'?'💣':t==='lightning'?'⚡':'🌈'; }
@@ -310,7 +316,11 @@ export default (() => {
     // PU buttons
     POWERUP_TYPES.forEach(t=>{
       const el=$id('bburst-pu-'+t);
-      if(el) el.onclick=()=>{ selectedPU=(selectedPU===t?null:t); renderPUBar(); };
+      if(el) el.onclick=()=>{
+        if(!powerups[t] || powerups[t]<=0) return; // can't select empty power-up
+        selectedPU=(selectedPU===t?null:t);
+        renderPUBar();
+      };
     });
     $id('bburst-over').style.display='none';
     newGrid();
