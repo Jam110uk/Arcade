@@ -7516,6 +7516,7 @@ window.selectGame = async function(game) {
     puzzlebobble:  ['🎯 PUZZLE BOBBLE',   'SHOOT — MATCH — CLEAR'],
     solitaire:     ['🃏 SOLITAIRE',       'CLASSIC PATIENCE'],
     minesweeper:   ['💣 MINESWEEPER',     'CLEAR THE MINEFIELD'],
+    bomberman:     ['💣 BOMBERMAN',       'PLACE BOMBS · OUTLAST YOUR OPPONENT'],
   };
 
   const [title, subtitle] = meta[game] || [game.toUpperCase(), ''];
@@ -7721,6 +7722,8 @@ window.leaveConfirmYes = function() {
     notifyAndLeave(path, () => { chatDestroy('uno'); hideHeaderLeave(); window.UNO?.destroy(); backToGameSelect(); });
   } else if (ctx === 'tron') {
     window.TRON?.destroy(); hideHeaderLeave(); backToGameSelect();
+  } else if (ctx === 'bomberman') {
+    window.BOMB_leaveOnline?.(); window.BOMB?.destroy(); hideHeaderLeave(); backToGameSelect();
   } else {
     backToGameSelect();
   }
@@ -7818,6 +7821,7 @@ window.backToGameSelect = function() {
     ['MONO',   () => { if (window.MONO  && typeof MONO.destroy  === 'function') MONO.destroy(); }],
     ['PLINKO', () => { if (window.PLINKO && typeof PLINKO.destroy === 'function') PLINKO.destroy(); }],
     ['BBURST', () => { if (window.BBURST && typeof BBURST.destroy === 'function') BBURST.destroy(); }],
+    ['BOMB',   () => { if (window.BOMB   && typeof BOMB.destroy   === 'function') BOMB.destroy();   }],
   ].forEach(([name, fn]) => { try { fn(); } catch(e) { console.warn('Game cleanup error [' + name + ']:', e); } });
   // Shared cleanup
   _safeHide('room-code-display');
@@ -8053,6 +8057,7 @@ const GAME_META = {
   tron:        { icon:'⚡', name:'TRON',        accent:'#00ffff' },
   pokemon:     { icon:'⚡', name:'POKÉMON',     accent:'#ef4444' },
   uno:         { icon:'🃏', name:'UNO',         accent:'#f97316' },
+  bomberman:   { icon:'💣', name:'BOMBERMAN',   accent:'#ff2d78' },
 };
 
 const ML = {
@@ -8312,6 +8317,16 @@ function mlLaunch(lobby) {
   SL.isHost      = isHost;
   SL.playerName  = myName;
   SL.code        = null;
+
+  // Bomberman handles its own online init
+  if (game === 'bomberman') {
+    showScreen('bomb-screen');
+    const BOMB = window.BOMB;
+    if (BOMB && typeof BOMB.initOnline === 'function') {
+      BOMB.initOnline({ gameCode, isHost, myName, oppName: isHost ? lobby.guest.name : lobby.hostName });
+    }
+    return;
+  }
 
   slLaunchGame(game, room);
 }
@@ -13567,18 +13582,14 @@ window.PERF = (() => {
   gap: 8px;
   flex-wrap: wrap;
 }
-.bomb-scores { display: flex; gap: 12px; align-items: center; }
-.bomb-score-block { text-align: center; min-width: 36px; }
-.bomb-score-label { font-size: 0.42rem; letter-spacing: 0.18em; opacity: 0.7; }
+.bomb-scores { display: flex; gap: 14px; align-items: center; }
+.bomb-score-block { text-align: center; min-width: 40px; }
+.bomb-score-label { font-size: 0.4rem; letter-spacing: 0.14em; opacity: 0.65; margin-bottom: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 80px; }
 .bomb-score-value { font-size: 0.9rem; letter-spacing: 0.1em; font-weight: 700; }
 .bomb-score-block.p1 .bomb-score-label { color: #00f5ff; }
 .bomb-score-block.p1 .bomb-score-value { color: #00f5ff; text-shadow: 0 0 8px #00f5ff; }
 .bomb-score-block.p2 .bomb-score-label { color: #ff2d78; }
 .bomb-score-block.p2 .bomb-score-value { color: #ff2d78; text-shadow: 0 0 8px #ff2d78; }
-.bomb-score-block.p3 .bomb-score-label { color: #39ff14; }
-.bomb-score-block.p3 .bomb-score-value { color: #39ff14; text-shadow: 0 0 8px #39ff14; }
-.bomb-score-block.p4 .bomb-score-label { color: #ffbe00; }
-.bomb-score-block.p4 .bomb-score-value { color: #ffbe00; text-shadow: 0 0 8px #ffbe00; }
 .bomb-topbar-btns { display: flex; gap: 5px; }
 .bomb-btn {
   padding: 4px 10px;
@@ -13602,6 +13613,37 @@ window.PERF = (() => {
   min-height: 0;
 }
 #bomb-canvas { display: block; image-rendering: pixelated; }
+.bomb-controls-strip {
+  width: 100%;
+  max-width: 700px;
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  padding: 3px 10px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.bomb-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.44rem;
+  color: rgba(0,200,255,0.38);
+  letter-spacing: 0.1em;
+}
+.bomb-ctrl kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,245,255,0.06);
+  border: 1px solid rgba(0,245,255,0.18);
+  border-radius: 2px;
+  padding: 1px 5px;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.4rem;
+  color: rgba(0,245,255,0.55);
+  min-width: 18px;
+}
 #bomb-overlay {
   display: none;
   position: absolute;
@@ -13624,8 +13666,10 @@ window.PERF = (() => {
   margin-bottom: 4px;
 }
 .bomb-ov-sub { font-size: 0.6rem; color: #888; letter-spacing: 0.15em; margin-bottom: 8px; }
-.bomb-mode-btns { display: flex; flex-direction: column; gap: 7px; width: 100%; max-width: 260px; }
 .bomb-mode-btn {
+  display: block;
+  width: 100%;
+  max-width: 260px;
   padding: 9px 16px;
   background: transparent;
   font-family: 'Orbitron', sans-serif;
@@ -13635,10 +13679,10 @@ window.PERF = (() => {
   transition: all 0.15s;
   border: 1px solid #00f5ff;
   color: #00f5ff;
+  margin: 0 auto;
 }
 .bomb-mode-btn:hover { background: rgba(0,245,255,0.1); box-shadow: 0 0 12px rgba(0,245,255,0.3); }
 #bomb-ov-btns { display: flex; flex-direction: column; gap: 7px; width: 100%; max-width: 260px; }
-/* Countdown */
 #bomb-countdown {
   position: absolute;
   inset: 0;
@@ -13660,11 +13704,10 @@ window.PERF = (() => {
   75%  { transform: scale(0.9); opacity: 0.9; }
   100% { transform: scale(0.8); opacity: 0; }
 }
-/* Mobile dpad */
 .bomb-dpad-wrap {
   display: none;
   width: 100%;
-  padding: 6px 10px;
+  padding: 4px 10px;
   box-sizing: border-box;
   flex-shrink: 0;
 }
@@ -13696,41 +13739,24 @@ window.PERF = (() => {
   color: #ff2d78;
   font-size: 1.2rem;
 }
-/* Key legend */
-.bomb-keys {
-  font-size: 0.44rem;
-  color: rgba(0,200,255,0.35);
-  letter-spacing: 0.12em;
-  margin: 2px 0;
-  text-align: center;
-}
 </style>
 
 <div class="bomb-layout">
   <div class="bomb-topbar">
     <div class="bomb-scores">
       <div class="bomb-score-block p1">
-        <div class="bomb-score-label">P1</div>
+        <div class="bomb-score-label" id="bomb-p1-label">P1</div>
         <div class="bomb-score-value" id="bomb-p1-wins">0</div>
       </div>
       <div class="bomb-score-block p2">
-        <div class="bomb-score-label">P2</div>
+        <div class="bomb-score-label" id="bomb-p2-label">P2</div>
         <div class="bomb-score-value" id="bomb-p2-wins">0</div>
       </div>
-      <div class="bomb-score-block p3" id="bomb-p3-block" style="display:none">
-        <div class="bomb-score-label">P3</div>
-        <div class="bomb-score-value" id="bomb-p3-wins">0</div>
-      </div>
-      <div class="bomb-score-block p4" id="bomb-p4-block" style="display:none">
-        <div class="bomb-score-label">P4</div>
-        <div class="bomb-score-value" id="bomb-p4-wins">0</div>
-      </div>
     </div>
-    <div class="bomb-keys" id="bomb-keys-hint">WASD · SPACE=BOMB</div>
     <div class="bomb-topbar-btns">
       <button class="bomb-btn" onclick="window.BOMB?.newGame()">↺</button>
       <button class="bomb-btn" onclick="window.BOMB?.destroy();window.BOMB?.init()">☰</button>
-      <button class="arcade-back-btn" onclick="window.BOMB?.destroy();backToGameSelect()">🕹 ARCADE</button>
+      <button class="arcade-back-btn" onclick="confirmLeave('bomberman')">🕹 ARCADE</button>
     </div>
   </div>
 
@@ -13739,13 +13765,32 @@ window.PERF = (() => {
     <div id="bomb-countdown" style="display:none"></div>
     <div id="bomb-overlay" class="active">
       <div class="bomb-ov-title" id="bomb-ov-title">💣 BOMBERMAN</div>
-      <div class="bomb-ov-sub" id="bomb-ov-sub">FIRST TO 3 ROUNDS WINS</div>
+      <div class="bomb-ov-sub"   id="bomb-ov-sub">FIRST TO 3 ROUNDS WINS</div>
       <div id="bomb-ov-btns">
-        <button class="bomb-mode-btn" onclick="window.BOMB?.startMode('solo')">🤖 VS AI</button>
-        <button class="bomb-mode-btn" style="border-color:#ff2d78;color:#ff2d78" onclick="window.BOMB?.startMode('local2')">👥 2 PLAYERS</button>
-        <button class="bomb-mode-btn" style="border-color:#39ff14;color:#39ff14" onclick="window.BOMB?.startMode('local4')">👥 4 PLAYERS</button>
+        <button class="bomb-mode-btn" onclick="window.BOMB?.startSolo()">🤖 VS AI</button>
+        <button class="bomb-mode-btn" style="border-color:#ff2d78;color:#ff2d78" onclick="openMultiLobby('bomberman')">🌐 PLAY ONLINE</button>
         <button class="arcade-back-btn" onclick="window.BOMB?.destroy();backToGameSelect()">🕹 ARCADE</button>
       </div>
+    </div>
+  </div>
+
+  <div class="bomb-controls-strip">
+    <div class="bomb-ctrl">
+      <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd>
+      <span>MOVE</span>
+    </div>
+    <div class="bomb-ctrl">
+      <kbd>SPACE</kbd>
+      <span>DROP BOMB</span>
+    </div>
+    <div class="bomb-ctrl" style="color:rgba(255,190,0,0.4)">
+      <span>💣 EXTRA BOMB</span>
+    </div>
+    <div class="bomb-ctrl" style="color:rgba(255,80,0,0.4)">
+      <span>🔥 BIGGER BLAST</span>
+    </div>
+    <div class="bomb-ctrl" style="color:rgba(57,255,20,0.4)">
+      <span>⚡ SPEED UP</span>
     </div>
   </div>
 
@@ -13764,6 +13809,8 @@ window.PERF = (() => {
   </div>
 </div>
 </div>
+
+
 
 </body>
 </html>
