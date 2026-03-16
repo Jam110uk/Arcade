@@ -399,33 +399,29 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
   scene.add(feltMesh);
 
   // ── Load GLB ──────────────────────────────────────────────────────
-  // GLTFLoader is not in the core three.module.min.js bundle.
-  // We load it from the same CDN as Three.js.
+  // Load GLTFLoader by fetching the jsm source and rewriting the 'three'
+  // import to point at the full module URL we already use.
   async function loadGLTFLoader() {
-    const base = document.baseURI || location.href;
-    // Try local first, then CDN
-    const loaderPaths = [
-      './GLTFLoader.js',
-      'https://unpkg.com/three@0.128.0/examples/js/loaders/GLTFLoader.js',
-    ];
-    for (const p of loaderPaths) {
-      try {
-        const url = p.startsWith('http') ? p : new URL(p, base).href;
-        // GLTFLoader attaches to THREE when loaded as a classic script
-        await new Promise((res, rej) => {
-          if (document.querySelector(`script[src="${url}"]`)) { res(); return; }
-          const s = document.createElement('script');
-          s.src = url; s.onload = res; s.onerror = rej;
-          document.head.appendChild(s);
-        });
-        if (THREE.GLTFLoader) return THREE.GLTFLoader;
-      } catch(e) {}
-    }
-    // Fallback: try ESM version
     try {
-      const mod = await import(/* webpackIgnore: true */ 'https://unpkg.com/three@0.128.0/examples/jsm/loaders/GLTFLoader.js');
-      return mod.GLTFLoader;
-    } catch(e) {}
+      const LOADER_SRC = 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/loaders/GLTFLoader.js';
+      let src = await fetch(LOADER_SRC).then(r => r.text());
+      // Rewrite bare 'three' specifier to the full CDN URL
+      src = src.replace(
+        /from\s+['"]three['"]/g,
+        `from 'https://unpkg.com/three@0.128.0/build/three.module.js'`
+      );
+      src = src.replace(
+        /import\s+(['"]three['"])/g,
+        `import 'https://unpkg.com/three@0.128.0/build/three.module.js'`
+      );
+      const blob = new Blob([src], { type: 'text/javascript' });
+      const url  = URL.createObjectURL(blob);
+      const mod  = await import(/* webpackIgnore: true */ url);
+      URL.revokeObjectURL(url);
+      if (mod.GLTFLoader) return mod.GLTFLoader;
+    } catch(e) {
+      console.warn('[pool3d] GLTFLoader load failed:', e.message);
+    }
     return null;
   }
 
