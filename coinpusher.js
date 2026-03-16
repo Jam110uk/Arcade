@@ -194,20 +194,18 @@ export default (() => {
     addStaticBox(MW, WT, MD,   0, 0, 0);                               // floor
 
     // Upper shelf — sits at back half of machine
-    const upperShelfD = SHELF_D * 0.55;  // shorter, only back portion
-    addStaticBox(MW, SHELF_THICK, upperShelfD, 0, UPPER_TOP+SHELF_THICK/2, upperShelfZ);
+    addStaticBox(MW, SHELF_THICK, UPPER_SHELF_D, 0, UPPER_TOP+SHELF_THICK/2, UPPER_SHELF_Z);
     // Front lip on upper shelf
-    addStaticBox(MW, 0.25, WT, 0, UPPER_TOP+0.12, upperShelfZ + upperShelfD/2 + WT/2);
+    addStaticBox(MW, 0.25, WT, 0, UPPER_TOP+0.12, UPPER_SHELF_Z + UPPER_SHELF_D/2 + WT/2);
 
     // Lower shelf — extends much further forward so upper coins land on it
-    addStaticBox(MW, SHELF_THICK, lowerShelfD, 0, LOWER_TOP+SHELF_THICK/2, lowerShelfZ);
+    addStaticBox(MW, SHELF_THICK, LOWER_SHELF_D, 0, LOWER_TOP+SHELF_THICK/2, LOWER_SHELF_Z);
     // Front lip on lower shelf (short — coins push over it into tray)
-    addStaticBox(MW, 0.20, WT, 0, LOWER_TOP+0.10, lowerShelfZ + lowerShelfD/2 + WT/2);
+    addStaticBox(MW, 0.20, WT, 0, LOWER_TOP+0.10, LOWER_SHELF_Z + LOWER_SHELF_D/2 + WT/2);
 
     // Win tray — sits just in front of lower shelf front lip
-    const trayFrontZ = lowerShelfZ + lowerShelfD/2 + WT;   // front edge of lower shelf lip
-    addStaticBox(MW, 0.1,  trayDepth, 0, TRAY_FLOOR+0.05, trayZ);
-    addStaticBox(MW, 0.85, WT,        0, TRAY_FLOOR+0.42, trayZ + trayDepth/2 + WT/2);
+    addStaticBox(MW, 0.1,  TRAY_DEPTH, 0, TRAY_FLOOR+0.05, trayZ);
+    addStaticBox(MW, 0.85, WT,        0, TRAY_FLOOR+0.42, trayZ + TRAY_DEPTH/2 + WT/2);
 
     // Pegs — full width grid across back wall chute area
     const chuteH = CHUTE_TOP - CHUTE_BOT;
