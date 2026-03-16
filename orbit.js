@@ -1269,15 +1269,22 @@ export default (() => {
   // ── RESIZE ────────────────────────────────────────────────────────────
   function resize() {
     if (!canvas) return;
-    const wrap = canvas.parentElement;
-    W = wrap.clientWidth  || 500;
-    H = wrap.clientHeight || 600;
+    // Measure from orbit-screen to avoid circular sizing issues with canvas buffer
+    const scr  = document.getElementById('orbit-screen');
+    const sides = document.querySelectorAll('.orbit-side');
+    const bar   = document.querySelector('.orbit-power-bar');
+    let sideW = 0;
+    sides.forEach(s => { sideW += s.offsetWidth || 0; });
+    const barH = (bar && bar.offsetHeight) || 86;
+    const scrW = scr ? scr.clientWidth  : window.innerWidth;
+    const scrH = scr ? scr.clientHeight : (window.innerHeight - 64);
+    W = Math.max(200, scrW - sideW);
+    H = Math.max(200, scrH - barH);
     canvas.width  = W;
     canvas.height = H;
     CX = W / 2;
     CY = H / 2;
     _sunCache = { colorIdx: -1, core: null };
-    // Rebuild caches for new dimensions
     if (stars.length) { buildBgCache(); buildPlanetCache(); }
   }
 
@@ -1317,6 +1324,12 @@ export default (() => {
 
   // ── PUBLIC API ────────────────────────────────────────────────────────
   function init() {
+    // Ensure DOM is laid out before measuring canvas dimensions
+    const scr = document.getElementById('orbit-screen');
+    if (!scr || !scr.clientWidth || !scr.clientHeight) {
+      setTimeout(init, 50);
+      return;
+    }
     canvas     = $('orbit-canvas');
     ctx        = canvas.getContext('2d');
     nextCanvas = $('orbit-next-canvas');
@@ -1378,4 +1391,4 @@ export default (() => {
   function useBomb()    { usePower('nova'); } // legacy compat
 
   return { init, destroy, start, newGame, usePower, useReverse, useBomb, getCurrentScore: () => score };
-})();
+})()
