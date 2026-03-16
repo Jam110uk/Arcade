@@ -562,42 +562,19 @@ export default (() => {
     dropLocked = true;
     setTimeout(() => { dropLocked = false; }, 700);
 
-    // Coin drops EDGE DOWN, face visible from front (Z axis = cylinder axis)
-    // Physics body: cylinder default axis is Y. We want axis along Z.
-    // Rotate 90° around X: y→z, so cylinder stands up with edge at bottom.
-    const mesh = new THREE.Mesh(coinGeo(), coinMat);
-    mesh.castShadow = true;
-    scene.add(mesh);
-
-    const body = new CANNON.Body({ mass:0.005, linearDamping:0.18, angularDamping:0.35 });
-
-    // Correct quaternion: rotate 90° around X axis using axis-angle
-    const shapeQuat = new CANNON.Quaternion();
-    shapeQuat.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), Math.PI / 2);
-    body.addShape(new CANNON.Cylinder(CR, CR, CT, 12), new CANNON.Vec3(), shapeQuat);
-
     const dropX = (aimFrac - 0.5) * MW * 0.86;
-    // Pegs are at Z = -MD/2 + WT + MD*0.045 ≈ -1.44
-    // Back wall face = -MD/2 + WT = -1.60
-    // Coin radius CR = 0.26, peg radius = 0.08 → need clearance > 0.34
-    // Drop coin at Z = -1.0 (well clear of pegs at -1.44, well inside the chute)
-    const dropZ = -MD/2 + WT + MD * 0.18;  // ≈ -1.28 → clear of pegs
-    body.position.set(dropX, CHUTE_TOP - 0.2, dropZ);
-    // Falls straight down; no Z velocity so it stays against back wall under gravity
-    body.velocity.set((Math.random()-0.5)*0.2, -2.2, 0);
-    // Spins around Z — visually tumbles as it falls face-forward
-    body.angularVelocity.set(0, 0, (Math.random() > 0.5 ? 1 : -1) * (2 + Math.random()*3));
-    world.addBody(body);
+    const dropZ = -MD/2 + WT + MD * 0.18;  // inside chute, clear of pegs
 
-    // meshOffset: the mesh cylinder (axis=Y by default) needs a 90° X rotation
-    // so it visually matches the physics body (axis=Z)
-    const meshOffset = new THREE.Quaternion();
-    meshOffset.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
+    // Spawn exactly like a shelf coin (lying flat) — simplest possible approach
+    const obj = spawnCoin(dropX, CHUTE_TOP, dropZ, 'falling');
+    // Override velocity: fall downward fast
+    obj.body.velocity.set((Math.random()-0.5)*0.3, -3.0, 0);
+    obj.body.angularVelocity.set((Math.random()-0.5)*4, 0, (Math.random()-0.5)*4);
+    obj.body.linearDamping  = 0.15;
+    obj.body.angularDamping = 0.4;
 
-    const obj = { mesh, body, type:'coin', value:2, shelf:'falling', meshOffset };
-    coinBodies.push(obj);
-    fallingBody = body;
-    fallingMesh = mesh;
+    fallingBody = obj.body;
+    fallingMesh = obj.mesh;
   }
 
   // ── Collect a coin/bonus that fell into tray ───────────────────
@@ -710,12 +687,7 @@ export default (() => {
     coinBodies.forEach(obj => {
       obj.mesh.position.copy(obj.body.position);
       if (obj.type === 'coin') {
-        if (obj.meshOffset) {
-          // Apply body rotation then mesh offset (e.g. dropped coin face-forward)
-          obj.mesh.quaternion.multiplyQuaternions(obj.body.quaternion, obj.meshOffset);
-        } else {
-          obj.mesh.quaternion.copy(obj.body.quaternion);
-        }
+        obj.mesh.quaternion.copy(obj.body.quaternion);
       } else {
         // Bonus — bob gently
         obj.bobT = (obj.bobT||0) + dt*2.8;
@@ -786,11 +758,7 @@ export default (() => {
       const ax = (aimFrac - 0.5) * MW * 0.86;
       const dropZ = -MD/2 + WT + MD * 0.18;
       aimArrow.position.set(ax, CHUTE_TOP + 0.1, dropZ);
-      // Apply same meshOffset as dropped coin (edge-down, face-forward)
-      if (!aimArrow._offsetSet) {
-        aimArrow.rotation.x = Math.PI / 2;
-        aimArrow._offsetSet = true;
-      }
+      if (!aimArrow._offsetSet) { aimArrow.rotation.x = 0; aimArrow._offsetSet = true; }
       aimArrow.visible = !dropLocked && balance >= 2;
       if (aimArrow.material) {
         aimArrow.material.opacity = 0.35 + 0.2 * Math.sin(clock.elapsedTime * 4);
@@ -810,8 +778,7 @@ export default (() => {
       const vy  = obj.body.velocity.y;
 
       // Coin landed from chute onto upper shelf
-      // Only transition when actually near shelf height AND moving slowly downward
-      if (obj.shelf === 'falling' && py < UPPER_TOP + SHELF_THICK + CR * 2 + 0.3 && vy > -1.5) {
+      if (obj.shelf === 'falling' && py < UPPER_TOP + SHELF_THICK + CT + 0.3) {
         obj.shelf = 'upper';
         if (fallingBody === obj.body) { fallingBody=null; fallingMesh=null; }
         sndLand();

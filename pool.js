@@ -373,10 +373,148 @@ async function pool3DInit() {
 function pool3DBuildTable(THREE, scene, tw3, th3) {
   const pr3    = POOL.POCKET_R * P3.SCALE;
   const gap3   = POOL.MID_GAP  * P3.SCALE;
-  const rh     = pr3 * 0.7;      // rail height above felt
-  const pR     = pr3 * 1.08;     // pocket radius in rail
-  const railW  = pr3 * 1.1;      // width of each rail strip
-  const woodCol = 0xc47c1a;      // warm oak colour
+  const rh     = pr3 * 0.7;
+  const pR     = pr3 * 1.08;
+  const railW  = pr3 * 1.1;
+
+  // ── Felt surface ─────────────────────────────────────────────────
+  const feltCanvas = document.createElement('canvas');
+  feltCanvas.width = 512; feltCanvas.height = 256;
+  const fc = feltCanvas.getContext('2d');
+  const fg = fc.createRadialGradient(256,128,0,256,128,280);
+  fg.addColorStop(0,'#1e7a3c'); fg.addColorStop(0.5,'#196832'); fg.addColorStop(1,'#124d25');
+  fc.fillStyle=fg; fc.fillRect(0,0,512,256);
+  for(let i=0;i<4000;i++){
+    fc.fillStyle=Math.random()>0.5?`rgba(0,200,80,${(Math.random()*0.04).toFixed(3)})`:`rgba(0,0,0,${(Math.random()*0.06).toFixed(3)})`;
+    fc.fillRect(Math.random()*512,Math.random()*256,1,1);
+  }
+  fc.strokeStyle='rgba(255,255,255,0.03)'; fc.lineWidth=1;
+  for(let y=8;y<256;y+=8){fc.beginPath();fc.moveTo(0,y);fc.lineTo(512,y);fc.stroke();}
+  const bxPx=0.20*512;
+  fc.strokeStyle='rgba(255,255,255,0.18)'; fc.lineWidth=1.5;
+  fc.beginPath();fc.moveTo(bxPx,0);fc.lineTo(bxPx,256);fc.stroke();
+  fc.beginPath();fc.arc(bxPx,128,256*0.28,-Math.PI/2,Math.PI/2);fc.stroke();
+  const feltTex = new THREE.CanvasTexture(feltCanvas);
+  const feltMat = new THREE.MeshStandardMaterial({map:feltTex, roughness:0.92, metalness:0.0});
+  const feltMesh = new THREE.Mesh(new THREE.PlaneGeometry(tw3-pr3*2, th3-pr3*2), feltMat);
+  feltMesh.rotation.x = -Math.PI/2;
+  feltMesh.position.set(tw3/2, 0, th3/2);
+  feltMesh.receiveShadow = true;
+  scene.add(feltMesh);
+
+  // ── Rail wood texture ─────────────────────────────────────────────
+  const wc = document.createElement('canvas'); wc.width=256; wc.height=64;
+  const wx = wc.getContext('2d');
+  wx.fillStyle='#c47c1a'; wx.fillRect(0,0,256,64);
+  for(let g=0;g<18;g++){
+    wx.strokeStyle=`rgba(${80+Math.random()*40},${40+Math.random()*20},0,0.18)`;
+    wx.lineWidth=1+Math.random()*2;
+    wx.beginPath();wx.moveTo(Math.random()*256,0);wx.lineTo(Math.random()*256,64);wx.stroke();
+  }
+  const woodTex = new THREE.CanvasTexture(wc);
+  woodTex.wrapS = woodTex.wrapT = THREE.RepeatWrapping;
+  woodTex.repeat.set(4,1);
+  const railMat = new THREE.MeshStandardMaterial({color:0xc47c1a, map:woodTex, roughness:0.55, metalness:0.04});
+  const darkMat = new THREE.MeshStandardMaterial({color:0x060404, roughness:1.0});
+  const brassMat= new THREE.MeshStandardMaterial({color:0xc8941a, roughness:0.3, metalness:0.7});
+
+  // ── Rail builder: shape with pocket holes baked in ────────────────
+  function makeRailShape(length, width, pocketXs) {
+    const s = new THREE.Shape();
+    s.moveTo(0,0); s.lineTo(length,0); s.lineTo(length,width); s.lineTo(0,width); s.closePath();
+    pocketXs.forEach(px => {
+      const h = new THREE.Path();
+      h.absarc(px, width*0.5, pR, 0, Math.PI*2, true);
+      s.holes.push(h);
+    });
+    return s;
+  }
+
+  // TOP RAIL
+  {
+    const geo = new THREE.ExtrudeGeometry(makeRailShape(tw3, railW, [0, tw3/2, tw3]), {depth:rh, bevelEnabled:false});
+    const m = new THREE.Mesh(geo, railMat);
+    m.rotation.x = Math.PI/2; m.position.set(0, rh, railW);
+    m.castShadow=true; m.receiveShadow=true; scene.add(m);
+    [0, tw3/2, tw3].forEach(px => {
+      const d = new THREE.Mesh(new THREE.CircleGeometry(pR*0.96,32), darkMat);
+      d.rotation.x=-Math.PI/2; d.position.set(px,0,railW*0.5); scene.add(d);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(pR*0.9,pR*0.07,8,32),brassMat);
+      ring.rotation.x=Math.PI/2; ring.position.set(px,0.01,railW*0.5); scene.add(ring);
+    });
+  }
+
+  // BOTTOM RAIL
+  {
+    const geo = new THREE.ExtrudeGeometry(makeRailShape(tw3, railW, [0, tw3/2, tw3]), {depth:rh, bevelEnabled:false});
+    const m = new THREE.Mesh(geo, railMat);
+    m.rotation.x = Math.PI/2; m.position.set(0, rh, th3);
+    m.castShadow=true; m.receiveShadow=true; scene.add(m);
+    [0, tw3/2, tw3].forEach(px => {
+      const d = new THREE.Mesh(new THREE.CircleGeometry(pR*0.96,32), darkMat);
+      d.rotation.x=-Math.PI/2; d.position.set(px,0,th3+railW*0.5); scene.add(d);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(pR*0.9,pR*0.07,8,32),brassMat);
+      ring.rotation.x=Math.PI/2; ring.position.set(px,0.01,th3+railW*0.5); scene.add(ring);
+    });
+  }
+
+  // LEFT RAIL
+  {
+    const geo = new THREE.ExtrudeGeometry(makeRailShape(th3, railW, [0, th3]), {depth:rh, bevelEnabled:false});
+    const m = new THREE.Mesh(geo, railMat);
+    m.rotation.x=Math.PI/2; m.rotation.z=-Math.PI/2; m.position.set(-railW, rh, th3);
+    m.castShadow=true; m.receiveShadow=true; scene.add(m);
+    [0, th3].forEach(pz => {
+      const d = new THREE.Mesh(new THREE.CircleGeometry(pR*0.96,32), darkMat);
+      d.rotation.x=-Math.PI/2; d.position.set(-railW*0.5,0,pz); scene.add(d);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(pR*0.9,pR*0.07,8,32),brassMat);
+      ring.rotation.x=Math.PI/2; ring.position.set(-railW*0.5,0.01,pz); scene.add(ring);
+    });
+  }
+
+  // RIGHT RAIL
+  {
+    const geo = new THREE.ExtrudeGeometry(makeRailShape(th3, railW, [0, th3]), {depth:rh, bevelEnabled:false});
+    const m = new THREE.Mesh(geo, railMat);
+    m.rotation.x=Math.PI/2; m.rotation.z=-Math.PI/2; m.position.set(tw3, rh, th3);
+    m.castShadow=true; m.receiveShadow=true; scene.add(m);
+    [0, th3].forEach(pz => {
+      const d = new THREE.Mesh(new THREE.CircleGeometry(pR*0.96,32), darkMat);
+      d.rotation.x=-Math.PI/2; d.position.set(tw3+railW*0.5,0,pz); scene.add(d);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(pR*0.9,pR*0.07,8,32),brassMat);
+      ring.rotation.x=Math.PI/2; ring.position.set(tw3+railW*0.5,0.01,pz); scene.add(ring);
+    });
+  }
+
+  // ── Green cushions ────────────────────────────────────────────────
+  const cushMat = new THREE.MeshStandardMaterial({color:0x1a7a35, roughness:0.5});
+  const ch=pr3*0.45, cwd=pr3*0.3, halfGap=gap3*1.2;
+  const segW = tw3/2 - pr3*0.5 - halfGap - pr3*0.5;
+  [[pr3*0.5+segW/2,0],[tw3/2+halfGap+segW/2,0],[pr3*0.5+segW/2,th3],[tw3/2+halfGap+segW/2,th3]]
+    .forEach(([cx,cz]) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(Math.abs(segW),ch,cwd),cushMat);
+      m.position.set(cx,ch/2,cz<th3/2?cwd/2:th3-cwd/2); scene.add(m);
+    });
+  [[0,th3/2],[tw3,th3/2]].forEach(([cx,cz]) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(cwd,ch,th3-pr3),cushMat);
+    m.position.set(cx<tw3/2?cwd/2:tw3-cwd/2,ch/2,cz); scene.add(m);
+  });
+
+  // ── Skirt & legs ──────────────────────────────────────────────────
+  const skirtMat=new THREE.MeshStandardMaterial({color:0x7a3e08,roughness:0.8});
+  const legMat2 =new THREE.MeshStandardMaterial({color:0x3a1a04,roughness:0.7});
+  const skH=railW*2.2;
+  [[tw3,railW*0.4,tw3/2,0],[tw3,railW*0.4,tw3/2,th3],[railW*0.4,th3,0,th3/2],[railW*0.4,th3,tw3,th3/2]]
+    .forEach(([w,d,x,z]) => {
+      const m=new THREE.Mesh(new THREE.BoxGeometry(w,skH,d),skirtMat);
+      m.position.set(x,-skH/2,z); m.castShadow=true; scene.add(m);
+    });
+  [[0,0],[tw3,0],[0,th3],[tw3,th3]].forEach(([x,z]) => {
+    const m=new THREE.Mesh(new THREE.BoxGeometry(railW*0.8,skH*1.1,railW*0.8),legMat2);
+    m.position.set(x,-skH*0.55,z); m.castShadow=true; scene.add(m);
+  });
+}
+
 
 function pool3DBuildBalls(THREE, scene, tw3, th3) {
   const r3 = POOL.BALL_R * P3.SCALE;
