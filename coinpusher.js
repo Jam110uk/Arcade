@@ -806,11 +806,12 @@ export default (() => {
     const toRemove = [];
 
     coinBodies.forEach((obj, i) => {
-      const py = obj.body.position.y;
+      const py  = obj.body.position.y;
+      const vy  = obj.body.velocity.y;
 
       // Coin landed from chute onto upper shelf
-      // Face-forward dropped coin has radius CR in Y direction
-      if (obj.shelf === 'falling' && py < UPPER_TOP + SHELF_THICK + CR + 0.2) {
+      // Only transition when actually near shelf height AND moving slowly downward
+      if (obj.shelf === 'falling' && py < UPPER_TOP + SHELF_THICK + CR * 2 + 0.3 && vy > -1.5) {
         obj.shelf = 'upper';
         if (fallingBody === obj.body) { fallingBody=null; fallingMesh=null; }
         sndLand();
