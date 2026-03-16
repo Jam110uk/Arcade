@@ -33,13 +33,19 @@ export default (() => {
   const TRAY_DEPTH    = MD * 0.55;
   const TRAY_FRONT_Z  = LOWER_SHELF_Z + LOWER_SHELF_D/2 + WT;
   const TRAY_Z        = TRAY_FRONT_Z + TRAY_DEPTH/2 + WT/2;
-  // Pusher half-depths and travel bounds
-  const U_PUSH_HD     = UPPER_SHELF_D / 4;
-  const U_PUSH_BACK   = UPPER_SHELF_Z - UPPER_SHELF_D/2 + U_PUSH_HD;
-  const U_PUSH_FRONT  = UPPER_SHELF_Z + UPPER_SHELF_D/2 - U_PUSH_HD - 0.10;
-  const L_PUSH_HD     = LOWER_SHELF_D / 4;
-  const L_PUSH_BACK   = LOWER_SHELF_Z - LOWER_SHELF_D/2 + L_PUSH_HD;
-  const L_PUSH_FRONT  = LOWER_SHELF_Z + LOWER_SHELF_D/2 - L_PUSH_HD - 0.10;
+  // Pusher geometry: full shelf depth + overhang past back wall so no gap ever
+  // The pusher's BACK EDGE is always at/behind the back wall.
+  // Only the front edge moves — from back-of-shelf to front-lip.
+  const PUSHER_OVERHANG = 0.5;   // how far pusher extends behind the back wall
+  const U_PUSH_FULLD  = UPPER_SHELF_D + PUSHER_OVERHANG;   // total pusher depth
+  const U_PUSH_BACK   = UPPER_SHELF_Z - UPPER_SHELF_D/2 - PUSHER_OVERHANG/2; // resting Z (back)
+  const U_PUSH_FRONT  = UPPER_SHELF_Z + UPPER_SHELF_D/2 - U_PUSH_FULLD/2 - 0.08; // fwd limit
+  const L_PUSH_FULLD  = LOWER_SHELF_D + PUSHER_OVERHANG;
+  const L_PUSH_BACK   = LOWER_SHELF_Z - LOWER_SHELF_D/2 - PUSHER_OVERHANG/2;
+  const L_PUSH_FRONT  = LOWER_SHELF_Z + LOWER_SHELF_D/2 - L_PUSH_FULLD/2 - 0.08;
+  // Keep old names as aliases for physics shape half-depths
+  const U_PUSH_HD     = U_PUSH_FULLD / 2;
+  const L_PUSH_HD     = L_PUSH_FULLD / 2;
 
   // Vertical layout (Y from machine bottom = 0)
   const TRAY_FLOOR  = 0.08;
@@ -386,12 +392,12 @@ export default (() => {
       });
     });
 
-    // ── Pusher plates — each sized to match their shelf ──────────
-    const upperPushGeo = new THREE.BoxGeometry(MW, PUSH_H, UPPER_SHELF_D/2);
+    // ── Pusher plates — full shelf depth + overhang, no back gap ─
+    const upperPushGeo = new THREE.BoxGeometry(MW, PUSH_H, U_PUSH_FULLD);
     upperPusherMesh = new THREE.Mesh(upperPushGeo, pusherMat);
     scene.add(upperPusherMesh);
 
-    const lowerPushGeo = new THREE.BoxGeometry(MW, PUSH_H, LOWER_SHELF_D/2);
+    const lowerPushGeo = new THREE.BoxGeometry(MW, PUSH_H, L_PUSH_FULLD);
     lowerPusherMesh = new THREE.Mesh(lowerPushGeo, pusherMat);
     scene.add(lowerPusherMesh);
 
@@ -786,8 +792,8 @@ export default (() => {
   let dragStartX = 0, dragStartY = 0;
   let dragTheta = 0, dragPhi = 0;
   const CAM_TARGET_Y = MH * 0.38;
-  const CAM_PHI_MIN  = 0.08;
-  const CAM_PHI_MAX  = 1.1;
+  const CAM_PHI_MIN  = 0.15;   // ~8° from straight down — looking steeply down from above
+  const CAM_PHI_MAX  = 1.45;   // ~83° — nearly side-on but never below the machine
   const CAM_DIST_MIN = 4;
   const CAM_DIST_MAX = 22;
 
@@ -820,7 +826,7 @@ export default (() => {
       const dx = (e.clientX - dragStartX) / wrap.clientWidth;
       const dy = (e.clientY - dragStartY) / wrap.clientHeight;
       camTheta = dragTheta - dx * Math.PI * 2;
-      camPhi   = Math.max(CAM_PHI_MIN, Math.min(CAM_PHI_MAX, dragPhi + dy * Math.PI));
+      camPhi   = Math.max(CAM_PHI_MIN, Math.min(CAM_PHI_MAX, dragPhi - dy * Math.PI));
       updateCamera();
     } else {
       getAim(e.clientX);
