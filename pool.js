@@ -418,73 +418,36 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
   const darkMat = new THREE.MeshStandardMaterial({color:0x060404, roughness:1.0});
   const brassMat= new THREE.MeshStandardMaterial({color:0xc8941a, roughness:0.3, metalness:0.7});
 
-  // ── Rail builder: shape with pocket holes baked in ────────────────
-  function makeRailShape(length, width, pocketXs) {
-    const s = new THREE.Shape();
-    s.moveTo(0,0); s.lineTo(length,0); s.lineTo(length,width); s.lineTo(0,width); s.closePath();
-    pocketXs.forEach(px => {
-      const h = new THREE.Path();
-      h.absarc(px, width*0.5, pR, 0, Math.PI*2, true);
-      s.holes.push(h);
-    });
-    return s;
+  // ── Rails: simple BoxGeometry segments, pocket circles on top ─────
+  function addRailBox(w, h, d, x, y, z) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), railMat);
+    m.position.set(x,y,z); m.castShadow=true; m.receiveShadow=true; scene.add(m);
   }
+  const railH = rh, railY = railH/2;
+  const topSegW = tw3/2 - railW - pR*1.3;
+  // Top rail: 2 segments split at mid pocket
+  addRailBox(topSegW, railH, railW,  railW + topSegW/2,            railY, railW/2);
+  addRailBox(topSegW, railH, railW,  tw3/2 + pR*1.3 + topSegW/2,  railY, railW/2);
+  // Bottom rail
+  addRailBox(topSegW, railH, railW,  railW + topSegW/2,            railY, th3-railW/2);
+  addRailBox(topSegW, railH, railW,  tw3/2 + pR*1.3 + topSegW/2,  railY, th3-railW/2);
+  // Left/right rails (full height, notched at corners via length)
+  addRailBox(railW, railH, th3-railW*2, 0,   railY, th3/2);
+  addRailBox(railW, railH, th3-railW*2, tw3, railY, th3/2);
+  // Corner blocks
+  [[0,0],[tw3,0],[0,th3],[tw3,th3]].forEach(([x,z]) =>
+    addRailBox(railW, railH, railW, x, railY, z<th3/2 ? railW/2 : th3-railW/2)
+  );
 
-  // TOP RAIL
-  {
-    const geo = new THREE.ExtrudeGeometry(makeRailShape(tw3, railW, [0, tw3/2, tw3]), {depth:rh, bevelEnabled:false});
-    const m = new THREE.Mesh(geo, railMat);
-    m.rotation.x = Math.PI/2; m.position.set(0, rh, railW);
-    m.castShadow=true; m.receiveShadow=true; scene.add(m);
-    [0, tw3/2, tw3].forEach(px => {
-      const d = new THREE.Mesh(new THREE.CircleGeometry(pR*0.96,32), darkMat);
-      d.rotation.x=-Math.PI/2; d.position.set(px,0,railW*0.5); scene.add(d);
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(pR*0.9,pR*0.07,8,32),brassMat);
-      ring.rotation.x=Math.PI/2; ring.position.set(px,0.01,railW*0.5); scene.add(ring);
-    });
-  }
-
-  // BOTTOM RAIL
-  {
-    const geo = new THREE.ExtrudeGeometry(makeRailShape(tw3, railW, [0, tw3/2, tw3]), {depth:rh, bevelEnabled:false});
-    const m = new THREE.Mesh(geo, railMat);
-    m.rotation.x = Math.PI/2; m.position.set(0, rh, th3);
-    m.castShadow=true; m.receiveShadow=true; scene.add(m);
-    [0, tw3/2, tw3].forEach(px => {
-      const d = new THREE.Mesh(new THREE.CircleGeometry(pR*0.96,32), darkMat);
-      d.rotation.x=-Math.PI/2; d.position.set(px,0,th3+railW*0.5); scene.add(d);
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(pR*0.9,pR*0.07,8,32),brassMat);
-      ring.rotation.x=Math.PI/2; ring.position.set(px,0.01,th3+railW*0.5); scene.add(ring);
-    });
-  }
-
-  // LEFT RAIL
-  {
-    const geo = new THREE.ExtrudeGeometry(makeRailShape(th3, railW, [0, th3]), {depth:rh, bevelEnabled:false});
-    const m = new THREE.Mesh(geo, railMat);
-    m.rotation.x=Math.PI/2; m.rotation.z=-Math.PI/2; m.position.set(-railW, rh, th3);
-    m.castShadow=true; m.receiveShadow=true; scene.add(m);
-    [0, th3].forEach(pz => {
-      const d = new THREE.Mesh(new THREE.CircleGeometry(pR*0.96,32), darkMat);
-      d.rotation.x=-Math.PI/2; d.position.set(-railW*0.5,0,pz); scene.add(d);
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(pR*0.9,pR*0.07,8,32),brassMat);
-      ring.rotation.x=Math.PI/2; ring.position.set(-railW*0.5,0.01,pz); scene.add(ring);
-    });
-  }
-
-  // RIGHT RAIL
-  {
-    const geo = new THREE.ExtrudeGeometry(makeRailShape(th3, railW, [0, th3]), {depth:rh, bevelEnabled:false});
-    const m = new THREE.Mesh(geo, railMat);
-    m.rotation.x=Math.PI/2; m.rotation.z=-Math.PI/2; m.position.set(tw3, rh, th3);
-    m.castShadow=true; m.receiveShadow=true; scene.add(m);
-    [0, th3].forEach(pz => {
-      const d = new THREE.Mesh(new THREE.CircleGeometry(pR*0.96,32), darkMat);
-      d.rotation.x=-Math.PI/2; d.position.set(tw3+railW*0.5,0,pz); scene.add(d);
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(pR*0.9,pR*0.07,8,32),brassMat);
-      ring.rotation.x=Math.PI/2; ring.position.set(tw3+railW*0.5,0.01,pz); scene.add(ring);
-    });
-  }
+  // Pocket holes: dark disc + brass ring + collar cylinder
+  [[0,0],[tw3/2,0],[tw3,0],[0,th3],[tw3/2,th3],[tw3,th3]].forEach(([px,pz]) => {
+    const d = new THREE.Mesh(new THREE.CircleGeometry(pR,32), darkMat);
+    d.rotation.x=-Math.PI/2; d.position.set(px,0.02,pz); scene.add(d);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(pR*0.88,pR*0.1,8,32), brassMat);
+    ring.rotation.x=Math.PI/2; ring.position.set(px,0.05,pz); scene.add(ring);
+    const col = new THREE.Mesh(new THREE.CylinderGeometry(pR*0.88,pR*0.88,railH,24), darkMat);
+    col.position.set(px,0,pz); scene.add(col);
+  });
 
   // ── Green cushions ────────────────────────────────────────────────
   const cushMat = new THREE.MeshStandardMaterial({color:0x1a7a35, roughness:0.5});

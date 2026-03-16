@@ -963,7 +963,7 @@ export default (() => {
 
     wrap = el.querySelector('#cp3-wrap');
     el.querySelector('#cp3-new').addEventListener('click', restartGame);
-    el.querySelector('#cp3-back').addEventListener('click', () => window.backToGameSelect?.());
+    el.querySelector('#cp3-back').addEventListener('click', () => { destroy(); window.backToGameSelect?.(); });
     wrap.addEventListener('mousemove',   onMouseMove);
     wrap.addEventListener('mousedown',   onMouseDown);
     wrap.addEventListener('mouseup',     onMouseUp);
@@ -1057,6 +1057,7 @@ export default (() => {
   function destroy() {
     destroyed = true;
     if (animId) { cancelAnimationFrame(animId); animId=null; }
+    if (aCtx) { try { aCtx.close(); } catch(e){} aCtx=null; }
     window.removeEventListener('keydown',           onKey);
     window.removeEventListener('resize',            onResize);
     window.removeEventListener('blur',              onBlur);
