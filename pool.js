@@ -371,113 +371,171 @@ async function pool3DInit() {
 }
 
 function pool3DBuildTable(THREE, scene, tw3, th3) {
-  const pr3    = POOL.POCKET_R * P3.SCALE;
-  const gap3   = POOL.MID_GAP  * P3.SCALE;
-  const rh     = pr3 * 0.7;
-  const pR     = pr3 * 1.08;
-  const railW  = pr3 * 1.1;
+  // GLB URL — hosted in repo root alongside other game files
+  const GLB_URL = './Pool Table.glb';
 
-  // ── Felt surface ─────────────────────────────────────────────────
+  // ── Invisible felt plane at Y=0 — physics reference surface ─────
+  // Balls sit at Y = ballRadius, felt is Y=0. The GLB table surface
+  // must align with this plane after scaling.
   const feltCanvas = document.createElement('canvas');
-  feltCanvas.width = 512; feltCanvas.height = 256;
-  const fc = feltCanvas.getContext('2d');
-  const fg = fc.createRadialGradient(256,128,0,256,128,280);
-  fg.addColorStop(0,'#1e7a3c'); fg.addColorStop(0.5,'#196832'); fg.addColorStop(1,'#124d25');
-  fc.fillStyle=fg; fc.fillRect(0,0,512,256);
+  feltCanvas.width=512; feltCanvas.height=256;
+  const fc=feltCanvas.getContext('2d');
+  const fg=fc.createRadialGradient(256,128,0,256,128,280);
+  fg.addColorStop(0,'#1e7a3c');fg.addColorStop(0.5,'#196832');fg.addColorStop(1,'#124d25');
+  fc.fillStyle=fg;fc.fillRect(0,0,512,256);
   for(let i=0;i<4000;i++){
-    fc.fillStyle=Math.random()>0.5?`rgba(0,200,80,${(Math.random()*0.04).toFixed(3)})`:`rgba(0,0,0,${(Math.random()*0.06).toFixed(3)})`;
+    fc.fillStyle=Math.random()>.5?`rgba(0,200,80,${(Math.random()*.04).toFixed(3)})`:`rgba(0,0,0,${(Math.random()*.06).toFixed(3)})`;
     fc.fillRect(Math.random()*512,Math.random()*256,1,1);
   }
-  fc.strokeStyle='rgba(255,255,255,0.03)'; fc.lineWidth=1;
-  for(let y=8;y<256;y+=8){fc.beginPath();fc.moveTo(0,y);fc.lineTo(512,y);fc.stroke();}
-  const bxPx=0.20*512;
-  fc.strokeStyle='rgba(255,255,255,0.18)'; fc.lineWidth=1.5;
+  const bxPx=.20*512;
+  fc.strokeStyle='rgba(255,255,255,0.18)';fc.lineWidth=1.5;
   fc.beginPath();fc.moveTo(bxPx,0);fc.lineTo(bxPx,256);fc.stroke();
-  fc.beginPath();fc.arc(bxPx,128,256*0.28,-Math.PI/2,Math.PI/2);fc.stroke();
-  const feltTex = new THREE.CanvasTexture(feltCanvas);
-  const feltMat = new THREE.MeshStandardMaterial({map:feltTex, roughness:0.92, metalness:0.0});
-  const feltMesh = new THREE.Mesh(new THREE.PlaneGeometry(tw3-pr3*2, th3-pr3*2), feltMat);
-  feltMesh.rotation.x = -Math.PI/2;
-  feltMesh.position.set(tw3/2, 0, th3/2);
-  feltMesh.receiveShadow = true;
+  fc.beginPath();fc.arc(bxPx,128,256*.28,-Math.PI/2,Math.PI/2);fc.stroke();
+  const feltMat=new THREE.MeshStandardMaterial({map:new THREE.CanvasTexture(feltCanvas),roughness:.92,metalness:0});
+  const feltMesh=new THREE.Mesh(new THREE.PlaneGeometry(tw3-POOL.POCKET_R*P3.SCALE*2,th3-POOL.POCKET_R*P3.SCALE*2),feltMat);
+  feltMesh.rotation.x=-Math.PI/2;
+  feltMesh.position.set(tw3/2,0.001,th3/2);
+  feltMesh.receiveShadow=true;
   scene.add(feltMesh);
 
-  // ── Rail wood texture ─────────────────────────────────────────────
-  const wc = document.createElement('canvas'); wc.width=256; wc.height=64;
-  const wx = wc.getContext('2d');
-  wx.fillStyle='#c47c1a'; wx.fillRect(0,0,256,64);
-  for(let g=0;g<18;g++){
-    wx.strokeStyle=`rgba(${80+Math.random()*40},${40+Math.random()*20},0,0.18)`;
-    wx.lineWidth=1+Math.random()*2;
-    wx.beginPath();wx.moveTo(Math.random()*256,0);wx.lineTo(Math.random()*256,64);wx.stroke();
+  // ── Load GLB ──────────────────────────────────────────────────────
+  // GLTFLoader is not in the core three.module.min.js bundle.
+  // We load it from the same CDN as Three.js.
+  async function loadGLTFLoader() {
+    const base = document.baseURI || location.href;
+    // Try local first, then CDN
+    const loaderPaths = [
+      './GLTFLoader.js',
+      'https://unpkg.com/three@0.128.0/examples/js/loaders/GLTFLoader.js',
+    ];
+    for (const p of loaderPaths) {
+      try {
+        const url = p.startsWith('http') ? p : new URL(p, base).href;
+        // GLTFLoader attaches to THREE when loaded as a classic script
+        await new Promise((res, rej) => {
+          if (document.querySelector(`script[src="${url}"]`)) { res(); return; }
+          const s = document.createElement('script');
+          s.src = url; s.onload = res; s.onerror = rej;
+          document.head.appendChild(s);
+        });
+        if (THREE.GLTFLoader) return THREE.GLTFLoader;
+      } catch(e) {}
+    }
+    // Fallback: try ESM version
+    try {
+      const mod = await import(/* webpackIgnore: true */ 'https://unpkg.com/three@0.128.0/examples/jsm/loaders/GLTFLoader.js');
+      return mod.GLTFLoader;
+    } catch(e) {}
+    return null;
   }
-  const woodTex = new THREE.CanvasTexture(wc);
-  woodTex.wrapS = woodTex.wrapT = THREE.RepeatWrapping;
-  woodTex.repeat.set(4,1);
-  const railMat = new THREE.MeshStandardMaterial({color:0xc47c1a, map:woodTex, roughness:0.55, metalness:0.04});
-  const darkMat = new THREE.MeshStandardMaterial({color:0x060404, roughness:1.0});
-  const brassMat= new THREE.MeshStandardMaterial({color:0xc8941a, roughness:0.3, metalness:0.7});
 
-  // ── Rails: simple BoxGeometry segments, pocket circles on top ─────
-  function addRailBox(w, h, d, x, y, z) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), railMat);
-    m.position.set(x,y,z); m.castShadow=true; m.receiveShadow=true; scene.add(m);
+  // Ball mesh name patterns to strip from GLB
+  const BALL_PATTERNS = [
+    /ball/i, /sphere/i, /cue.?ball/i, /^ball_?\d/i,
+    /solid/i, /stripe/i, /^[0-9]+$/,
+  ];
+  function looksLikeBall(name) {
+    return BALL_PATTERNS.some(p => p.test(name));
   }
-  const railH = rh, railY = railH/2;
-  const topSegW = tw3/2 - railW - pR*1.3;
-  // Top rail: 2 segments split at mid pocket
-  addRailBox(topSegW, railH, railW,  railW + topSegW/2,            railY, railW/2);
-  addRailBox(topSegW, railH, railW,  tw3/2 + pR*1.3 + topSegW/2,  railY, railW/2);
-  // Bottom rail
-  addRailBox(topSegW, railH, railW,  railW + topSegW/2,            railY, th3-railW/2);
-  addRailBox(topSegW, railH, railW,  tw3/2 + pR*1.3 + topSegW/2,  railY, th3-railW/2);
-  // Left/right rails (full height, notched at corners via length)
-  addRailBox(railW, railH, th3-railW*2, 0,   railY, th3/2);
-  addRailBox(railW, railH, th3-railW*2, tw3, railY, th3/2);
-  // Corner blocks
-  [[0,0],[tw3,0],[0,th3],[tw3,th3]].forEach(([x,z]) =>
-    addRailBox(railW, railH, railW, x, railY, z<th3/2 ? railW/2 : th3-railW/2)
-  );
 
-  // Pocket holes: dark disc + brass ring + collar cylinder
-  [[0,0],[tw3/2,0],[tw3,0],[0,th3],[tw3/2,th3],[tw3,th3]].forEach(([px,pz]) => {
-    const d = new THREE.Mesh(new THREE.CircleGeometry(pR,32), darkMat);
-    d.rotation.x=-Math.PI/2; d.position.set(px,0.02,pz); scene.add(d);
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(pR*0.88,pR*0.1,8,32), brassMat);
-    ring.rotation.x=Math.PI/2; ring.position.set(px,0.05,pz); scene.add(ring);
-    const col = new THREE.Mesh(new THREE.CylinderGeometry(pR*0.88,pR*0.88,railH,24), darkMat);
-    col.position.set(px,0,pz); scene.add(col);
-  });
+  loadGLTFLoader().then(GLTFLoader => {
+    if (!GLTFLoader) {
+      console.warn('[pool3d] GLTFLoader not available — using procedural table');
+      return;
+    }
 
-  // ── Green cushions ────────────────────────────────────────────────
-  const cushMat = new THREE.MeshStandardMaterial({color:0x1a7a35, roughness:0.5});
-  const ch=pr3*0.45, cwd=pr3*0.3, halfGap=gap3*1.2;
-  const segW = tw3/2 - pr3*0.5 - halfGap - pr3*0.5;
-  [[pr3*0.5+segW/2,0],[tw3/2+halfGap+segW/2,0],[pr3*0.5+segW/2,th3],[tw3/2+halfGap+segW/2,th3]]
-    .forEach(([cx,cz]) => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(Math.abs(segW),ch,cwd),cushMat);
-      m.position.set(cx,ch/2,cz<th3/2?cwd/2:th3-cwd/2); scene.add(m);
-    });
-  [[0,th3/2],[tw3,th3/2]].forEach(([cx,cz]) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(cwd,ch,th3-pr3),cushMat);
-    m.position.set(cx<tw3/2?cwd/2:tw3-cwd/2,ch/2,cz); scene.add(m);
-  });
+    const loader = new GLTFLoader();
+    // Try repo-relative path, then fallback paths
+    const paths = [
+      GLB_URL,
+      '/Arcade/Pool Table.glb',
+      `${location.origin}/Arcade/Pool Table.glb`,
+    ];
 
-  // ── Skirt & legs ──────────────────────────────────────────────────
-  const skirtMat=new THREE.MeshStandardMaterial({color:0x7a3e08,roughness:0.8});
-  const legMat2 =new THREE.MeshStandardMaterial({color:0x3a1a04,roughness:0.7});
-  const skH=railW*2.2;
-  [[tw3,railW*0.4,tw3/2,0],[tw3,railW*0.4,tw3/2,th3],[railW*0.4,th3,0,th3/2],[railW*0.4,th3,tw3,th3/2]]
-    .forEach(([w,d,x,z]) => {
-      const m=new THREE.Mesh(new THREE.BoxGeometry(w,skH,d),skirtMat);
-      m.position.set(x,-skH/2,z); m.castShadow=true; scene.add(m);
-    });
-  [[0,0],[tw3,0],[0,th3],[tw3,th3]].forEach(([x,z]) => {
-    const m=new THREE.Mesh(new THREE.BoxGeometry(railW*0.8,skH*1.1,railW*0.8),legMat2);
-    m.position.set(x,-skH*0.55,z); m.castShadow=true; scene.add(m);
+    function tryLoad(i) {
+      if (i >= paths.length) {
+        console.warn('[pool3d] Could not load Pool Table.glb from any path');
+        return;
+      }
+      loader.load(paths[i], gltf => {
+        const model = gltf.scene;
+
+        // ── Remove ball meshes from the loaded model ──────────────
+        const toRemove = [];
+        model.traverse(node => {
+          if (!node.isMesh) return;
+          const name = (node.name || '').toLowerCase();
+          const parentName = (node.parent?.name || '').toLowerCase();
+          if (looksLikeBall(name) || looksLikeBall(parentName)) {
+            toRemove.push(node);
+            console.log('[pool3d] Removing ball mesh:', node.name);
+          }
+        });
+        toRemove.forEach(n => {
+          if (n.parent) n.parent.remove(n);
+          if (n.geometry) n.geometry.dispose();
+          if (n.material) {
+            if (Array.isArray(n.material)) n.material.forEach(m=>m.dispose());
+            else n.material.dispose();
+          }
+        });
+
+        // ── Scale and position model to fit 2D physics coords ─────
+        // Compute bounding box of the table model
+        const box = new THREE.Box3().setFromObject(model);
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+
+        // Scale so the model's longest horizontal dimension matches tw3
+        // Most pool table GLBs have the playing surface as the XZ plane
+        const modelW = Math.max(size.x, size.z);
+        const modelH = Math.min(size.x, size.z);
+        const scaleX = tw3 / modelW;
+        const scaleZ = th3 / modelH;
+        const scale  = Math.min(scaleX, scaleZ); // uniform scale
+
+        model.scale.setScalar(scale);
+
+        // After scaling, recompute center and align felt surface to Y=0
+        const box2 = new THREE.Box3().setFromObject(model);
+        const center2 = new THREE.Vector3();
+        box2.getCenter(center2);
+        const min2 = new THREE.Vector3();
+        box2.getMin(min2);
+
+        // Position: centre of table in XZ matches tw3/2, th3/2
+        // Bottom of playing surface aligns to Y=0
+        model.position.set(
+          tw3/2 - center2.x,
+          -min2.y,           // lift so bottom of model sits at Y=0
+          th3/2 - center2.z
+        );
+
+        // Enable shadows on all meshes
+        model.traverse(node => {
+          if (node.isMesh) {
+            node.castShadow = true;
+            node.receiveShadow = true;
+          }
+        });
+
+        // Remove the procedural felt now that we have the GLB
+        scene.remove(feltMesh);
+        scene.add(model);
+        P3.tableModel = model;
+
+        console.log('[pool3d] Pool Table.glb loaded, scale:', scale.toFixed(3));
+        poolDraw();
+      },
+      undefined,
+      () => tryLoad(i + 1)
+      );
+    }
+    tryLoad(0);
   });
 }
-
 
 function pool3DBuildBalls(THREE, scene, tw3, th3) {
   const r3 = POOL.BALL_R * P3.SCALE;
