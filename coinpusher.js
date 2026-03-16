@@ -22,7 +22,23 @@ export default (() => {
   const MH         = 9.5;    // machine total height
   const WT         = 0.15;   // wall thickness
   const SHELF_D    = MD - WT * 2 - 0.1;   // upper shelf depth (back half)
-  const LOWER_D    = MD - WT * 2 - 0.1;   // lower shelf depth — full machine depth, extends to front
+  const LOWER_D    = MD - WT * 2 - 0.1;   // lower shelf depth — full machine depth
+
+  // Derived shelf layout — computed once, shared across physics/visuals/seed/animate
+  const UPPER_SHELF_D = SHELF_D * 0.55;
+  const UPPER_SHELF_Z = -MD/2 + UPPER_SHELF_D/2 + WT;
+  const LOWER_SHELF_D = LOWER_D;
+  const LOWER_SHELF_Z = -MD/2 + LOWER_SHELF_D/2 + WT;
+  const TRAY_DEPTH    = MD * 0.55;
+  const TRAY_FRONT_Z  = LOWER_SHELF_Z + LOWER_SHELF_D/2 + WT;
+  const TRAY_Z        = TRAY_FRONT_Z + TRAY_DEPTH/2 + WT/2;
+  // Pusher half-depths and travel bounds
+  const U_PUSH_HD     = UPPER_SHELF_D / 4;
+  const U_PUSH_BACK   = UPPER_SHELF_Z - UPPER_SHELF_D/2 + U_PUSH_HD;
+  const U_PUSH_FRONT  = UPPER_SHELF_Z + UPPER_SHELF_D/2 - U_PUSH_HD - 0.10;
+  const L_PUSH_HD     = LOWER_SHELF_D / 4;
+  const L_PUSH_BACK   = LOWER_SHELF_Z - LOWER_SHELF_D/2 + L_PUSH_HD;
+  const L_PUSH_FRONT  = LOWER_SHELF_Z + LOWER_SHELF_D/2 - L_PUSH_HD - 0.10;
 
   // Vertical layout (Y from machine bottom = 0)
   const TRAY_FLOOR  = 0.08;
@@ -179,22 +195,17 @@ export default (() => {
 
     // Upper shelf — sits at back half of machine
     const upperShelfD = SHELF_D * 0.55;  // shorter, only back portion
-    const upperShelfZ = -MD/2 + upperShelfD/2 + WT;
     addStaticBox(MW, SHELF_THICK, upperShelfD, 0, UPPER_TOP+SHELF_THICK/2, upperShelfZ);
     // Front lip on upper shelf
     addStaticBox(MW, 0.25, WT, 0, UPPER_TOP+0.12, upperShelfZ + upperShelfD/2 + WT/2);
 
     // Lower shelf — extends much further forward so upper coins land on it
-    const lowerShelfD = LOWER_D;  // full machine depth minus walls
-    const lowerShelfZ = -MD/2 + lowerShelfD/2 + WT;
     addStaticBox(MW, SHELF_THICK, lowerShelfD, 0, LOWER_TOP+SHELF_THICK/2, lowerShelfZ);
     // Front lip on lower shelf (short — coins push over it into tray)
     addStaticBox(MW, 0.20, WT, 0, LOWER_TOP+0.10, lowerShelfZ + lowerShelfD/2 + WT/2);
 
     // Win tray — sits just in front of lower shelf front lip
-    const trayDepth = MD * 0.55;
     const trayFrontZ = lowerShelfZ + lowerShelfD/2 + WT;   // front edge of lower shelf lip
-    const trayZ = trayFrontZ + trayDepth/2 + WT/2;
     addStaticBox(MW, 0.1,  trayDepth, 0, TRAY_FLOOR+0.05, trayZ);
     addStaticBox(MW, 0.85, WT,        0, TRAY_FLOOR+0.42, trayZ + trayDepth/2 + WT/2);
 
@@ -215,10 +226,6 @@ export default (() => {
     });
 
     // Upper pusher — covers upper shelf (short)
-    const upperShelfD = SHELF_D * 0.55;
-    const upperShelfZ = -MD/2 + upperShelfD/2 + WT;
-    const upperPusherHalfD = upperShelfD / 4;
-    const upperPusherBack  = upperShelfZ - upperShelfD/2 + upperPusherHalfD;
     const upperPShape = new CANNON.Box(new CANNON.Vec3(MW/2, PUSH_H/2, upperPusherHalfD));
     upperPusherBody = new CANNON.Body({ mass:0, type:CANNON.Body.KINEMATIC });
     upperPusherBody.addShape(upperPShape);
@@ -226,10 +233,6 @@ export default (() => {
     world.addBody(upperPusherBody);
 
     // Lower pusher — covers full lower shelf depth
-    const lowerShelfD = LOWER_D;
-    const lowerShelfZ = -MD/2 + lowerShelfD/2 + WT;
-    const lowerPusherHalfD = lowerShelfD / 4;
-    const lowerPusherBack  = lowerShelfZ - lowerShelfD/2 + lowerPusherHalfD;
     const lowerPShape = new CANNON.Box(new CANNON.Vec3(MW/2, PUSH_H/2, lowerPusherHalfD));
     lowerPusherBody = new CANNON.Body({ mass:0, type:CANNON.Body.KINEMATIC });
     lowerPusherBody.addShape(lowerPShape);
@@ -346,33 +349,26 @@ export default (() => {
     scene.add(glass);
 
     // ── Shelves ─────────────────────────────────────────────────
-    const upperShelfDv = SHELF_D * 0.55;
-    const upperShelfZv = -MD/2 + upperShelfDv/2 + WT;
-    const lowerShelfDv = LOWER_D;
-    const lowerShelfZv = -MD/2 + lowerShelfDv/2 + WT;
 
     // Upper shelf — shorter, sits at back
-    addMesh(new THREE.BoxGeometry(MW, SHELF_THICK, upperShelfDv), shelfMat,
-            0, UPPER_TOP + SHELF_THICK/2, upperShelfZv);
+    addMesh(new THREE.BoxGeometry(MW, SHELF_THICK, UPPER_SHELF_D), shelfMat,
+            0, UPPER_TOP + SHELF_THICK/2, UPPER_SHELF_Z);
     addMesh(new THREE.BoxGeometry(MW, 0.25, 0.10), chromeMat,
-            0, UPPER_TOP + 0.12, upperShelfZv + upperShelfDv/2 + 0.05);
+            0, UPPER_TOP + 0.12, UPPER_SHELF_Z + UPPER_SHELF_D/2 + 0.05);
 
     // Lower shelf — full machine depth, extends far forward so coins from upper shelf land here
-    addMesh(new THREE.BoxGeometry(MW, SHELF_THICK, lowerShelfDv), shelfMat,
-            0, LOWER_TOP + SHELF_THICK/2, lowerShelfZv);
+    addMesh(new THREE.BoxGeometry(MW, SHELF_THICK, LOWER_SHELF_D), shelfMat,
+            0, LOWER_TOP + SHELF_THICK/2, LOWER_SHELF_Z);
     addMesh(new THREE.BoxGeometry(MW, 0.20, 0.10), chromeMat,
-            0, LOWER_TOP + 0.10, lowerShelfZv + lowerShelfDv/2 + 0.05);
+            0, LOWER_TOP + 0.10, LOWER_SHELF_Z + LOWER_SHELF_D/2 + 0.05);
 
     // Win tray — sits just in front of lower shelf front lip
-    const trayDepthV = MD * 0.55;
-    const trayFrontZv = lowerShelfZv + lowerShelfDv/2 + WT;
-    const trayZv = trayFrontZv + trayDepthV/2 + WT/2;
-    addMesh(new THREE.BoxGeometry(MW, 0.10, trayDepthV), trayMat, 0, TRAY_FLOOR+0.05, trayZv, false);
-    addMesh(new THREE.BoxGeometry(MW, 0.85, 0.10),       trayMat, 0, TRAY_FLOOR+0.42, trayZv + trayDepthV/2 + 0.05, false);
+    addMesh(new THREE.BoxGeometry(MW, 0.10, TRAY_DEPTH), trayMat, 0, TRAY_FLOOR+0.05, TRAY_Z, false);
+    addMesh(new THREE.BoxGeometry(MW, 0.85, 0.10),       trayMat, 0, TRAY_FLOOR+0.42, TRAY_Z + TRAY_DEPTH/2 + 0.05, false);
 
     // Tray label
     const trayLabel = makeTextSprite('WIN TRAY', 0.55);
-    trayLabel.position.set(0, TRAY_FLOOR + 0.50, trayZv + trayDepthV/2 + 0.12);
+    trayLabel.position.set(0, TRAY_FLOOR + 0.50, TRAY_Z + TRAY_DEPTH/2 + 0.12);
     scene.add(trayLabel);
 
     // ── Pegs — full width of back wall ──────────────────────────
@@ -392,11 +388,11 @@ export default (() => {
     });
 
     // ── Pusher plates — each sized to match their shelf ──────────
-    const upperPushGeo = new THREE.BoxGeometry(MW, PUSH_H, upperShelfDv/2);
+    const upperPushGeo = new THREE.BoxGeometry(MW, PUSH_H, UPPER_SHELF_D/2);
     upperPusherMesh = new THREE.Mesh(upperPushGeo, pusherMat);
     scene.add(upperPusherMesh);
 
-    const lowerPushGeo = new THREE.BoxGeometry(MW, PUSH_H, lowerShelfDv/2);
+    const lowerPushGeo = new THREE.BoxGeometry(MW, PUSH_H, LOWER_SHELF_D/2);
     lowerPusherMesh = new THREE.Mesh(lowerPushGeo, pusherMat);
     scene.add(lowerPusherMesh);
 
@@ -506,44 +502,40 @@ export default (() => {
 
   // ── Seed shelves with initial coins ───────────────────────────
   function seedCoins() {
-    const upperShelfDs = SHELF_D * 0.55;
-    const upperShelfZs = -MD/2 + upperShelfDs/2 + WT;
-    const lowerShelfDs = LOWER_D;
-    const lowerShelfZs = -MD/2 + lowerShelfDs/2 + WT;
     const hw = MW/2 - CR*1.6;
 
     // Scattered coins across upper shelf
-    const uhd = upperShelfDs/2 - CR*1.4;
+    const (UPPER_SHELF_D/2 - CR*1.4) = UPPER_SHELF_D/2 - CR*1.4;
     for (let i = 0; i < 16; i++) {
       const x = (Math.random()*2-1) * hw;
-      const z = upperShelfZs + (Math.random()*2-1) * uhd;
+      const z = UPPER_SHELF_Z + (Math.random()*2-1) * (UPPER_SHELF_D/2 - CR*1.4);
       spawnCoin(x, UPPER_TOP + SHELF_THICK + CT/2 + 0.01, z, 'upper');
     }
     // Stacks on upper shelf
-    [[-MW*0.28, -uhd*0.3], [0, uhd*0.1], [MW*0.28, -uhd*0.5]].forEach(([sx, dz]) => {
+    [[-MW*0.28, -(UPPER_SHELF_D/2 - CR*1.4)*0.3], [0, (UPPER_SHELF_D/2 - CR*1.4)*0.1], [MW*0.28, -(UPPER_SHELF_D/2 - CR*1.4)*0.5]].forEach(([sx, dz]) => {
       const h = 4 + Math.floor(Math.random()*3);
       for (let k = 0; k < h; k++)
-        spawnCoin(sx+(Math.random()-.5)*.12, UPPER_TOP+SHELF_THICK+CT/2+k*CT*1.05, upperShelfZs+dz+(Math.random()-.5)*.12, 'upper');
+        spawnCoin(sx+(Math.random()-.5)*.12, UPPER_TOP+SHELF_THICK+CT/2+k*CT*1.05, UPPER_SHELF_Z+dz+(Math.random()-.5)*.12, 'upper');
     });
 
     // Scattered coins across lower shelf
-    const lhd = lowerShelfDs/2 - CR*1.4;
+    const (LOWER_SHELF_D/2 - CR*1.4) = LOWER_SHELF_D/2 - CR*1.4;
     for (let i = 0; i < 28; i++) {
       const x = (Math.random()*2-1) * hw;
-      const z = lowerShelfZs + (Math.random()*2-1) * lhd;
+      const z = LOWER_SHELF_Z + (Math.random()*2-1) * (LOWER_SHELF_D/2 - CR*1.4);
       spawnCoin(x, LOWER_TOP + SHELF_THICK + CT/2 + 0.01, z, 'lower');
     }
     // Stacks on lower shelf
-    [[-MW*0.35,lhd*.3],[-MW*0.12,-lhd*.4],[MW*0.15,lhd*.1],[MW*0.35,-lhd*.2]].forEach(([sx,dz]) => {
+    [[-MW*0.35,(LOWER_SHELF_D/2 - CR*1.4)*.3],[-MW*0.12,-(LOWER_SHELF_D/2 - CR*1.4)*.4],[MW*0.15,(LOWER_SHELF_D/2 - CR*1.4)*.1],[MW*0.35,-(LOWER_SHELF_D/2 - CR*1.4)*.2]].forEach(([sx,dz]) => {
       const h = 3 + Math.floor(Math.random()*4);
       for (let k = 0; k < h; k++)
-        spawnCoin(sx+(Math.random()-.5)*.12, LOWER_TOP+SHELF_THICK+CT/2+k*CT*1.05, lowerShelfZs+dz+(Math.random()-.5)*.12, 'lower');
+        spawnCoin(sx+(Math.random()-.5)*.12, LOWER_TOP+SHELF_THICK+CT/2+k*CT*1.05, LOWER_SHELF_Z+dz+(Math.random()-.5)*.12, 'lower');
     });
 
     // Bonus items
-    spawnBonus(-MW*0.22, UPPER_TOP+SHELF_THICK+0.45, upperShelfZs-uhd*0.2);
-    spawnBonus( MW*0.22, UPPER_TOP+SHELF_THICK+0.45, upperShelfZs+uhd*0.2);
-    spawnBonus( 0,       LOWER_TOP+SHELF_THICK+0.45, lowerShelfZs);
+    spawnBonus(-MW*0.22, UPPER_TOP+SHELF_THICK+0.45, UPPER_SHELF_Z-(UPPER_SHELF_D/2 - CR*1.4)*0.2);
+    spawnBonus( MW*0.22, UPPER_TOP+SHELF_THICK+0.45, UPPER_SHELF_Z+(UPPER_SHELF_D/2 - CR*1.4)*0.2);
+    spawnBonus( 0,       LOWER_TOP+SHELF_THICK+0.45, LOWER_SHELF_Z);
   }
 
   // ── Drop a coin from the chute ─────────────────────────────────
@@ -693,27 +685,15 @@ export default (() => {
     });
 
     // Move pusher plates — sweep back→front, stop before front lip
-    const upperShelfDa = SHELF_D * 0.55;
-    const upperShelfZa = -MD/2 + upperShelfDa/2 + WT;
-    const uPusherHD    = upperShelfDa / 4;
-    const uPusherBack  = upperShelfZa - upperShelfDa/2 + uPusherHD;
-    const uPusherFront = upperShelfZa + upperShelfDa/2 - uPusherHD - 0.10;
-
     upperPusherBody.position.z += PUSH_SPEED * upperPusherDir * dt;
-    if (upperPusherBody.position.z > uPusherFront) { upperPusherBody.position.z = uPusherFront; upperPusherDir=-1; }
-    if (upperPusherBody.position.z < uPusherBack)  { upperPusherBody.position.z = uPusherBack;  upperPusherDir= 1; }
+    if (upperPusherBody.position.z > U_PUSH_FRONT) { upperPusherBody.position.z = U_PUSH_FRONT; upperPusherDir=-1; }
+    if (upperPusherBody.position.z < U_PUSH_BACK)  { upperPusherBody.position.z = U_PUSH_BACK;  upperPusherDir= 1; }
     upperPusherMesh.position.copy(upperPusherBody.position);
     upperPusherMesh.position.y = UPPER_TOP + PUSH_H/2;
 
-    const lowerShelfDa = LOWER_D;
-    const lowerShelfZa = -MD/2 + lowerShelfDa/2 + WT;
-    const lPusherHD    = lowerShelfDa / 4;
-    const lPusherBack  = lowerShelfZa - lowerShelfDa/2 + lPusherHD;
-    const lPusherFront = lowerShelfZa + lowerShelfDa/2 - lPusherHD - 0.10;
-
     lowerPusherBody.position.z += PUSH_SPEED * lowerPusherDir * dt * 0.82;
-    if (lowerPusherBody.position.z > lPusherFront) { lowerPusherBody.position.z = lPusherFront; lowerPusherDir=-1; }
-    if (lowerPusherBody.position.z < lPusherBack)  { lowerPusherBody.position.z = lPusherBack;  lowerPusherDir= 1; }
+    if (lowerPusherBody.position.z > L_PUSH_FRONT) { lowerPusherBody.position.z = L_PUSH_FRONT; lowerPusherDir=-1; }
+    if (lowerPusherBody.position.z < L_PUSH_BACK)  { lowerPusherBody.position.z = L_PUSH_BACK;  lowerPusherDir= 1; }
     lowerPusherMesh.position.copy(lowerPusherBody.position);
     lowerPusherMesh.position.y = LOWER_TOP + PUSH_H/2;
 
@@ -977,13 +957,9 @@ export default (() => {
       world.removeBody(obj.body);
     });
     coinBodies.length = 0;
-    const upperShelfDr = SHELF_D * 0.55;
-    const upperShelfZr = -MD/2 + upperShelfDr/2 + WT;
-    const lowerShelfDr = LOWER_D;
-    const lowerShelfZr = -MD/2 + lowerShelfDr/2 + WT;
     upperPusherDir=1; lowerPusherDir=-1;
-    upperPusherBody.position.set(0, UPPER_TOP+PUSH_H/2, upperShelfZr - upperShelfDr/2 + upperShelfDr/4);
-    lowerPusherBody.position.set(0, LOWER_TOP+PUSH_H/2, lowerShelfZr - lowerShelfDr/2 + lowerShelfDr/4);
+    upperPusherBody.position.set(0, UPPER_TOP+PUSH_H/2, U_PUSH_BACK);
+    lowerPusherBody.position.set(0, LOWER_TOP+PUSH_H/2, L_PUSH_BACK);
     seedCoins();
     updateHUD();
   }
