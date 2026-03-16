@@ -2,10 +2,12 @@
 // BUBBLE BURST  —  Chain Reaction Puzzle
 // Click one bubble → chain explosion clears neighbours.
 // Power-ups: BOMB (clears 5x5), LIGHTNING (clears row+col),
-//            RAINBOW (clears all of one colour), FREEZE (locks board for inspection)
+//            RAINBOW (clears all of one colour)
 // ============================================================
+import { BubbleAudio } from './bubbleaudio.js';
 export default (() => {
   'use strict';
+  const _sfx = new BubbleAudio();
 
   const COLS = 10, ROWS = 10;
   const COLORS = ['#ff2d78','#00f5ff','#39ff14','#ff6a00','#bf00ff','#ffe600'];
@@ -64,6 +66,7 @@ export default (() => {
       spawnBurst(colX(c)+cellSize/2, rowY(r)+cellSize/2, col);
       grid[r][c] = null;
     });
+    _sfx.combo(Math.min(cells.length, 5));
     score += cells.length * cells.length * 10 * level;
     movesLeft--;
     gravity();
@@ -88,14 +91,16 @@ export default (() => {
 
   function checkWin(){
     const any = grid.some(row=>row.some(v=>v!==null));
-    if(!any){ score+=1000*level; level++; setTimeout(()=>{ newGrid(); },600); }
+    if(!any){ score+=1000*level; level++; _sfx.levelup(); setTimeout(()=>{ newGrid(); },600); }
     if(movesLeft<=0 && any){ setTimeout(()=>showOver(),400); }
   }
 
   function showOver(){
     if(score>best){ best=score; try{localStorage.setItem('bburst_best',best);}catch(e){} }
+    _sfx.gameover();
     $id('bburst-over-score').textContent = score.toLocaleString();
     $id('bburst-over').style.display='flex';
+    if(score>0 && window.HS) setTimeout(()=>HS.promptSubmit('bubbleburst', score, score.toLocaleString()), 800);
   }
 
   // ── Power-ups ────────────────────────────────────────────────
@@ -114,7 +119,7 @@ export default (() => {
       const target=grid[r][c]; if(target===null||target<0) return;
       for(let rr=0;rr<ROWS;rr++) for(let cc=0;cc<COLS;cc++) if(grid[rr][cc]===target) cells.push([rr,cc]);
     }
-    if(cells.length){ popCells(cells, '#ffffff'); }
+    if(cells.length){ _sfx.activate(); popCells(cells, '#ffffff'); }
     powerups[type] = (powerups[type]||0)-1;
     selectedPU = null;
     renderPUBar();
@@ -122,6 +127,7 @@ export default (() => {
 
   function collectPU(type){
     powerups[type] = (powerups[type]||0)+1;
+    _sfx.powerup();
     renderPUBar();
   }
 
@@ -320,6 +326,7 @@ export default (() => {
   }
 
   window.bburstNewGame=()=>{ score=0; level=1; powerups={}; selectedPU=null; $id('bburst-over').style.display='none'; newGrid(); renderPUBar(); };
+  window.bburstExitToArcade=function(){ destroy(); if(score>0&&window.HS){ HS.promptSubmitOnExit('bubbleburst',score,score.toLocaleString(),()=>backToGameSelect()); } else { backToGameSelect(); } };
 
-  return { init, destroy };
+  return { init, destroy, getCurrentScore: ()=>score };
 })();
