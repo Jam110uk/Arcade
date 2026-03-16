@@ -577,13 +577,14 @@ export default (() => {
     body.addShape(new CANNON.Cylinder(CR, CR, CT, 12), new CANNON.Vec3(), shapeQuat);
 
     const dropX = (aimFrac - 0.5) * MW * 0.86;
-    // Press against back wall inner face. Back wall inner face = -MD/2 + WT.
-    // Coin edge touches wall so centre is at backWall + CR (coin radius, not thickness)
+    // Back wall inner face Z. Coin drops with its edge just clear of the wall.
+    // CR = coin radius — centre sits one radius away from wall face.
     const backWallZ = -MD/2 + WT;
-    body.position.set(dropX, CHUTE_TOP - 0.4, backWallZ + CR + 0.01);
-    // Falls straight down, tiny sideways wobble, no forward push needed (already at wall)
-    body.velocity.set((Math.random()-0.5)*0.25, -2.0, 0);
-    // Spin around Z axis only — coin rolls/tumbles as it falls down the wall face
+    const dropZ = backWallZ + CR + 0.05;  // small clearance so physics doesn't instantly collide
+    body.position.set(dropX, CHUTE_TOP - 0.2, dropZ);
+    // Falls straight down; no Z velocity so it stays against back wall under gravity
+    body.velocity.set((Math.random()-0.5)*0.2, -2.2, 0);
+    // Spins around Z — visually tumbles as it falls face-forward
     body.angularVelocity.set(0, 0, (Math.random() > 0.5 ? 1 : -1) * (2 + Math.random()*3));
     world.addBody(body);
 
@@ -779,14 +780,20 @@ export default (() => {
       );
     }
 
-    // Ghost coin — sits at drop position above chute, pulses gently
+    // Ghost coin — matches exact drop position and orientation
     if (aimArrow) {
       const ax = (aimFrac - 0.5) * MW * 0.86;
-      aimArrow.position.set(ax, CHUTE_TOP + 0.05, 0);
+      const backWallZ = -MD/2 + WT;
+      const dropZ = backWallZ + CR + 0.05;
+      aimArrow.position.set(ax, CHUTE_TOP + 0.1, dropZ);
+      // Apply same meshOffset as dropped coin (edge-down, face-forward)
+      if (!aimArrow._offsetSet) {
+        aimArrow.rotation.x = Math.PI / 2;
+        aimArrow._offsetSet = true;
+      }
       aimArrow.visible = !dropLocked && balance >= 2;
-      // Gentle pulse on opacity
       if (aimArrow.material) {
-        aimArrow.material.opacity = 0.3 + 0.2 * Math.sin(clock.elapsedTime * 4);
+        aimArrow.material.opacity = 0.35 + 0.2 * Math.sin(clock.elapsedTime * 4);
       }
     }
 
