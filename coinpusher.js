@@ -505,36 +505,36 @@ export default (() => {
     const hw = MW/2 - CR*1.6;
 
     // Scattered coins across upper shelf
-    const (UPPER_SHELF_D/2 - CR*1.4) = UPPER_SHELF_D/2 - CR*1.4;
+    const uhd = UPPER_SHELF_D/2 - CR*1.4;
     for (let i = 0; i < 16; i++) {
       const x = (Math.random()*2-1) * hw;
-      const z = UPPER_SHELF_Z + (Math.random()*2-1) * (UPPER_SHELF_D/2 - CR*1.4);
+      const z = UPPER_SHELF_Z + (Math.random()*2-1) * uhd;
       spawnCoin(x, UPPER_TOP + SHELF_THICK + CT/2 + 0.01, z, 'upper');
     }
     // Stacks on upper shelf
-    [[-MW*0.28, -(UPPER_SHELF_D/2 - CR*1.4)*0.3], [0, (UPPER_SHELF_D/2 - CR*1.4)*0.1], [MW*0.28, -(UPPER_SHELF_D/2 - CR*1.4)*0.5]].forEach(([sx, dz]) => {
+    [[-MW*0.28, -uhd*0.3], [0, uhd*0.1], [MW*0.28, -uhd*0.5]].forEach(([sx, dz]) => {
       const h = 4 + Math.floor(Math.random()*3);
       for (let k = 0; k < h; k++)
         spawnCoin(sx+(Math.random()-.5)*.12, UPPER_TOP+SHELF_THICK+CT/2+k*CT*1.05, UPPER_SHELF_Z+dz+(Math.random()-.5)*.12, 'upper');
     });
 
     // Scattered coins across lower shelf
-    const (LOWER_SHELF_D/2 - CR*1.4) = LOWER_SHELF_D/2 - CR*1.4;
+    const lhd = LOWER_SHELF_D/2 - CR*1.4;
     for (let i = 0; i < 28; i++) {
       const x = (Math.random()*2-1) * hw;
-      const z = LOWER_SHELF_Z + (Math.random()*2-1) * (LOWER_SHELF_D/2 - CR*1.4);
+      const z = LOWER_SHELF_Z + (Math.random()*2-1) * lhd;
       spawnCoin(x, LOWER_TOP + SHELF_THICK + CT/2 + 0.01, z, 'lower');
     }
     // Stacks on lower shelf
-    [[-MW*0.35,(LOWER_SHELF_D/2 - CR*1.4)*.3],[-MW*0.12,-(LOWER_SHELF_D/2 - CR*1.4)*.4],[MW*0.15,(LOWER_SHELF_D/2 - CR*1.4)*.1],[MW*0.35,-(LOWER_SHELF_D/2 - CR*1.4)*.2]].forEach(([sx,dz]) => {
+    [[-MW*0.35,lhd*.3],[-MW*0.12,-lhd*.4],[MW*0.15,lhd*.1],[MW*0.35,-lhd*.2]].forEach(([sx,dz]) => {
       const h = 3 + Math.floor(Math.random()*4);
       for (let k = 0; k < h; k++)
         spawnCoin(sx+(Math.random()-.5)*.12, LOWER_TOP+SHELF_THICK+CT/2+k*CT*1.05, LOWER_SHELF_Z+dz+(Math.random()-.5)*.12, 'lower');
     });
 
     // Bonus items
-    spawnBonus(-MW*0.22, UPPER_TOP+SHELF_THICK+0.45, UPPER_SHELF_Z-(UPPER_SHELF_D/2 - CR*1.4)*0.2);
-    spawnBonus( MW*0.22, UPPER_TOP+SHELF_THICK+0.45, UPPER_SHELF_Z+(UPPER_SHELF_D/2 - CR*1.4)*0.2);
+    spawnBonus(-MW*0.22, UPPER_TOP+SHELF_THICK+0.45, UPPER_SHELF_Z-uhd*0.2);
+    spawnBonus( MW*0.22, UPPER_TOP+SHELF_THICK+0.45, UPPER_SHELF_Z+uhd*0.2);
     spawnBonus( 0,       LOWER_TOP+SHELF_THICK+0.45, LOWER_SHELF_Z);
   }
 
