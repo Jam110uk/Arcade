@@ -8,6 +8,7 @@ export default (() => {
 
   // ── DOM / renderer ────────────────────────────────────────────
   let wrap, renderer, scene, camera, clock, animId;
+  let aimArrow, ghostCoin;
   let destroyed = false;
   let THREE = null, CANNON = null;
 
@@ -643,7 +644,6 @@ export default (() => {
   }
 
   // ── Ghost coin drop indicator ──────────────────────────────────
-  let ghostCoin;
   function buildAimArrow() {
     const geo = new THREE.CylinderGeometry(CR, CR, CT, 22);
     const mat = new THREE.MeshStandardMaterial({
