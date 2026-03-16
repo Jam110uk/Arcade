@@ -1269,17 +1269,20 @@ export default (() => {
   // ── RESIZE ────────────────────────────────────────────────────────────
   function resize() {
     if (!canvas) return;
-    // Measure from orbit-screen to avoid circular sizing issues with canvas buffer
-    const scr  = document.getElementById('orbit-screen');
+    const scr   = document.getElementById('orbit-screen');
     const sides = document.querySelectorAll('.orbit-side');
     const bar   = document.querySelector('.orbit-power-bar');
     let sideW = 0;
     sides.forEach(s => { sideW += s.offsetWidth || 0; });
-    const barH = (bar && bar.offsetHeight) || 86;
-    const scrW = scr ? scr.clientWidth  : window.innerWidth;
-    const scrH = scr ? scr.clientHeight : (window.innerHeight - 64);
-    W = Math.max(200, scrW - sideW);
-    H = Math.max(200, scrH - barH);
+    const barH = bar ? bar.offsetHeight : 86;
+    W = Math.max(200, (scr ? scr.clientWidth  : window.innerWidth)  - sideW);
+    H = Math.max(200, (scr ? scr.clientHeight : window.innerHeight - 64) - barH);
+    // Force canvas to correct size via CSS so it doesn't expand its container
+    canvas.style.width  = W + 'px';
+    canvas.style.height = H + 'px';
+    canvas.style.position = 'absolute';
+    canvas.style.top  = '0';
+    canvas.style.left = '0';
     canvas.width  = W;
     canvas.height = H;
     CX = W / 2;
@@ -1324,16 +1327,21 @@ export default (() => {
 
   // ── PUBLIC API ────────────────────────────────────────────────────────
   function init() {
-    // Ensure DOM is laid out before measuring canvas dimensions
     const scr = document.getElementById('orbit-screen');
     if (!scr || !scr.clientWidth || !scr.clientHeight) {
-      setTimeout(init, 50);
-      return;
+      setTimeout(init, 50); return;
     }
     canvas     = $('orbit-canvas');
     ctx        = canvas.getContext('2d');
     nextCanvas = $('orbit-next-canvas');
     nextCtx    = nextCanvas.getContext('2d');
+    // Ensure canvas-wrap is position:relative so absolute-positioned canvas works
+    const wrap = canvas.parentElement;
+    if (wrap) {
+      wrap.style.position = 'relative';
+      wrap.style.overflow = 'hidden';
+    }
+    
 
     score = 0; best = parseInt(localStorage.getItem('orbit-best') || '0'); level = 1; numRings = BASE_RINGS;
     heldPower = null; activePower = null;
