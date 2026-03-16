@@ -45,6 +45,7 @@ export const GAMES = {
   uno:          { label: '🃏 Uno',               module: './uno.js',    screen: 'uno-lobby-screen',     global: 'UNO',   init: () => {} },
   pokemon:      { label: '⚡ Pokémon',            module: './pkm.js',    screen: 'pokemon-lobby-screen', global: 'PKM',   init: m => m.init() },
   guesswho:     { label: '🎭 Guess Who',         module: './gw.js',     screen: 'guesswho-lobby-screen',global: 'GW',    init: m => { m.stopLobbyBrowse?.(); m.startLobbyBrowse?.(); } },
+  bomberman:    { label: '💣 Bomberman',         module: './bomb.js',   screen: 'bomb-screen',          global: 'BOMB',  init: m => m.init() },
 };
 
 // Cache of already-loaded modules and scripts

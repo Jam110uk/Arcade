@@ -1,0 +1,230 @@
+<!-- ============================================================ -->
+<!-- BOMBERMAN — SCREEN HTML                                      -->
+<!-- ============================================================ -->
+<div class="screen" id="bomb-screen">
+<style>
+#bomb-screen {
+  background: #020810;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0;
+  overflow: hidden;
+  font-family: 'Orbitron', sans-serif;
+}
+.bomb-layout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+}
+.bomb-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 700px;
+  padding: 5px 10px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.bomb-scores { display: flex; gap: 12px; align-items: center; }
+.bomb-score-block { text-align: center; min-width: 36px; }
+.bomb-score-label { font-size: 0.42rem; letter-spacing: 0.18em; opacity: 0.7; }
+.bomb-score-value { font-size: 0.9rem; letter-spacing: 0.1em; font-weight: 700; }
+.bomb-score-block.p1 .bomb-score-label { color: #00f5ff; }
+.bomb-score-block.p1 .bomb-score-value { color: #00f5ff; text-shadow: 0 0 8px #00f5ff; }
+.bomb-score-block.p2 .bomb-score-label { color: #ff2d78; }
+.bomb-score-block.p2 .bomb-score-value { color: #ff2d78; text-shadow: 0 0 8px #ff2d78; }
+.bomb-score-block.p3 .bomb-score-label { color: #39ff14; }
+.bomb-score-block.p3 .bomb-score-value { color: #39ff14; text-shadow: 0 0 8px #39ff14; }
+.bomb-score-block.p4 .bomb-score-label { color: #ffbe00; }
+.bomb-score-block.p4 .bomb-score-value { color: #ffbe00; text-shadow: 0 0 8px #ffbe00; }
+.bomb-topbar-btns { display: flex; gap: 5px; }
+.bomb-btn {
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid #333;
+  color: #666;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.5rem;
+  cursor: pointer;
+  letter-spacing: 0.1em;
+  transition: all 0.15s;
+}
+.bomb-btn:hover { border-color: #ff2d78; color: #ff2d78; }
+.bomb-canvas-wrap {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 0;
+}
+#bomb-canvas { display: block; image-rendering: pixelated; }
+#bomb-overlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.9);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  padding: 20px;
+  z-index: 10;
+}
+#bomb-overlay.active { display: flex; }
+.bomb-ov-title {
+  font-size: clamp(1.2rem,5vw,2.2rem);
+  letter-spacing: 0.2em;
+  color: #ff2d78;
+  text-shadow: 0 0 20px #ff2d78, 0 0 40px #ff2d78;
+  margin-bottom: 4px;
+}
+.bomb-ov-sub { font-size: 0.6rem; color: #888; letter-spacing: 0.15em; margin-bottom: 8px; }
+.bomb-mode-btns { display: flex; flex-direction: column; gap: 7px; width: 100%; max-width: 260px; }
+.bomb-mode-btn {
+  padding: 9px 16px;
+  background: transparent;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.65rem;
+  cursor: pointer;
+  letter-spacing: 0.12em;
+  transition: all 0.15s;
+  border: 1px solid #00f5ff;
+  color: #00f5ff;
+}
+.bomb-mode-btn:hover { background: rgba(0,245,255,0.1); box-shadow: 0 0 12px rgba(0,245,255,0.3); }
+#bomb-ov-btns { display: flex; flex-direction: column; gap: 7px; width: 100%; max-width: 260px; }
+/* Countdown */
+#bomb-countdown {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 20;
+}
+.bomb-cd-num {
+  font-size: clamp(3rem, 14vw, 7rem);
+  color: #ff2d78;
+  text-shadow: 0 0 30px #ff2d78, 0 0 70px #ff2d78;
+  animation: bombPop 0.85s ease-out forwards;
+  opacity: 0;
+}
+@keyframes bombPop {
+  0%   { transform: scale(2.2); opacity: 1; }
+  75%  { transform: scale(0.9); opacity: 0.9; }
+  100% { transform: scale(0.8); opacity: 0; }
+}
+/* Mobile dpad */
+.bomb-dpad-wrap {
+  display: none;
+  width: 100%;
+  padding: 6px 10px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+@media (pointer: coarse) { .bomb-dpad-wrap { display: block; } }
+.bomb-dpad {
+  display: grid;
+  grid-template-columns: repeat(3, 44px);
+  grid-template-rows: repeat(3, 44px);
+  gap: 2px;
+  margin: 0 auto;
+  width: fit-content;
+}
+.bomb-dpad-btn {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(0,245,255,0.25);
+  color: #00f5ff;
+  font-size: 1rem;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+.bomb-dpad-btn.bomb-action {
+  border-color: rgba(255,45,120,0.5);
+  color: #ff2d78;
+  font-size: 1.2rem;
+}
+/* Key legend */
+.bomb-keys {
+  font-size: 0.44rem;
+  color: rgba(0,200,255,0.35);
+  letter-spacing: 0.12em;
+  margin: 2px 0;
+  text-align: center;
+}
+</style>
+
+<div class="bomb-layout">
+  <div class="bomb-topbar">
+    <div class="bomb-scores">
+      <div class="bomb-score-block p1">
+        <div class="bomb-score-label">P1</div>
+        <div class="bomb-score-value" id="bomb-p1-wins">0</div>
+      </div>
+      <div class="bomb-score-block p2">
+        <div class="bomb-score-label">P2</div>
+        <div class="bomb-score-value" id="bomb-p2-wins">0</div>
+      </div>
+      <div class="bomb-score-block p3" id="bomb-p3-block" style="display:none">
+        <div class="bomb-score-label">P3</div>
+        <div class="bomb-score-value" id="bomb-p3-wins">0</div>
+      </div>
+      <div class="bomb-score-block p4" id="bomb-p4-block" style="display:none">
+        <div class="bomb-score-label">P4</div>
+        <div class="bomb-score-value" id="bomb-p4-wins">0</div>
+      </div>
+    </div>
+    <div class="bomb-keys" id="bomb-keys-hint">WASD · SPACE=BOMB</div>
+    <div class="bomb-topbar-btns">
+      <button class="bomb-btn" onclick="window.BOMB?.newGame()">↺</button>
+      <button class="bomb-btn" onclick="window.BOMB?.destroy();window.BOMB?.init()">☰</button>
+      <button class="arcade-back-btn" onclick="window.BOMB?.destroy();backToGameSelect()">🕹 ARCADE</button>
+    </div>
+  </div>
+
+  <div class="bomb-canvas-wrap" id="bomb-canvas-wrap">
+    <canvas id="bomb-canvas"></canvas>
+    <div id="bomb-countdown" style="display:none"></div>
+    <div id="bomb-overlay" class="active">
+      <div class="bomb-ov-title" id="bomb-ov-title">💣 BOMBERMAN</div>
+      <div class="bomb-ov-sub" id="bomb-ov-sub">FIRST TO 3 ROUNDS WINS</div>
+      <div id="bomb-ov-btns">
+        <button class="bomb-mode-btn" onclick="window.BOMB?.startMode('solo')">🤖 VS AI</button>
+        <button class="bomb-mode-btn" style="border-color:#ff2d78;color:#ff2d78" onclick="window.BOMB?.startMode('local2')">👥 2 PLAYERS</button>
+        <button class="bomb-mode-btn" style="border-color:#39ff14;color:#39ff14" onclick="window.BOMB?.startMode('local4')">👥 4 PLAYERS</button>
+        <button class="arcade-back-btn" onclick="window.BOMB?.destroy();backToGameSelect()">🕹 ARCADE</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="bomb-dpad-wrap">
+    <div class="bomb-dpad">
+      <div></div>
+      <button class="bomb-dpad-btn" id="bomb-d-up">▲</button>
+      <div></div>
+      <button class="bomb-dpad-btn" id="bomb-d-left">◀</button>
+      <button class="bomb-dpad-btn bomb-action" id="bomb-d-bomb">💣</button>
+      <button class="bomb-dpad-btn" id="bomb-d-right">▶</button>
+      <div></div>
+      <button class="bomb-dpad-btn" id="bomb-d-down">▼</button>
+      <div></div>
+    </div>
+  </div>
+</div>
+</div>
