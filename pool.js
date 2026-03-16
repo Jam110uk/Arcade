@@ -463,45 +463,51 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
     scene.add(m);
   });
 
-  // ── Pockets — sunk into the rail, flush at felt level ────────────
-  const pocketMat = new THREE.MeshStandardMaterial({ color:0x050505, roughness:1.0 });
-  const rimMat    = new THREE.MeshStandardMaterial({ color:0x7a4a15, roughness:0.45, metalness:0.35 });
+  // ── Pockets — smooth rounded holes cut into rail face ──────────
+  const pocketMat = new THREE.MeshStandardMaterial({ color:0x0a0a0a, roughness:1.0, metalness:0.0 });
+  const rimMat    = new THREE.MeshStandardMaterial({ color:0x8a5a1a, roughness:0.4, metalness:0.5 });
 
-  // Corner pockets: sit at the exact corners of the table
-  const cornerPositions = [
-    [0,    0   ],  // TL
-    [tw3,  0   ],  // TR
-    [0,    th3 ],  // BL
-    [tw3,  th3 ],  // BR
-  ];
-  // Mid pockets: centred on long rails at table midpoint
-  const midPositions = [
-    [tw3/2, 0   ],  // top mid
-    [tw3/2, th3 ],  // bottom mid
-  ];
+  function makePocket(px, pz, isCorner) {
+    const pr = isCorner ? pocketR * 1.1 : pocketR * 0.95;
+    // Dark hole: flat circle recessed into the table surface
+    const holeGeo = new THREE.CircleGeometry(pr, 32);
+    const hole    = new THREE.Mesh(holeGeo, pocketMat);
+    hole.rotation.x = -Math.PI/2;
+    hole.position.set(px, -0.01, pz);
+    scene.add(hole);
 
-  [...cornerPositions, ...midPositions].forEach(([px, pz]) => {
-    const isMid = (px === tw3/2);
-    const pr = isMid ? pocketR * 0.92 : pocketR;
-    // Dark hole cylinder — sits at felt level and goes down through rail
-    const pg = new THREE.CylinderGeometry(pr, pr * 1.08, rh * 1.4, 24);
-    const pm = new THREE.Mesh(pg, pocketMat);
-    pm.position.set(px, rh * 0.1, pz);
-    scene.add(pm);
-    // Brass/leather rim ring at felt surface level
-    const rim = new THREE.Mesh(
-      new THREE.TorusGeometry(pr, pr * 0.09, 8, 24),
-      rimMat
-    );
-    rim.rotation.x = Math.PI/2;
-    rim.position.set(px, 0.02, pz);
+    // Brass rim ring sitting at felt level
+    const rimInner = pr * 0.88;
+    const rimOuter = pr * 1.08;
+    const rimShape = new THREE.Shape();
+    rimShape.absarc(0, 0, rimOuter, 0, Math.PI*2, false);
+    const rimHole = new THREE.Path();
+    rimHole.absarc(0, 0, rimInner, 0, Math.PI*2, true);
+    rimShape.holes.push(rimHole);
+    const rimGeo = new THREE.ExtrudeGeometry(rimShape, {
+      depth: 0.018, bevelEnabled: false
+    });
+    const rim = new THREE.Mesh(rimGeo, rimMat);
+    rim.rotation.x = -Math.PI/2;
+    rim.position.set(px, 0.01, pz);
     scene.add(rim);
-    // Dark disc at bottom of pocket
-    const disc = new THREE.Mesh(new THREE.CircleGeometry(pr * 0.9, 20), pocketMat);
-    disc.rotation.x = -Math.PI/2;
-    disc.position.set(px, -rh * 0.6, pz);
-    scene.add(disc);
-  });
+
+    // Leather-coloured collar cylinder just below felt surface
+    const collarGeo = new THREE.CylinderGeometry(pr * 0.95, pr * 1.05, rh * 0.9, 32);
+    const collarMat = new THREE.MeshStandardMaterial({ color:0x1a0a04, roughness:0.9 });
+    const collar    = new THREE.Mesh(collarGeo, collarMat);
+    collar.position.set(px, -rh * 0.45, pz);
+    scene.add(collar);
+  }
+
+  // Corner pockets — at the four table corners
+  makePocket(0,    0,    true);
+  makePocket(tw3,  0,    true);
+  makePocket(0,    th3,  true);
+  makePocket(tw3,  th3,  true);
+  // Mid pockets — centred on long sides
+  makePocket(tw3/2, 0,   false);
+  makePocket(tw3/2, th3, false);
 
   // ── Green cushions ──────────────────────────────────────────────
   // (already added above)
@@ -820,6 +826,7 @@ function poolDraw() {
   if (!P3.ready || !P3.renderer) return;
   const S   = P3.SCALE;
   const r3  = POOL.BALL_R * S;
+  const rh3 = POOL.POCKET_R * S * 0.65;  // rail height (matches pool3DBuildTable rh)
 
   // ── Sync ball meshes from 2D physics positions ───────────────
   POOL.balls.forEach(ball => {
@@ -860,26 +867,35 @@ function poolDraw() {
       const cbx3 = cb.x * S, cbz3 = cb.y * S;
       const tipX3 = cbx3 - Math.cos(angle) * tipDist;
       const tipZ3 = cbz3 - Math.sin(angle) * tipDist;
-      // Butt is further back along the same direction
       const buttX3 = tipX3 - Math.cos(angle) * CUE_LEN;
       const buttZ3 = tipZ3 - Math.sin(angle) * CUE_LEN;
-      // Cue pivot is at the tip; the LatheGeometry grows along +Y.
-      // We want +Y to point from tip toward butt (opposite to shot direction).
-      // Use a quaternion: rotate from worldUp(0,1,0) to the butt direction.
+
       const THREE = P3.THREE;
-      const buttDir = new THREE.Vector3(buttX3 - tipX3, 0, buttZ3 - tipZ3).normalize();
-      // Lay cue flat on table: tilt it down slightly so it rests at ball height
-      buttDir.y = -0.08;
-      buttDir.normalize();
+
+      // Cue tip stays at ball height. Butt rises as pullback increases so the
+      // cue arcs OVER the table rail instead of clipping through it.
+      // At zero pullback: cue nearly flat (tiny rise). At max pullback: butt is
+      // well clear of the rail top surface.
+      const railTop   = rh3;                      // height of rail top surface
+      const tipY      = r3 * 1.05;                // tip stays at ball equator
+      const minButtY  = tipY + CUE_LEN * 0.04;   // slight natural rise even when flat
+      const maxButtY  = tipY + CUE_LEN * 0.55;   // steeply raised at full pullback
+      const buttY     = minButtY + (maxButtY - minButtY) * pullback;
+
+      const buttDir = new THREE.Vector3(
+        buttX3 - tipX3,
+        buttY  - tipY,
+        buttZ3 - tipZ3
+      ).normalize();
       const up   = new THREE.Vector3(0, 1, 0);
       const quat = new THREE.Quaternion().setFromUnitVectors(up, buttDir);
 
-      P3.cueMesh.position.set(tipX3, r3 * 1.05, tipZ3);
+      P3.cueMesh.position.set(tipX3, tipY, tipZ3);
       P3.cueMesh.quaternion.copy(quat);
       P3.cueMesh.visible = true;
 
       if (P3.cueTipMesh) {
-        P3.cueTipMesh.position.set(tipX3, r3 * 1.05, tipZ3);
+        P3.cueTipMesh.position.set(tipX3, tipY, tipZ3);
         P3.cueTipMesh.visible = true;
       }
 
