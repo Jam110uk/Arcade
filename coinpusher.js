@@ -1,922 +1,932 @@
 // ============================================================
 //  COIN PUSHER  —  British beach arcade coin pusher
-//  export default { init, destroy }
+//  Front-on view looking through the glass, like the real machine.
 //
-//  Mechanics:
-//    - Player starts with £1.00 (50 × 2p coins)
-//    - Drop a 2p coin from the top chute
-//    - Coin falls through pegs, lands on upper shelf
-//    - Upper pusher plate slides back/forth pushing coins forward
-//    - Coins fall off upper shelf onto lower shelf
-//    - Lower pusher pushes coins off into the tray (winnings)
-//    - Bonus emoji items on shelves — push them off for prizes
-//    - 3D isometric-style canvas rendering
+//  Layout (top to bottom, all in canvas pixels scaled to fit):
+//    ┌─────────────────────────────┐
+//    │   DROP CHUTE  (pegs)        │  ← coin falls here with physics
+//    ├─────────────────────────────┤
+//    │  [=== UPPER PUSHER ===]     │  ← plate slides left/right
+//    │  coins sit on upper shelf   │
+//    ├─────────────────────────────┤
+//    │  [=== LOWER PUSHER ===]     │
+//    │  coins sit on lower shelf   │
+//    ├─────────────────────────────┤
+//    │        WIN TRAY             │  ← coins that fall off win
+//    └─────────────────────────────┘
+//
+//  The shelf surface is drawn with a shallow 3D perspective strip
+//  (just a parallelogram top face) so it looks like a real shelf
+//  seen slightly from above, but the whole view stays front-on
+//  and proportional — nothing is slanted or cut off.
 // ============================================================
 
 export default (() => {
 
-  // ── Canvas / state ───────────────────────────────────────────
-  let canvas, ctx, wrap, container;
-  let rafId = null, destroyed = false;
-  let lastTs = 0;
-
-  // ── Game constants ───────────────────────────────────────────
-  const SHELF_W   = 380;   // logical shelf width
-  const SHELF_D   = 110;   // shelf depth (how far back coins can sit)
-  const COIN_R    = 11;    // 2p coin radius
-  const PUSHER_SPEED = 28; // px per second the pusher moves
+  let canvas, ctx, wrap;
+  let rafId = null, destroyed = false, lastTs = 0;
 
   // ── Money ────────────────────────────────────────────────────
-  let playerMoney  = 100;   // pence — starts at £1.00
-  let winnings     = 0;     // pence won this session
-  let coinsInHand  = Math.floor(playerMoney / 2); // 50 × 2p
+  let balance  = 100;   // pence  (£1.00 to start)
+  let winnings = 0;
 
-  // ── Drop zone ────────────────────────────────────────────────
-  let dropX        = SHELF_W / 2;  // where player is aiming
-  let dropActive   = false;        // coin currently falling from top
-  let dropCoin     = null;         // { x, y, vx, vy, spin }
+  // ── Layout — all computed fresh in computeLayout() ───────────
+  // Everything is derived from canvas W/H so nothing ever overflows.
+  let L = {};   // layout object
+
+  // ── Coin physics ─────────────────────────────────────────────
+  // Falling coin (one at a time from the chute)
+  let falling = null;   // { x, y, vx, vy, rot, rotV }
+
+  // Aim position (0..1 across machine width)
+  let aimX = 0.5;
 
   // ── Shelves ──────────────────────────────────────────────────
-  // Each shelf: array of items { x, y (depth 0-SHELF_D), vx, type, value, emoji, spin, wobble }
-  // type: 'coin' | 'bonus'
-  // x: 0..SHELF_W, y: depth on shelf (0=front edge, SHELF_D=back)
+  // Each coin/item on a shelf:
+  //   { cx, cy, r, vx, type, value, emoji, label, bobT }
+  //   cx/cy are SCREEN coordinates on the shelf surface
+  //   The shelf surface is a flat 2D region; we use a slight
+  //   perspective transform only for drawing depth illusion.
+  let upperCoins = [];
+  let lowerCoins = [];
 
-  let upperShelf  = [];  // coins resting on upper shelf
-  let lowerShelf  = [];  // coins resting on lower shelf
+  // Pusher plates (screen-x position of LEFT edge)
+  let uPush = { x: 0, dir: 1, speed: 0 };
+  let lPush = { x: 0, dir: 1, speed: 0 };
 
-  // Pusher plates
-  let upperPusher = { x: SHELF_D * 0.85, dir: 1 };  // depth position
-  let lowerPusher = { x: SHELF_D * 0.85, dir: 1 };
-
-  // ── Pegs (obstacles on the fall chute) ───────────────────────
-  const PEGS = [
-    { x: 0.2, y: 0.25 }, { x: 0.5, y: 0.18 }, { x: 0.78, y: 0.28 },
-    { x: 0.35, y: 0.42 }, { x: 0.65, y: 0.38 }, { x: 0.15, y: 0.56 },
-    { x: 0.85, y: 0.52 }, { x: 0.5, y: 0.60 },
+  // ── Pegs ─────────────────────────────────────────────────────
+  // Defined as fractions [0..1] of chute width/height
+  const PEG_LAYOUT = [
+    [0.20, 0.22], [0.50, 0.14], [0.80, 0.22],
+    [0.35, 0.40], [0.65, 0.36],
+    [0.15, 0.58], [0.85, 0.54], [0.50, 0.62],
   ];
 
-  // ── Bonus items (spawned periodically on back of upper shelf) ──
-  const BONUS_ITEMS = [
-    { emoji: '⭐', value: 10, label: '10p' },
-    { emoji: '🍀', value: 20, label: '20p' },
-    { emoji: '💎', value: 50, label: '50p' },
-    { emoji: '🎰', value: 100, label: '£1!' },
-    { emoji: '🌈', value: 30, label: '30p' },
-    { emoji: '🍭', value: 5,  label: '5p'  },
-    { emoji: '🎁', value: 25, label: '25p' },
-    { emoji: '🦄', value: 40, label: '40p' },
+  // ── Bonus items ──────────────────────────────────────────────
+  const BONUSES = [
+    { emoji:'⭐', value:10,  label:'+10p' },
+    { emoji:'🍀', value:20,  label:'+20p' },
+    { emoji:'💎', value:50,  label:'+50p' },
+    { emoji:'🎰', value:100, label:'+£1!' },
+    { emoji:'🌈', value:30,  label:'+30p' },
+    { emoji:'🍭', value:5,   label:'+5p'  },
+    { emoji:'🎁', value:25,  label:'+25p' },
+    { emoji:'🦄', value:40,  label:'+40p' },
+    { emoji:'🌟', value:15,  label:'+15p' },
   ];
-  let bonusSpawnTimer = 4.0;
+  let bonusTimer = 5;
 
-  // ── Win tray animation ────────────────────────────────────────
-  let trayCoins   = [];   // { x, t, emoji, value } coins falling into tray
-  let winFlashes  = [];   // { text, x, y, t, color }
+  // ── Win tray pop-ups ──────────────────────────────────────────
+  let popups = [];   // { text, x, y, t, color }
 
   // ── Audio ─────────────────────────────────────────────────────
-  let audioCtx;
-  function ac() {
-    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    return audioCtx;
+  let aCtx;
+  function getAC() {
+    if (!aCtx) aCtx = new (window.AudioContext || window.webkitAudioContext)();
+    return aCtx;
   }
-  function tone(freq, dur, vol = 0.08, delay = 0, type = 'sine') {
+  function beep(freq, dur, vol=0.07, delay=0, type='sine') {
     try {
-      const a = ac(), o = a.createOscillator(), g = a.createGain(), f = a.createBiquadFilter();
-      f.type = 'lowpass'; f.frequency.value = Math.min(freq * 2.5, 2200); f.Q.value = 0.5;
+      const a=getAC(), o=a.createOscillator(), g=a.createGain(), f=a.createBiquadFilter();
+      f.type='lowpass'; f.frequency.value=Math.min(freq*2.8,2400); f.Q.value=0.4;
       o.connect(f); f.connect(g); g.connect(a.destination);
-      o.type = type;
-      o.frequency.setValueAtTime(freq, a.currentTime + delay);
-      g.gain.setValueAtTime(0, a.currentTime + delay);
-      g.gain.linearRampToValueAtTime(vol, a.currentTime + delay + 0.015);
-      g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + delay + dur);
-      o.start(a.currentTime + delay); o.stop(a.currentTime + delay + dur + 0.05);
-    } catch(e) {}
+      o.type=type; o.frequency.setValueAtTime(freq,a.currentTime+delay);
+      g.gain.setValueAtTime(0,a.currentTime+delay);
+      g.gain.linearRampToValueAtTime(vol,a.currentTime+delay+0.015);
+      g.gain.exponentialRampToValueAtTime(0.0001,a.currentTime+delay+dur);
+      o.start(a.currentTime+delay); o.stop(a.currentTime+delay+dur+0.05);
+    } catch(e){}
   }
-  function sndClink()   { tone(900 + Math.random()*200, 0.08, 0.10, 0, 'triangle'); }
-  function sndDrop()    { tone(600, 0.12, 0.09, 0, 'sine'); tone(400, 0.10, 0.07, 0.05, 'sine'); }
-  function sndWin(val)  {
-    const f = val >= 50 ? 784 : val >= 20 ? 659 : 523;
-    tone(f, 0.18, 0.10); tone(f*1.25, 0.14, 0.08, 0.12); if (val >= 50) tone(f*1.5, 0.12, 0.07, 0.24);
+  function sndClink() { beep(700+Math.random()*300,0.07,0.08,0,'triangle'); }
+  function sndLand()  { beep(500,0.10,0.08); beep(350,0.09,0.06,0.06); }
+  function sndWin(v)  {
+    const f=v>=50?784:v>=20?659:523;
+    beep(f,0.15,0.09); beep(f*1.25,0.12,0.07,0.10);
+    if(v>=50) beep(f*1.5,0.10,0.06,0.20);
   }
-  function sndBonus()   { tone(1046, 0.12, 0.09); tone(1318, 0.10, 0.08, 0.10); tone(1568, 0.08, 0.07, 0.20); }
+  function sndBonus() { beep(1047,0.10,0.08); beep(1319,0.09,0.07,0.09); beep(1568,0.08,0.06,0.18); }
+  function sndDrop()  { beep(900,0.05,0.06,0,'sine'); }
 
-  // ── Geometry helpers ─────────────────────────────────────────
-  // Convert shelf coords to canvas screen coords (isometric-ish projection)
-  // shelfId: 0=upper, 1=lower
-  // sx: 0..SHELF_W (left/right), sd: 0..SHELF_D (front/back depth)
-  let VIEW;  // computed in resize()
+  // ── Layout computation ────────────────────────────────────────
+  // Called on every resize. All coordinates are screen pixels.
+  function computeLayout() {
+    const W = canvas.width, H = canvas.height;
 
-  function shelfToScreen(shelfId, sx, sd) {
-    // Isometric: x goes right, depth goes up-right
-    const isoX = VIEW.originX + sx * VIEW.scaleX - sd * VIEW.depthX;
-    const isoY = VIEW.originY[shelfId] + sd * VIEW.depthY - sx * VIEW.skewY;
-    return { x: isoX, y: isoY };
-  }
+    // Machine body takes up most of the canvas, centred
+    const mw = Math.min(W * 0.94, H * 0.72, 480);  // machine width
+    const mh = Math.min(H * 0.97, mw * 1.55);       // machine height
+    const mx = (W - mw) / 2;  // machine left edge
+    const my = (H - mh) / 2;  // machine top edge
 
-  function computeView(W, H) {
-    // Scale everything to fit canvas
-    const scale  = Math.min(W / 560, H / 520);
-    const scaleX = scale;
-    const depthX = scale * 0.45;
-    const depthY = scale * 0.28;
-    const skewY  = scale * 0.02;
-    const shelfH = scale * 38;  // visual height of shelf surface
-    const gap    = scale * 90;  // vertical gap between shelves
+    const CR = Math.round(mw * 0.040);   // coin radius (scales with machine)
 
-    // Upper shelf top-left screen origin
-    const totalW = SHELF_W * scaleX + SHELF_D * depthX;
-    const startX = (W - totalW) / 2 + SHELF_D * depthX;
-    const upperY = H * 0.28;
-    const lowerY = upperY + shelfH + gap;
+    // Vertical zones inside the machine (fractions of mh):
+    //   chute:       0 .. 0.32
+    //   upper shelf: 0.32 .. 0.56
+    //   lower shelf: 0.56 .. 0.80
+    //   tray:        0.80 .. 1.00
+    const chuteTop    = my + mh * 0.00;
+    const chuteBot    = my + mh * 0.32;
+    const upperTop    = my + mh * 0.32;
+    const upperBot    = my + mh * 0.56;
+    const lowerTop    = my + mh * 0.56;
+    const lowerBot    = my + mh * 0.80;
+    const trayTop     = my + mh * 0.80;
+    const trayBot     = my + mh * 1.00;
 
-    VIEW = {
-      W, H, scale,
-      scaleX, depthX, depthY, skewY, shelfH,
-      originX: startX,
-      originY: [upperY, lowerY],
-      // Chute area (coin drop zone) above upper shelf
-      chuteTop: upperY - scale * 195,
-      chuteBot: upperY,
-      trayY:    lowerY + shelfH + scale * 52,
-      // Shelf surface polygon corners (for clipping/drawing)
-      shelf: (id) => {
-        const o = { x: VIEW.originX, y: VIEW.originY[id] };
-        return [
-          { x: o.x,                                 y: o.y },
-          { x: o.x + SHELF_W * scaleX,              y: o.y - SHELF_W * skewY },
-          { x: o.x + SHELF_W * scaleX - SHELF_D * depthX, y: o.y - SHELF_W * skewY + SHELF_D * depthY },
-          { x: o.x - SHELF_D * depthX,              y: o.y + SHELF_D * depthY },
-        ];
-      },
+    // Shelf depth illusion: the "back wall" is drawn slightly higher.
+    // Coins sit on the flat part. Pusher plate spans full shelf width.
+    const shelfDepth = mh * 0.06;   // how tall the 3D top-face strip appears
+
+    // Pusher plate height (screen pixels)
+    const pusherH = Math.max(6, mh * 0.035);
+
+    // Pusher speed in px/sec
+    const pusherSpeed = mw * 0.38;
+
+    // Coin shelf Y — where coins actually rest (centre of coin on shelf)
+    const upperCoinY = upperTop + shelfDepth + CR * 1.1;
+    const lowerCoinY = lowerTop + shelfDepth + CR * 1.1;
+
+    // Usable shelf width for coins
+    const shelfL  = mx + mw * 0.04;
+    const shelfR  = mx + mw * 0.96;
+    const shelfW  = shelfR - shelfL;
+
+    L = {
+      W, H, mw, mh, mx, my, CR,
+      chuteTop, chuteBot,
+      upperTop, upperBot,
+      lowerTop, lowerBot,
+      trayTop, trayBot,
+      shelfDepth, pusherH, pusherSpeed,
+      upperCoinY, lowerCoinY,
+      shelfL, shelfR, shelfW,
+      // Pegs in screen coords
+      pegs: PEG_LAYOUT.map(([fx,fy]) => ({
+        x: mx + mw*0.05 + fx*(mw*0.90),
+        y: chuteTop + fy*(chuteBot-chuteTop),
+        r: Math.max(4, mw*0.022),
+      })),
     };
+
+    // Re-init pushers based on new layout
+    if (!uPush.initialised) {
+      uPush = { x: shelfL, dir: 1, speed: pusherSpeed, initialised: true };
+      lPush = { x: shelfL + shelfW*0.3, dir:-1, speed: pusherSpeed*0.85, initialised: true };
+    }
   }
 
-  // ── Seed initial coins on shelves ─────────────────────────────
+  // ── Seed initial coins ────────────────────────────────────────
   function seedShelves() {
-    upperShelf = []; lowerShelf = [];
-    // Scatter some coins on both shelves to start
-    for (let i = 0; i < 18; i++) {
-      upperShelf.push(makeCoin(
-        COIN_R + Math.random() * (SHELF_W - COIN_R*2),
-        Math.random() * SHELF_D * 0.7 + SHELF_D * 0.15
+    upperCoins = []; lowerCoins = [];
+    const { shelfL, shelfR, shelfW, CR, upperCoinY, lowerCoinY } = L;
+
+    // Place coins in a grid-ish pattern so they look packed
+    for (let i = 0; i < 24; i++) {
+      const row = Math.floor(i / 7);
+      const col = i % 7;
+      upperCoins.push(makeCoin(
+        shelfL + CR*1.2 + col*(shelfW-CR*2.4)/6 + (row%2)*CR*0.5,
+        upperCoinY + row * CR * 0.3
       ));
     }
-    for (let i = 0; i < 22; i++) {
-      lowerShelf.push(makeCoin(
-        COIN_R + Math.random() * (SHELF_W - COIN_R*2),
-        Math.random() * SHELF_D * 0.7 + SHELF_D * 0.1
+    for (let i = 0; i < 28; i++) {
+      const row = Math.floor(i / 8);
+      const col = i % 8;
+      lowerCoins.push(makeCoin(
+        shelfL + CR*1.2 + col*(shelfW-CR*2.4)/7 + (row%2)*CR*0.4,
+        lowerCoinY + row * CR * 0.3
       ));
     }
-    // A couple of bonus items
-    upperShelf.push(makeBonus(SHELF_W * 0.3, SHELF_D * 0.6));
-    upperShelf.push(makeBonus(SHELF_W * 0.7, SHELF_D * 0.55));
-    lowerShelf.push(makeBonus(SHELF_W * 0.5, SHELF_D * 0.5));
+    // Bonus items scattered in
+    upperCoins.push(makeBonus(shelfL + shelfW*0.25, upperCoinY));
+    upperCoins.push(makeBonus(shelfL + shelfW*0.72, upperCoinY));
+    lowerCoins.push(makeBonus(shelfL + shelfW*0.50, lowerCoinY));
   }
 
-  function makeCoin(x, depth) {
-    return { x, depth, vx: 0, type: 'coin', value: 2, spin: Math.random()*Math.PI*2, wobble: 0 };
+  function makeCoin(cx, cy) {
+    return { cx, cy, vx:0, vy:0, type:'coin', value:2, r:L.CR, rot:Math.random()*Math.PI*2 };
+  }
+  function makeBonus(cx, cy) {
+    const b = BONUSES[Math.floor(Math.random()*BONUSES.length)];
+    return { cx, cy, vx:0, vy:0, type:'bonus', value:b.value, emoji:b.emoji, label:b.label,
+             r:L.CR*1.35, bobT:Math.random()*Math.PI*2 };
   }
 
-  function makeBonus(x, depth) {
-    const b = BONUS_ITEMS[Math.floor(Math.random() * BONUS_ITEMS.length)];
-    return { x, depth, vx: 0, type: 'bonus', value: b.value, emoji: b.emoji, label: b.label,
-             spin: 0, wobble: 0, bob: Math.random() * Math.PI * 2 };
-  }
-
-  // ── Main update ───────────────────────────────────────────────
+  // ── Update ───────────────────────────────────────────────────
   function update(dt) {
+    if (!L.mw) return;
     dt = Math.min(dt, 0.05);
 
-    // Bonus spawn
-    bonusSpawnTimer -= dt;
-    if (bonusSpawnTimer <= 0) {
-      bonusSpawnTimer = 6 + Math.random() * 8;
-      // Spawn on back row of upper shelf
-      upperShelf.push(makeBonus(
-        COIN_R * 3 + Math.random() * (SHELF_W - COIN_R * 6),
-        SHELF_D * 0.82 + Math.random() * SHELF_D * 0.12
-      ));
-    }
+    const { shelfL, shelfR, shelfW, pusherSpeed, pusherH,
+            upperTop, upperBot, lowerTop, lowerBot,
+            upperCoinY, lowerCoinY, trayTop, CR, shelfDepth,
+            chuteTop, chuteBot, mx, mw, pegs } = L;
 
-    // Animate bonus item bob
-    upperShelf.forEach(c => { if (c.type === 'bonus') c.bob = (c.bob || 0) + dt * 2.5; });
-    lowerShelf.forEach(c => { if (c.type === 'bonus') c.bob = (c.bob || 0) + dt * 2.5; });
+    // ── Falling coin physics ────────────────────────────────
+    if (falling) {
+      falling.vy += 1800 * dt;
+      falling.vx *= 0.998;
+      falling.x  += falling.vx * dt;
+      falling.y  += falling.vy * dt;
+      falling.rot += falling.rotV * dt;
 
-    // Move pushers
-    upperPusher.x += PUSHER_SPEED * dt * upperPusher.dir;
-    if (upperPusher.x >= SHELF_D * 0.92) { upperPusher.x = SHELF_D * 0.92; upperPusher.dir = -1; }
-    if (upperPusher.x <= SHELF_D * 0.28) { upperPusher.x = SHELF_D * 0.28; upperPusher.dir =  1; }
-
-    lowerPusher.x += PUSHER_SPEED * dt * lowerPusher.dir;
-    if (lowerPusher.x >= SHELF_D * 0.92) { lowerPusher.x = SHELF_D * 0.92; lowerPusher.dir = -1; }
-    if (lowerPusher.x <= SHELF_D * 0.28) { lowerPusher.x = SHELF_D * 0.28; lowerPusher.dir =  1; }
-
-    // Push coins on shelves
-    pushShelf(upperShelf, upperPusher, 0);
-    pushShelf(lowerShelf, lowerPusher, 1);
-
-    // Drop coin physics
-    if (dropActive && dropCoin) {
-      dropCoin.vy += 900 * dt;
-      dropCoin.x  += dropCoin.vx * dt;
-      dropCoin.y  += dropCoin.vy * dt;
-      dropCoin.spin += dt * 4;
-
-      // Clamp to chute width
-      if (dropCoin.x < COIN_R)            { dropCoin.x = COIN_R;            dropCoin.vx *= -0.5; }
-      if (dropCoin.x > SHELF_W - COIN_R)  { dropCoin.x = SHELF_W - COIN_R;  dropCoin.vx *= -0.5; }
+      // Wall bounces inside chute
+      if (falling.x - CR < mx + mw*0.03) {
+        falling.x = mx + mw*0.03 + CR;
+        falling.vx = Math.abs(falling.vx) * 0.55;
+      }
+      if (falling.x + CR > mx + mw*0.97) {
+        falling.x = mx + mw*0.97 - CR;
+        falling.vx = -Math.abs(falling.vx) * 0.55;
+      }
 
       // Peg collisions
-      PEGS.forEach(peg => {
-        const px = peg.x * SHELF_W;
-        const chuteH = VIEW ? (VIEW.chuteBot - VIEW.chuteTop) : 200;
-        const py_screen = VIEW ? VIEW.chuteTop + peg.y * chuteH : peg.y * 200;
-        // Work in chute-local coords: dropCoin.y is screen Y within chute
-        const py_local = peg.y * (VIEW ? (VIEW.chuteBot - VIEW.chuteTop) : 200);
-        const dx = dropCoin.x - px;
-        const dy = dropCoin.y - py_local;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-        if (dist < COIN_R + 7 && dist > 0.1) {
-          const nx = dx / dist, ny = dy / dist;
-          const dot = dropCoin.vx * nx + dropCoin.vy * ny;
-          dropCoin.vx -= 1.6 * dot * nx + (Math.random()-0.5)*40;
-          dropCoin.vy -= 1.6 * dot * ny;
-          dropCoin.x = px + nx * (COIN_R + 7.5);
-          dropCoin.y = py_local + ny * (COIN_R + 7.5);
+      pegs.forEach(peg => {
+        const dx = falling.x - peg.x, dy = falling.y - peg.y;
+        const dist = Math.sqrt(dx*dx+dy*dy);
+        const minD = CR + peg.r;
+        if (dist < minD && dist > 0.01) {
+          const nx=dx/dist, ny=dy/dist;
+          // Push out
+          falling.x = peg.x + nx*minD;
+          falling.y = peg.y + ny*minD;
+          // Reflect velocity
+          const dot = falling.vx*nx + falling.vy*ny;
+          falling.vx -= 2*dot*nx * 0.55;
+          falling.vy -= 2*dot*ny * 0.55;
+          falling.vx += (Math.random()-0.5)*120;
+          falling.rotV += (Math.random()-0.5)*8;
           sndClink();
         }
       });
 
       // Landed on upper shelf
-      const chuteH = VIEW ? (VIEW.chuteBot - VIEW.chuteTop) : 200;
-      if (dropCoin.y >= chuteH) {
-        // Place at mid-depth of upper shelf, velocity becomes lateral
-        const item = makeCoin(dropCoin.x, SHELF_D * 0.72);
-        item.vx = dropCoin.vx * 0.3;
-        upperShelf.push(item);
-        dropActive = false;
-        dropCoin   = null;
-        sndDrop();
+      if (falling.y + CR >= upperTop + shelfDepth*0.5) {
+        // Place coin on upper shelf at landing x, at the back (high y = back of shelf)
+        const nc = makeCoin(
+          Math.max(shelfL+CR, Math.min(shelfR-CR, falling.x)),
+          upperCoinY - CR*0.3
+        );
+        nc.vx = falling.vx * 0.25;
+        upperCoins.push(nc);
+        falling = null;
+        sndLand();
       }
     }
 
-    // Tray coin animations
-    trayCoins.forEach(c => { c.t += dt; });
-    trayCoins = trayCoins.filter(c => c.t < 1.2);
+    // ── Pusher movement ─────────────────────────────────────
+    uPush.x += uPush.speed * uPush.dir * dt;
+    if (uPush.x + (shelfR-shelfL) > shelfR + mw*0.01) { uPush.x = shelfR - (shelfR-shelfL); uPush.dir = -1; }
+    if (uPush.x < shelfL - mw*0.01)                    { uPush.x = shelfL;                   uPush.dir =  1; }
 
-    // Win flash animations
-    winFlashes.forEach(f => { f.t += dt; });
-    winFlashes = winFlashes.filter(f => f.t < 1.6);
-  }
+    lPush.x += lPush.speed * lPush.dir * dt;
+    if (lPush.x + (shelfR-shelfL) > shelfR + mw*0.01) { lPush.x = shelfR - (shelfR-shelfL); lPush.dir = -1; }
+    if (lPush.x < shelfL - mw*0.01)                    { lPush.x = shelfL;                   lPush.dir =  1; }
 
-  function pushShelf(shelf, pusher, shelfId) {
-    // Move coins pushed by the pusher plate (anything behind pusher.x gets pushed forward)
-    shelf.forEach(coin => {
-      if (coin.depth > pusher.x - COIN_R * 0.8) {
-        // Being pushed forward (decreasing depth = toward front edge)
-        const pushAmt = (coin.depth - (pusher.x - COIN_R * 0.8)) * 0.08;
-        coin.depth -= pushAmt + 0.4;
-      }
-      // Lateral drift from vx
-      coin.x += coin.vx;
-      coin.vx *= 0.88;
-      // Bounce off side walls
-      if (coin.x < COIN_R)           { coin.x = COIN_R;           coin.vx *= -0.5; }
-      if (coin.x > SHELF_W - COIN_R) { coin.x = SHELF_W - COIN_R; coin.vx *= -0.5; }
-      // Simple coin-coin separation
-      shelf.forEach(other => {
-        if (other === coin) return;
-        const dx = coin.x - other.x;
-        const dd = coin.depth - other.depth;
-        const dist = Math.sqrt(dx*dx + dd*dd);
-        if (dist < COIN_R * 1.85 && dist > 0.1) {
-          const f = (COIN_R * 1.85 - dist) * 0.15;
-          coin.x += (dx / dist) * f; other.x -= (dx / dist) * f;
-          coin.depth += (dd / dist) * f; other.depth -= (dd / dist) * f;
-        }
-      });
+    // Pusher plate front face Y positions
+    const uPushFaceY = upperTop + shelfDepth + pusherH;
+    const lPushFaceY = lowerTop + shelfDepth + pusherH;
+
+    // ── Shelf coin physics ───────────────────────────────────
+    updateShelf(upperCoins, upperCoinY, uPush, uPushFaceY, upperTop, upperBot, 'upper', dt);
+    updateShelf(lowerCoins, lowerCoinY, lPush, lPushFaceY, lowerTop, lowerBot, 'lower', dt);
+
+    // ── Bonus spawn ──────────────────────────────────────────
+    bonusTimer -= dt;
+    if (bonusTimer <= 0) {
+      bonusTimer = 7 + Math.random()*9;
+      upperCoins.push(makeBonus(
+        shelfL + CR*2 + Math.random()*(shelfW - CR*4),
+        upperCoinY - CR*0.5
+      ));
+    }
+
+    // Animate bonus bob
+    [...upperCoins,...lowerCoins].forEach(c => {
+      if (c.type==='bonus') c.bobT = (c.bobT||0) + dt*2.8;
     });
 
-    // Coins off front edge (depth < 0) fall to next shelf or tray
-    const fallen = shelf.filter(c => c.depth < -COIN_R);
-    fallen.forEach(coin => {
-      if (shelfId === 0) {
-        // Falls onto lower shelf
-        const item = { ...coin, depth: SHELF_D * 0.75 };
-        lowerShelf.push(item);
+    // ── Popups ───────────────────────────────────────────────
+    popups.forEach(p=>p.t+=dt);
+    popups = popups.filter(p=>p.t<1.8);
+  }
+
+  function updateShelf(coins, restY, pusher, pusherFaceY, shelfTopY, shelfBotY, which, dt) {
+    const { shelfL, shelfR, CR, shelfDepth, lowerCoinY, upperCoinY, trayTop } = L;
+
+    // Gravity settling — coins sink gently to restY
+    coins.forEach(c => {
+      c.cx += c.vx * dt;
+      c.vx *= 0.82;
+      // Clamp to shelf horizontal bounds
+      if (c.cx - c.r < shelfL) { c.cx = shelfL + c.r; c.vx = Math.abs(c.vx)*0.4; }
+      if (c.cx + c.r > shelfR) { c.cx = shelfR - c.r; c.vx = -Math.abs(c.vx)*0.4; }
+    });
+
+    // Pusher pushes coins forward (increases their cy toward front edge)
+    // The pusher front face is at pusherFaceY.
+    // Coins whose cy < pusherFaceY get pushed down toward front edge.
+    coins.forEach(c => {
+      const coinTopY = c.cy - c.r;
+      if (coinTopY < pusherFaceY) {
+        // Push coin downward (toward front)
+        const overlap = pusherFaceY - coinTopY;
+        c.cy += overlap * 0.35 + 1.2 * dt * 60;
+      }
+    });
+
+    // Coin-coin separation (simple 2D)
+    for (let i=0; i<coins.length; i++) {
+      for (let j=i+1; j<coins.length; j++) {
+        const a=coins[i], b=coins[j];
+        const dx=a.cx-b.cx, dy=a.cy-b.cy;
+        const minD=a.r+b.r;
+        const dist=Math.sqrt(dx*dx+dy*dy);
+        if (dist < minD && dist>0.01) {
+          const nx=dx/dist, ny=dy/dist;
+          const push=(minD-dist)*0.5;
+          a.cx+=nx*push; a.cy+=ny*push;
+          b.cx-=nx*push; b.cy-=ny*push;
+          const dvx=a.vx-b.vx;
+          a.vx-=dvx*0.15; b.vx+=dvx*0.15;
+        }
+      }
+    }
+
+    // Coins that fall off the front edge
+    const frontEdge = shelfBotY;
+    const fallen = coins.filter(c => c.cy - c.r > frontEdge);
+    fallen.forEach(c => {
+      if (which === 'upper') {
+        // Transfer to lower shelf
+        const nc = c.type==='bonus'
+          ? makeBonus(Math.max(shelfL+c.r, Math.min(shelfR-c.r, c.cx)), lowerCoinY - c.r*0.4)
+          : makeCoin(Math.max(shelfL+c.r, Math.min(shelfR-c.r, c.cx)), lowerCoinY - c.r*0.4);
+        nc.vx = c.vx;
+        lowerCoins.push(nc);
         sndClink();
       } else {
-        // Falls into tray — win!
-        collectCoin(coin);
+        // Falls into tray — WIN
+        collectItem(c);
       }
     });
-    // Remove fallen
-    const keep = shelf.filter(c => c.depth >= -COIN_R);
-    shelf.length = 0; keep.forEach(c => shelf.push(c));
+    // Remove fallen coins
+    const keep = coins.filter(c => c.cy - c.r <= frontEdge + c.r*0.5);
+    coins.length = 0; keep.forEach(c => coins.push(c));
 
-    // Clamp depth to back wall
-    shelf.forEach(c => { if (c.depth > SHELF_D - COIN_R) c.depth = SHELF_D - COIN_R; });
+    // Keep coins above the back wall (shelfTopY + shelfDepth)
+    const backWall = shelfTopY + shelfDepth + CR*0.5;
+    coins.forEach(c => { if (c.cy < backWall) c.cy = backWall; });
   }
 
-  function collectCoin(coin) {
-    winnings    += coin.value;
-    playerMoney += coin.value;
-    sndWin(coin.value);
-    if (coin.type === 'bonus') sndBonus();
-
-    const label = coin.type === 'bonus' ? `${coin.emoji} +${coin.label || coin.value+'p'}` : `+${coin.value}p`;
-    const color = coin.type === 'bonus' ? '#ffdd00' : '#00ff88';
-    // Tray visual
-    trayCoins.push({ x: coin.x, t: 0, emoji: coin.type === 'bonus' ? coin.emoji : null, value: coin.value });
-    winFlashes.push({ text: label, x: coin.x / SHELF_W, t: 0, color });
+  function collectItem(c) {
+    balance  += c.value;
+    winnings += c.value;
+    if (c.type==='bonus') sndBonus(); else sndWin(c.value);
+    const label = c.type==='bonus' ? `${c.emoji} ${c.label}` : `+2p`;
+    const color = c.type==='bonus' ? '#ffdd00' : '#00ff88';
+    popups.push({ text:label, x:c.cx, y:L.trayTop + L.mh*0.07, t:0, color });
   }
 
-  // ── Drop a coin ───────────────────────────────────────────────
-  function dropPlayerCoin() {
-    if (dropActive) return;
-    if (playerMoney < 2) return;
-    if (!VIEW) return;
-    try { ac().resume(); } catch(e) {}
-
-    playerMoney -= 2;
-    coinsInHand  = Math.floor(playerMoney / 2);
-    dropActive   = true;
-
-    const chuteH = VIEW.chuteBot - VIEW.chuteTop;
-    dropCoin = {
-      x:    dropX,
-      y:    COIN_R * 2,
-      vx:   (Math.random() - 0.5) * 30,
-      vy:   60,
-      spin: 0,
+  // ── Drop a coin ──────────────────────────────────────────────
+  function dropCoin() {
+    if (falling || balance < 2 || !L.mw) return;
+    try { getAC().resume(); } catch(e){}
+    balance -= 2;
+    sndDrop();
+    const { mx, mw, chuteTop, CR } = L;
+    falling = {
+      x:  mx + mw*0.05 + aimX * mw*0.90,
+      y:  chuteTop + CR*2,
+      vx: (Math.random()-0.5)*60,
+      vy: 80,
+      rot: 0,
+      rotV: (Math.random()-0.5)*6,
     };
-    tone(800, 0.06, 0.07, 0, 'sine');
   }
 
-  // ── Drawing ───────────────────────────────────────────────────
+  // ── Drawing ──────────────────────────────────────────────────
   function draw() {
-    if (!ctx || !VIEW) return;
-    const { W, H, scale } = VIEW;
-    ctx.clearRect(0, 0, W, H);
+    if (!ctx || !L.mw) return;
+    const { W, H, mw, mh, mx, my, CR } = L;
+    ctx.clearRect(0,0,W,H);
 
-    // ── Background — seaside arcade feel ─────────────────────
-    const bg = ctx.createLinearGradient(0, 0, 0, H);
-    bg.addColorStop(0, '#0a0520');
-    bg.addColorStop(0.5, '#12062e');
-    bg.addColorStop(1, '#1a0a3a');
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
+    // Background
+    const bg = ctx.createLinearGradient(0,0,0,H);
+    bg.addColorStop(0,'#0d0820'); bg.addColorStop(1,'#1a0f35');
+    ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
 
-    // Subtle arcade light strips at top
-    for (let i = 0; i < 8; i++) {
-      const hue = (i / 8) * 360;
-      ctx.fillStyle = `hsla(${hue}, 100%, 60%, 0.12)`;
-      ctx.fillRect(i * W/8, 0, W/8, 4);
+    // Arcade light strip at very top
+    for (let i=0;i<12;i++) {
+      const hue=i/12*360, on=Math.sin(Date.now()*0.003+i*0.6)>0.3;
+      ctx.fillStyle=on?`hsla(${hue},100%,65%,0.9)`:`hsla(${hue},60%,30%,0.4)`;
+      const bw=W/12;
+      ctx.beginPath();
+      ctx.arc(i*bw+bw/2, 6, 4, 0, Math.PI*2);
+      ctx.fill();
     }
 
-    drawCabinet();
+    drawMachineCabinet();
     drawChute();
-    drawShelf(0, upperShelf, upperPusher);
-    drawShelf(1, lowerShelf, lowerPusher);
+    drawShelfSection(L.upperTop, L.upperBot, upperCoins, uPush, 'upper');
+    drawShelfSection(L.lowerTop, L.lowerBot, lowerCoins, lPush, 'lower');
     drawTray();
-    drawDropCoin();
+    drawFallingCoin();
+    drawAimGuide();
     drawHUD();
-    drawWinFlashes();
+    drawPopups();
   }
 
-  function drawCabinet() {
-    const { W, H, scale } = VIEW;
-    // Side walls of cabinet
+  function drawMachineCabinet() {
+    const { mx, my, mw, mh } = L;
+
+    // Outer cabinet chrome frame
     ctx.save();
-    ctx.fillStyle = 'rgba(80,40,120,0.35)';
-    ctx.strokeStyle = 'rgba(180,100,255,0.3)';
-    ctx.lineWidth = 2 * scale;
-    // Left wall
-    ctx.beginPath();
-    ctx.rect(VIEW.originX - SHELF_D * VIEW.depthX - scale*18, VIEW.chuteTop - scale*10,
-             scale*18, VIEW.trayY - VIEW.chuteTop + scale*20);
-    ctx.fill(); ctx.stroke();
-    // Right wall
-    ctx.beginPath();
-    ctx.rect(VIEW.originX + SHELF_W * VIEW.scaleX + scale*2, VIEW.chuteTop - scale*10,
-             scale*18, VIEW.trayY - VIEW.chuteTop + scale*20);
-    ctx.fill(); ctx.stroke();
+    ctx.shadowColor='rgba(200,150,255,0.6)'; ctx.shadowBlur=18;
+    ctx.strokeStyle='#9060d0'; ctx.lineWidth=4;
+    ctx.strokeRect(mx-2, my-2, mw+4, mh+4);
+    ctx.shadowBlur=0;
+
+    // Glass panel inner background
+    const glass = ctx.createLinearGradient(mx,my,mx,my+mh);
+    glass.addColorStop(0,'#10062a'); glass.addColorStop(1,'#1e0f3f');
+    ctx.fillStyle=glass;
+    ctx.fillRect(mx,my,mw,mh);
+
+    // Side pillar decorations
+    ctx.fillStyle='rgba(100,60,180,0.5)';
+    ctx.fillRect(mx,my,mw*0.04,mh);
+    ctx.fillRect(mx+mw*0.96,my,mw*0.04,mh);
+
+    // Vertical neon lines on pillars
+    ctx.strokeStyle='rgba(180,100,255,0.7)'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(mx+mw*0.04,my); ctx.lineTo(mx+mw*0.04,my+mh); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(mx+mw*0.96,my); ctx.lineTo(mx+mw*0.96,my+mh); ctx.stroke();
     ctx.restore();
   }
 
   function drawChute() {
-    const { scale, chuteTop, chuteBot, originX, scaleX } = VIEW;
-    const chuteH = chuteBot - chuteTop;
+    const { mx, my, mw, mh, chuteTop, chuteBot, CR, pegs } = L;
+    const cw = mw*0.92, cx0 = mx+mw*0.04;
+    const ch = chuteBot - chuteTop;
 
     // Chute background
-    ctx.save();
-    const cg = ctx.createLinearGradient(0, chuteTop, 0, chuteBot);
-    cg.addColorStop(0, 'rgba(20,10,50,0.9)');
-    cg.addColorStop(1, 'rgba(40,20,80,0.7)');
-    ctx.fillStyle = cg;
-    ctx.fillRect(originX - scale*2, chuteTop, SHELF_W * scaleX + scale*4, chuteH);
+    const cg = ctx.createLinearGradient(0,chuteTop,0,chuteBot);
+    cg.addColorStop(0,'rgba(15,8,40,0.98)'); cg.addColorStop(1,'rgba(25,12,55,0.95)');
+    ctx.fillStyle=cg; ctx.fillRect(cx0,chuteTop,cw,ch);
 
-    // Chute border
-    ctx.strokeStyle = 'rgba(140,80,220,0.5)';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(originX - scale*2, chuteTop, SHELF_W * scaleX + scale*4, chuteH);
-
-    // Draw pegs
-    PEGS.forEach(peg => {
-      const px = originX + peg.x * SHELF_W * scaleX;
-      const py = chuteTop + peg.y * chuteH;
-      ctx.beginPath();
-      ctx.arc(px, py, scale * 5, 0, Math.PI * 2);
-      ctx.fillStyle = '#e0c060';
-      ctx.shadowColor = 'rgba(255,200,0,0.6)';
-      ctx.shadowBlur  = 6;
-      ctx.fill();
-      ctx.shadowBlur  = 0;
-    });
-
-    // Drop aim line
-    const aimX = originX + dropX * scaleX;
-    ctx.setLineDash([4, 4]);
-    ctx.strokeStyle = 'rgba(0,255,200,0.35)';
-    ctx.lineWidth   = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(aimX, chuteTop - scale*5);
-    ctx.lineTo(aimX, chuteTop + chuteH * 0.3);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Drop arrow
-    ctx.fillStyle = 'rgba(0,255,200,0.7)';
-    ctx.beginPath();
-    ctx.moveTo(aimX, chuteTop - scale*3);
-    ctx.lineTo(aimX - scale*7, chuteTop - scale*16);
-    ctx.lineTo(aimX + scale*7, chuteTop - scale*16);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.restore();
-  }
-
-  function drawShelf(shelfId, coins, pusher) {
-    const { scale, shelfH, scaleX, depthX, depthY, skewY, originX, originY } = VIEW;
-    const corners = VIEW.shelf(shelfId);
-
-    ctx.save();
-
-    // Shelf surface
-    ctx.beginPath();
-    corners.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
-    ctx.closePath();
-    const sg = ctx.createLinearGradient(corners[0].x, corners[0].y, corners[3].x, corners[3].y);
-    sg.addColorStop(0, '#2a1045');
-    sg.addColorStop(1, '#3d1a60');
-    ctx.fillStyle   = sg;
-    ctx.strokeStyle = 'rgba(180,100,255,0.4)';
-    ctx.lineWidth   = 1.5;
-    ctx.fill();
-    ctx.stroke();
-
-    // Shelf front face
-    ctx.beginPath();
-    ctx.moveTo(corners[0].x, corners[0].y);
-    ctx.lineTo(corners[1].x, corners[1].y);
-    ctx.lineTo(corners[1].x, corners[1].y + shelfH);
-    ctx.lineTo(corners[0].x, corners[0].y + shelfH);
-    ctx.closePath();
-    ctx.fillStyle   = '#1a0830';
-    ctx.strokeStyle = 'rgba(120,60,200,0.4)';
-    ctx.fill(); ctx.stroke();
-
-    // Draw pusher plate
-    drawPusher(shelfId, pusher);
-
-    // Draw coins (sorted by depth — back ones first for occlusion)
-    const sorted = [...coins].sort((a, b) => b.depth - a.depth);
-    sorted.forEach(coin => drawShelfItem(shelfId, coin));
-
-    ctx.restore();
-  }
-
-  function drawPusher(shelfId, pusher) {
-    const { scaleX, depthX, depthY, skewY, originX, originY, shelfH, scale } = VIEW;
-    // Pusher plate goes full width at a certain depth
-    const p0 = shelfToScreen(shelfId, 0,         pusher.x);
-    const p1 = shelfToScreen(shelfId, SHELF_W,   pusher.x);
-
-    ctx.save();
-    // Plate top face
-    ctx.beginPath();
-    ctx.moveTo(p0.x, p0.y);
-    ctx.lineTo(p1.x, p1.y);
-    ctx.lineTo(p1.x, p1.y + shelfH * 0.55);
-    ctx.lineTo(p0.x, p0.y + shelfH * 0.55);
-    ctx.closePath();
-    ctx.fillStyle   = 'rgba(200,160,255,0.18)';
-    ctx.strokeStyle = 'rgba(220,180,255,0.55)';
-    ctx.lineWidth   = 1.5;
-    ctx.fill();
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  function drawShelfItem(shelfId, coin) {
-    const pos = shelfToScreen(shelfId, coin.x, coin.depth);
-    const { scale } = VIEW;
-    const r = COIN_R * scale * 0.95;
-
-    ctx.save();
-    ctx.translate(pos.x, pos.y);
-
-    if (coin.type === 'bonus') {
-      // Floating bonus item with bob
-      const bobOffset = Math.sin(coin.bob || 0) * scale * 3;
-      ctx.translate(0, bobOffset - scale * 4);
-
-      // Glow halo
-      ctx.shadowColor = '#ffdd00';
-      ctx.shadowBlur  = 14 * scale;
-      ctx.beginPath();
-      ctx.arc(0, 0, r * 1.5, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255,221,0,0.15)';
-      ctx.fill();
-      ctx.shadowBlur = 0;
-
-      // Emoji
-      ctx.font = `${r * 1.9}px serif`;
-      ctx.textAlign    = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(coin.emoji, 0, 0);
-
-      // Value label
-      ctx.font      = `bold ${r * 0.72}px 'Orbitron', sans-serif`;
-      ctx.fillStyle = '#ffdd00';
-      ctx.shadowColor = 'rgba(0,0,0,0.8)';
-      ctx.shadowBlur  = 3;
-      ctx.fillText(coin.label || `${coin.value}p`, 0, r * 1.55);
-      ctx.shadowBlur = 0;
-
-    } else {
-      // 2p coin — shiny bronze/copper ellipse (isometric foreshortening)
-      const ry = r * 0.38;  // foreshortened vertical radius
-
-      // Coin edge (thickness)
-      ctx.beginPath();
-      ctx.ellipse(0, r * 0.12, r, ry * 1.1, 0, 0, Math.PI * 2);
-      ctx.fillStyle = '#7a4a10';
-      ctx.fill();
-
-      // Coin face
-      const cg = ctx.createRadialGradient(-r*0.25, -ry*0.3, r*0.05, 0, 0, r);
-      cg.addColorStop(0, '#e8a840');
-      cg.addColorStop(0.5, '#c07820');
-      cg.addColorStop(1, '#8a5010');
-      ctx.beginPath();
-      ctx.ellipse(0, 0, r, ry, 0, 0, Math.PI * 2);
-      ctx.fillStyle = cg;
-      ctx.shadowColor = 'rgba(0,0,0,0.5)';
-      ctx.shadowBlur  = 3;
-      ctx.fill();
-      ctx.shadowBlur = 0;
-
-      // Shine highlight
-      ctx.beginPath();
-      ctx.ellipse(-r*0.2, -ry*0.25, r*0.38, ry*0.28, -0.3, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255,220,100,0.45)';
-      ctx.fill();
-
-      // "2p" text
-      ctx.font      = `bold ${r * 0.62}px 'Orbitron', sans-serif`;
-      ctx.fillStyle = 'rgba(255,255,255,0.6)';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('2p', 0, -ry * 0.05);
+    // Subtle grid lines
+    ctx.strokeStyle='rgba(100,60,160,0.18)'; ctx.lineWidth=1;
+    for(let i=1;i<5;i++) {
+      ctx.beginPath(); ctx.moveTo(cx0,chuteTop+ch*i/5);
+      ctx.lineTo(cx0+cw,chuteTop+ch*i/5); ctx.stroke();
     }
 
+    // Chute dividers (the slots at top)
+    const numSlots=5;
+    ctx.strokeStyle='rgba(140,80,220,0.55)'; ctx.lineWidth=2;
+    for(let i=1;i<numSlots;i++) {
+      const sx=cx0+i*cw/numSlots;
+      ctx.beginPath(); ctx.moveTo(sx,chuteTop); ctx.lineTo(sx,chuteTop+ch*0.15); ctx.stroke();
+    }
+
+    // Pegs
+    pegs.forEach(peg => {
+      // Peg body
+      const pg = ctx.createRadialGradient(peg.x-peg.r*0.3, peg.y-peg.r*0.3, peg.r*0.1, peg.x, peg.y, peg.r);
+      pg.addColorStop(0,'#ffe080'); pg.addColorStop(0.6,'#c09020'); pg.addColorStop(1,'#806010');
+      ctx.beginPath(); ctx.arc(peg.x,peg.y,peg.r,0,Math.PI*2);
+      ctx.fillStyle=pg;
+      ctx.shadowColor='rgba(220,180,0,0.5)'; ctx.shadowBlur=6;
+      ctx.fill(); ctx.shadowBlur=0;
+      // Peg shine
+      ctx.beginPath(); ctx.arc(peg.x-peg.r*0.28, peg.y-peg.r*0.28, peg.r*0.32, 0, Math.PI*2);
+      ctx.fillStyle='rgba(255,240,150,0.55)'; ctx.fill();
+    });
+
+    // Bottom separator line (chute → upper shelf)
+    ctx.strokeStyle='rgba(160,90,255,0.6)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(cx0,chuteBot); ctx.lineTo(cx0+cw,chuteBot); ctx.stroke();
+  }
+
+  function drawShelfSection(topY, botY, coins, pusher, which) {
+    const { mx, mw, CR, shelfL, shelfR, shelfDepth, pusherH } = L;
+    const sw = shelfR - shelfL;
+    const sectionH = botY - topY;
+
+    // Shelf area background
+    const sg = ctx.createLinearGradient(0,topY,0,botY);
+    sg.addColorStop(0,'rgba(20,10,45,0.98)'); sg.addColorStop(1,'rgba(30,15,60,0.95)');
+    ctx.fillStyle=sg; ctx.fillRect(mx+mw*0.04, topY, mw*0.92, sectionH);
+
+    // 3D shelf depth illusion — a darker strip at the top is the "back wall"
+    // and a lighter strip is the "shelf top face" going into the screen
+    const depthGrad = ctx.createLinearGradient(0,topY,0,topY+shelfDepth);
+    depthGrad.addColorStop(0,'rgba(60,30,100,0.9)');
+    depthGrad.addColorStop(1,'rgba(35,18,70,0.8)');
+    ctx.fillStyle=depthGrad;
+    ctx.fillRect(mx+mw*0.04, topY, mw*0.92, shelfDepth);
+
+    // Shelf edge highlight line
+    ctx.strokeStyle='rgba(180,100,255,0.5)'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(mx+mw*0.04,topY+shelfDepth);
+    ctx.lineTo(mx+mw*0.96,topY+shelfDepth); ctx.stroke();
+
+    // Bottom separator
+    ctx.strokeStyle='rgba(140,70,220,0.5)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(mx+mw*0.04,botY); ctx.lineTo(mx+mw*0.96,botY); ctx.stroke();
+
+    // Draw pusher plate
+    drawPusher(topY, pusher, which);
+
+    // Draw coins (back-to-front: lower cy = back of shelf = draw first)
+    const sorted = [...coins].sort((a,b)=>a.cy-b.cy);
+    sorted.forEach(c => drawShelfCoin(c, topY, botY));
+  }
+
+  function drawPusher(shelfTopY, pusher, which) {
+    const { shelfL, shelfR, shelfDepth, pusherH, mx, mw } = L;
+    const sw = shelfR - shelfL;
+    const py = shelfTopY + shelfDepth;
+    const ph = pusherH;
+
+    // Full-width pusher plate
+    const pg = ctx.createLinearGradient(0,py,0,py+ph);
+    pg.addColorStop(0,'rgba(200,180,255,0.55)');
+    pg.addColorStop(0.5,'rgba(160,120,255,0.35)');
+    pg.addColorStop(1,'rgba(120,80,200,0.25)');
+    ctx.fillStyle=pg;
+    ctx.fillRect(shelfL, py, sw, ph);
+
+    // Pusher plate top edge (chrome look)
+    ctx.strokeStyle='rgba(220,200,255,0.75)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(shelfL,py); ctx.lineTo(shelfR,py); ctx.stroke();
+
+    // Pusher depth top face (makes it look 3D)
+    ctx.fillStyle='rgba(180,140,255,0.22)';
+    ctx.fillRect(shelfL, shelfTopY, sw, shelfDepth);
+    ctx.strokeStyle='rgba(200,160,255,0.45)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(shelfL,shelfTopY); ctx.lineTo(shelfR,shelfTopY); ctx.stroke();
+  }
+
+  function drawShelfCoin(c, shelfTopY, shelfBotY) {
+    ctx.save();
+    ctx.translate(c.cx, c.cy);
+
+    // Depth-based scale: coins at back (low cy) appear slightly smaller
+    const { shelfDepth } = L;
+    const depthRange = shelfBotY - (shelfTopY + shelfDepth);
+    const depthFrac  = Math.max(0, Math.min(1, (c.cy - (shelfTopY+shelfDepth)) / depthRange));
+    const scale = 0.72 + depthFrac * 0.28;  // 0.72 at back, 1.0 at front
+    ctx.scale(scale, scale);
+
+    if (c.type === 'bonus') {
+      const bob = Math.sin(c.bobT||0) * 2.5;
+      ctx.translate(0, bob - 3);
+
+      // Glow
+      ctx.shadowColor='#ffcc00'; ctx.shadowBlur=16;
+      ctx.beginPath(); ctx.arc(0,0,c.r*1.4,0,Math.PI*2);
+      ctx.fillStyle='rgba(255,200,0,0.12)'; ctx.fill(); ctx.shadowBlur=0;
+
+      // Emoji face
+      ctx.font=`${c.r*1.7}px serif`;
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(c.emoji,0,0);
+
+      // Value label pill
+      const lw = c.r*2.2;
+      ctx.fillStyle='rgba(0,0,0,0.65)';
+      ctx.beginPath(); ctx.roundRect(-lw/2, c.r*1.0, lw, c.r*0.85, c.r*0.3);
+      ctx.fill();
+      ctx.font=`bold ${c.r*0.58}px 'Orbitron',sans-serif`;
+      ctx.fillStyle='#ffdd00';
+      ctx.fillText(c.label||`${c.value}p`, 0, c.r*1.45);
+
+    } else {
+      // 2p coin — flat circle with bronze gradient + "2p" text
+      // Coin shadow
+      ctx.beginPath(); ctx.ellipse(0,3,c.r,c.r*0.28,0,0,Math.PI*2);
+      ctx.fillStyle='rgba(0,0,0,0.4)'; ctx.fill();
+
+      // Coin body gradient
+      const cg = ctx.createRadialGradient(-c.r*0.3,-c.r*0.3,c.r*0.08, 0,0,c.r);
+      cg.addColorStop(0,'#f0c050');
+      cg.addColorStop(0.45,'#c88020');
+      cg.addColorStop(0.85,'#9a6010');
+      cg.addColorStop(1,'#7a4808');
+      ctx.beginPath(); ctx.arc(0,0,c.r,0,Math.PI*2);
+      ctx.fillStyle=cg; ctx.fill();
+
+      // Coin rim
+      ctx.strokeStyle='rgba(255,200,80,0.6)'; ctx.lineWidth=c.r*0.1;
+      ctx.beginPath(); ctx.arc(0,0,c.r*0.92,0,Math.PI*2); ctx.stroke();
+
+      // Inner ring detail
+      ctx.strokeStyle='rgba(180,130,40,0.4)'; ctx.lineWidth=c.r*0.06;
+      ctx.beginPath(); ctx.arc(0,0,c.r*0.72,0,Math.PI*2); ctx.stroke();
+
+      // Shine highlight
+      ctx.beginPath(); ctx.ellipse(-c.r*0.22,-c.r*0.28,c.r*0.36,c.r*0.22,-0.4,0,Math.PI*2);
+      ctx.fillStyle='rgba(255,235,140,0.5)'; ctx.fill();
+
+      // "2p" text
+      ctx.font=`bold ${c.r*0.68}px 'Orbitron',sans-serif`;
+      ctx.fillStyle='rgba(255,255,220,0.75)';
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.strokeStyle='rgba(80,40,0,0.6)'; ctx.lineWidth=c.r*0.1;
+      ctx.strokeText('2p',0,0);
+      ctx.fillText('2p',0,0);
+    }
     ctx.restore();
   }
 
   function drawTray() {
-    const { W, H, scale, originX, scaleX, trayY } = VIEW;
-    const trayW = SHELF_W * scaleX;
-    const trayH = scale * 42;
+    const { mx, mw, trayTop, trayBot, shelfL, shelfR } = L;
+    const tw = shelfR-shelfL, th = trayBot-trayTop;
 
-    ctx.save();
-    // Tray body
-    const tg = ctx.createLinearGradient(0, trayY, 0, trayY + trayH);
-    tg.addColorStop(0, '#2a0a50');
-    tg.addColorStop(1, '#18063a');
-    ctx.fillStyle   = tg;
-    ctx.strokeStyle = 'rgba(180,100,255,0.5)';
-    ctx.lineWidth   = 2;
-    ctx.beginPath();
-    ctx.rect(originX, trayY, trayW, trayH);
-    ctx.fill(); ctx.stroke();
+    // Tray background
+    const tg = ctx.createLinearGradient(0,trayTop,0,trayBot);
+    tg.addColorStop(0,'rgba(30,15,65,0.98)'); tg.addColorStop(1,'rgba(15,8,35,0.98)');
+    ctx.fillStyle=tg; ctx.fillRect(shelfL,trayTop,tw,th);
+
+    // Inner tray felt effect
+    ctx.fillStyle='rgba(40,20,80,0.6)';
+    ctx.fillRect(shelfL+tw*0.04, trayTop+th*0.15, tw*0.92, th*0.7);
+
+    // Tray border
+    ctx.strokeStyle='rgba(160,90,240,0.6)'; ctx.lineWidth=2;
+    ctx.strokeRect(shelfL,trayTop,tw,th);
 
     // "WINNINGS" label
-    ctx.font      = `${scale * 8}px 'Orbitron', sans-serif`;
-    ctx.fillStyle = 'rgba(180,100,255,0.5)';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('WINNINGS', originX + trayW/2, trayY + trayH/2);
+    ctx.font=`bold ${Math.max(9,L.mw*0.032)}px 'Orbitron',sans-serif`;
+    ctx.fillStyle='rgba(180,120,255,0.45)';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('WIN TRAY', shelfL+tw/2, trayTop+th*0.5);
 
-    // Tray coins falling in
-    trayCoins.forEach(tc => {
-      const tx = originX + tc.x * scaleX;
-      const ty = trayY + tc.t * trayH * 1.1;
-      const alpha = Math.max(0, 1 - tc.t * 1.2);
-      ctx.globalAlpha = alpha;
-      if (tc.emoji) {
-        ctx.font = `${scale * 14}px serif`;
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(tc.emoji, tx, ty);
-      } else {
-        ctx.beginPath();
-        ctx.ellipse(tx, ty, scale * 9, scale * 4, 0, 0, Math.PI * 2);
-        const cg = ctx.createRadialGradient(tx - scale*2, ty - scale, scale, tx, ty, scale*9);
-        cg.addColorStop(0, '#e8a840'); cg.addColorStop(1, '#8a5010');
-        ctx.fillStyle = cg;
-        ctx.fill();
-      }
-      ctx.globalAlpha = 1;
-    });
+    // Winnings amount
+    ctx.font=`bold ${Math.max(11,L.mw*0.042)}px 'Orbitron',sans-serif`;
+    ctx.fillStyle='#ffdd00';
+    ctx.shadowColor='rgba(255,221,0,0.5)'; ctx.shadowBlur=8;
+    ctx.fillText(`£${(winnings/100).toFixed(2)}`, shelfL+tw/2, trayTop+th*0.72);
+    ctx.shadowBlur=0;
+  }
 
+  function drawFallingCoin() {
+    if (!falling) return;
+    const { CR } = L;
+    const c = falling;
+    ctx.save();
+    ctx.translate(c.x, c.y);
+    ctx.rotate(c.rot);
+
+    // Shadow
+    ctx.beginPath(); ctx.ellipse(0,3,CR,CR*0.3,0,0,Math.PI*2);
+    ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.fill();
+
+    // Coin
+    const cg = ctx.createRadialGradient(-CR*0.3,-CR*0.3,CR*0.08, 0,0,CR);
+    cg.addColorStop(0,'#f0c050'); cg.addColorStop(0.45,'#c88020');
+    cg.addColorStop(0.85,'#9a6010'); cg.addColorStop(1,'#7a4808');
+    ctx.beginPath(); ctx.arc(0,0,CR,0,Math.PI*2);
+    ctx.fillStyle=cg;
+    ctx.shadowColor='rgba(200,150,0,0.5)'; ctx.shadowBlur=8;
+    ctx.fill(); ctx.shadowBlur=0;
+
+    // Rim
+    ctx.strokeStyle='rgba(255,200,80,0.6)'; ctx.lineWidth=CR*0.1;
+    ctx.beginPath(); ctx.arc(0,0,CR*0.92,0,Math.PI*2); ctx.stroke();
+
+    // Shine
+    ctx.beginPath(); ctx.ellipse(-CR*0.22,-CR*0.28,CR*0.36,CR*0.22,-0.4,0,Math.PI*2);
+    ctx.fillStyle='rgba(255,235,140,0.55)'; ctx.fill();
+
+    // Label
+    ctx.font=`bold ${CR*0.68}px 'Orbitron',sans-serif`;
+    ctx.fillStyle='rgba(255,255,220,0.8)';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.strokeStyle='rgba(80,40,0,0.5)'; ctx.lineWidth=CR*0.1;
+    ctx.strokeText('2p',0,0); ctx.fillText('2p',0,0);
     ctx.restore();
   }
 
-  function drawDropCoin() {
-    if (!dropActive || !dropCoin || !VIEW) return;
-    const { originX, scaleX, chuteTop, scale } = VIEW;
-    const sx = originX + dropCoin.x * scaleX;
-    const sy = chuteTop + dropCoin.y;
-    const r  = COIN_R * scale;
-    const ry = r * 0.38;
+  function drawAimGuide() {
+    if (falling || !L.mw || balance < 2) return;
+    const { mx, mw, chuteTop, CR } = L;
+    const ax = mx + mw*0.05 + aimX*mw*0.90;
 
+    // Dashed drop line
     ctx.save();
-    ctx.translate(sx, sy);
-    ctx.rotate(dropCoin.spin * 0.15);
+    ctx.setLineDash([5,5]);
+    ctx.strokeStyle='rgba(0,240,200,0.35)'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(ax, chuteTop); ctx.lineTo(ax, chuteTop + (L.chuteBot-L.chuteTop)*0.4);
+    ctx.stroke(); ctx.setLineDash([]);
 
-    // Edge
-    ctx.beginPath();
-    ctx.ellipse(0, r * 0.12, r, ry * 1.1, 0, 0, Math.PI * 2);
-    ctx.fillStyle = '#7a4a10'; ctx.fill();
-    // Face
-    const cg = ctx.createRadialGradient(-r*0.25, -ry*0.3, r*0.05, 0, 0, r);
-    cg.addColorStop(0, '#e8a840'); cg.addColorStop(0.5, '#c07820'); cg.addColorStop(1, '#8a5010');
-    ctx.beginPath();
-    ctx.ellipse(0, 0, r, ry, 0, 0, Math.PI * 2);
-    ctx.fillStyle = cg;
-    ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 6;
-    ctx.fill(); ctx.shadowBlur = 0;
-    // Shine
-    ctx.beginPath();
-    ctx.ellipse(-r*0.2, -ry*0.25, r*0.38, ry*0.28, -0.3, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,220,100,0.5)'; ctx.fill();
-    // Label
-    ctx.font = `bold ${r * 0.62}px 'Orbitron', sans-serif`;
-    ctx.fillStyle = 'rgba(255,255,255,0.65)';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('2p', 0, 0);
+    // Coin preview ghost at top
+    ctx.globalAlpha=0.5;
+    ctx.beginPath(); ctx.arc(ax, chuteTop+CR*1.5, CR, 0, Math.PI*2);
+    const cg=ctx.createRadialGradient(ax-CR*0.3,chuteTop+CR*1.2,CR*0.1,ax,chuteTop+CR*1.5,CR);
+    cg.addColorStop(0,'#f0c050'); cg.addColorStop(1,'#9a6010');
+    ctx.fillStyle=cg; ctx.fill();
+    ctx.font=`bold ${CR*0.65}px 'Orbitron',sans-serif`;
+    ctx.fillStyle='rgba(255,255,200,0.8)';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('2p',ax,chuteTop+CR*1.5);
+    ctx.globalAlpha=1;
     ctx.restore();
   }
 
   function drawHUD() {
-    const { W, H, scale, chuteTop } = VIEW;
+    const { W, H, mx, mw, my, mh, CR } = L;
+
+    // HUD sits in the left sidebar outside the machine
+    // If there's no sidebar room, draw a compact strip above
+    const sideW = mx - 8;
+    const useSide = sideW > 55;
+
     ctx.save();
+    ctx.font=`bold ${Math.max(9,Math.min(sideW*0.18,14))}px 'Orbitron',sans-serif`;
+    ctx.textBaseline='middle';
 
-    // Top HUD bar
-    ctx.fillStyle = 'rgba(10,5,30,0.85)';
-    ctx.fillRect(0, 0, W, chuteTop - scale * 22);
+    if (useSide) {
+      // Left sidebar HUD
+      const hx = mx * 0.5;
+      const items = [
+        { label:'BALANCE',  value:`£${(balance/100).toFixed(2)}`,  color: balance<20?'#ff5555':'#00ff88', y:my+mh*0.22 },
+        { label:'WINNINGS', value:`£${(winnings/100).toFixed(2)}`, color:'#ffdd00',                        y:my+mh*0.40 },
+        { label:'COINS',    value:`${Math.floor(balance/2)}`,      color:'#00e5ff',                        y:my+mh*0.58 },
+        { label:'VALUE',    value:'2p each',                       color:'rgba(160,120,255,0.7)',           y:my+mh*0.72 },
+      ];
+      items.forEach(item => {
+        ctx.textAlign='center';
+        ctx.font=`${Math.max(7,sideW*0.14)}px 'Share Tech Mono',monospace`;
+        ctx.fillStyle='rgba(140,100,200,0.55)';
+        ctx.fillText(item.label, hx, item.y-10);
+        ctx.font=`bold ${Math.max(9,sideW*0.17)}px 'Orbitron',sans-serif`;
+        ctx.fillStyle=item.color;
+        ctx.shadowColor=item.color; ctx.shadowBlur=6;
+        ctx.fillText(item.value, hx, item.y+8);
+        ctx.shadowBlur=0;
+      });
 
-    const fs = Math.max(10, scale * 13);
-    ctx.font      = `${fs * 0.7}px 'Share Tech Mono', monospace`;
-    ctx.textBaseline = 'middle';
-
-    const hudY = (chuteTop - scale * 22) / 2;
-
-    // Balance
-    ctx.textAlign = 'left';
-    ctx.fillStyle = 'rgba(140,80,220,0.6)';
-    ctx.fillText('BALANCE', scale * 14, hudY - fs * 0.6);
-    ctx.font      = `${fs}px 'Orbitron', sans-serif`;
-    ctx.fillStyle = playerMoney < 10 ? '#ff4444' : '#00ff88';
-    ctx.shadowColor = playerMoney < 10 ? 'rgba(255,68,68,0.5)' : 'rgba(0,255,136,0.4)';
-    ctx.shadowBlur  = 8;
-    ctx.fillText(`£${(playerMoney/100).toFixed(2)}`, scale * 14, hudY + fs * 0.5);
-    ctx.shadowBlur = 0;
-
-    // Winnings
-    ctx.textAlign = 'center';
-    ctx.font      = `${fs * 0.7}px 'Share Tech Mono', monospace`;
-    ctx.fillStyle = 'rgba(140,80,220,0.6)';
-    ctx.fillText('WINNINGS', W / 2, hudY - fs * 0.6);
-    ctx.font      = `${fs}px 'Orbitron', sans-serif`;
-    ctx.fillStyle = '#ffdd00';
-    ctx.shadowColor = 'rgba(255,221,0,0.4)'; ctx.shadowBlur = 8;
-    ctx.fillText(`£${(winnings/100).toFixed(2)}`, W / 2, hudY + fs * 0.5);
-    ctx.shadowBlur = 0;
-
-    // Coins left
-    ctx.textAlign = 'right';
-    ctx.font      = `${fs * 0.7}px 'Share Tech Mono', monospace`;
-    ctx.fillStyle = 'rgba(140,80,220,0.6)';
-    ctx.fillText('COINS', W - scale*14, hudY - fs * 0.6);
-    ctx.font      = `${fs}px 'Orbitron', sans-serif`;
-    ctx.fillStyle = '#00e5ff';
-    ctx.shadowColor = 'rgba(0,229,255,0.4)'; ctx.shadowBlur = 8;
-    ctx.fillText(`${Math.floor(playerMoney/2)} × 2p`, W - scale*14, hudY + fs * 0.5);
-    ctx.shadowBlur = 0;
-
-    // "TAP TO DROP" hint or "OUT OF COINS"
-    if (playerMoney < 2) {
-      ctx.textAlign   = 'center';
-      ctx.font        = `${fs * 0.8}px 'Orbitron', sans-serif`;
-      ctx.fillStyle   = '#ff4444';
-      ctx.shadowColor = 'rgba(255,68,68,0.6)'; ctx.shadowBlur = 10;
-      ctx.fillText('OUT OF COINS!', W/2, VIEW.chuteTop - scale * 8);
-      ctx.shadowBlur  = 0;
-    } else if (!dropActive) {
-      const blink = Math.floor(Date.now() / 500) % 2 === 0;
-      ctx.textAlign   = 'center';
-      ctx.font        = `${fs * 0.65}px 'Share Tech Mono', monospace`;
-      ctx.fillStyle   = blink ? 'rgba(0,229,255,0.8)' : 'rgba(0,229,255,0.25)';
-      ctx.fillText('← MOVE MOUSE · CLICK TO DROP →', W/2, VIEW.chuteTop - scale * 8);
+      // Instructions
+      if (!falling) {
+        const blink=Math.floor(Date.now()/550)%2===0;
+        ctx.font=`${Math.max(7,sideW*0.12)}px 'Share Tech Mono',monospace`;
+        ctx.fillStyle=blink?'rgba(0,240,200,0.85)':'rgba(0,240,200,0.25)';
+        ctx.fillText('CLICK', hx, my+mh*0.87);
+        ctx.fillText('TO DROP', hx, my+mh*0.91);
+      }
+    } else {
+      // Compact top bar inside machine
+      const by = my + mh*0.015;
+      const bh = Math.max(20, mh*0.04);
+      ctx.fillStyle='rgba(10,5,25,0.8)';
+      ctx.fillRect(mx, by, mw, bh);
+      ctx.textAlign='left';
+      ctx.font=`bold ${Math.max(8,mw*0.028)}px 'Orbitron',sans-serif`;
+      ctx.fillStyle='#00ff88'; ctx.fillText(`£${(balance/100).toFixed(2)}`, mx+8, by+bh/2);
+      ctx.textAlign='center';
+      ctx.fillStyle='#ffdd00'; ctx.fillText(`WIN: £${(winnings/100).toFixed(2)}`, mx+mw/2, by+bh/2);
+      ctx.textAlign='right';
+      ctx.fillStyle='#00e5ff'; ctx.fillText(`${Math.floor(balance/2)} coins`, mx+mw-8, by+bh/2);
     }
 
     ctx.restore();
   }
 
-  function drawWinFlashes() {
-    const { W, originX, scaleX, lowerPusher: lp, scale, trayY } = VIEW;
-    winFlashes.forEach(f => {
-      const alpha = Math.max(0, 1 - f.t / 1.6);
-      const x = VIEW.originX + f.x * SHELF_W * VIEW.scaleX;
-      const y = VIEW.trayY - f.t * VIEW.scale * 55;
+  function drawPopups() {
+    popups.forEach(p => {
+      const alpha=Math.max(0,1-p.t/1.8);
       ctx.save();
-      ctx.globalAlpha = alpha;
-      ctx.font        = `bold ${VIEW.scale * 13}px 'Orbitron', sans-serif`;
-      ctx.fillStyle   = f.color;
-      ctx.textAlign   = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.shadowColor = f.color; ctx.shadowBlur = 10;
-      ctx.fillText(f.text, x, y);
-      ctx.shadowBlur  = 0;
+      ctx.globalAlpha=alpha;
+      ctx.font=`bold ${Math.max(11,L.mw*0.038)}px 'Orbitron',sans-serif`;
+      ctx.fillStyle=p.color;
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.shadowColor=p.color; ctx.shadowBlur=10;
+      ctx.fillText(p.text, p.x, p.y - p.t*L.mh*0.09);
+      ctx.shadowBlur=0;
       ctx.restore();
     });
   }
 
-  // ── Game loop ─────────────────────────────────────────────────
+  // ── Game loop ────────────────────────────────────────────────
   function loop(ts) {
     if (destroyed) return;
-    rafId = requestAnimationFrame(loop);
-    if (document.hidden) { lastTs = 0; return; }
-    const dt = lastTs ? Math.min((ts - lastTs) / 1000, 0.05) : 0.016;
-    lastTs = ts;
+    rafId=requestAnimationFrame(loop);
+    if (document.hidden) { lastTs=0; return; }
+    const dt=lastTs?Math.min((ts-lastTs)/1000,0.05):0.016;
+    lastTs=ts;
     update(dt);
     draw();
   }
 
-  // ── Input ─────────────────────────────────────────────────────
-  function onMouseMove(e) {
-    if (!VIEW) return;
-    const rect = canvas.getBoundingClientRect();
-    const mx   = (e.clientX - rect.left) * (canvas.width / rect.width);
-    dropX = Math.max(COIN_R, Math.min(SHELF_W - COIN_R,
-      (mx - VIEW.originX) / VIEW.scaleX));
+  // ── Input ────────────────────────────────────────────────────
+  function getAimX(clientX) {
+    const rect=canvas.getBoundingClientRect();
+    const px=(clientX-rect.left)*(canvas.width/rect.width);
+    return Math.max(0,Math.min(1,(px-(L.mx+L.mw*0.05))/(L.mw*0.90)));
   }
-
-  function onTouchMove(e) {
-    e.preventDefault();
-    if (!VIEW || !e.touches[0]) return;
-    const rect = canvas.getBoundingClientRect();
-    const mx   = (e.touches[0].clientX - rect.left) * (canvas.width / rect.width);
-    dropX = Math.max(COIN_R, Math.min(SHELF_W - COIN_R,
-      (mx - VIEW.originX) / VIEW.scaleX));
-  }
-
-  function onMouseClick(e) {
-    try { ac().resume(); } catch(ex) {}
-    dropPlayerCoin();
-  }
-
+  function onMouseMove(e) { if(L.mw) aimX=getAimX(e.clientX); }
+  function onTouchMove(e) { e.preventDefault(); if(L.mw&&e.touches[0]) aimX=getAimX(e.touches[0].clientX); }
+  function onClick() { try{getAC().resume();}catch(e){} dropCoin(); }
   function onKey(e) {
-    if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); try { ac().resume(); } catch(ex) {} dropPlayerCoin(); }
-    if (e.code === 'ArrowLeft')  { dropX = Math.max(COIN_R, dropX - 12); }
-    if (e.code === 'ArrowRight') { dropX = Math.min(SHELF_W - COIN_R, dropX + 12); }
+    if(e.code==='Space'||e.code==='Enter'){e.preventDefault();try{getAC().resume();}catch(ex){}dropCoin();}
+    if(e.code==='ArrowLeft') aimX=Math.max(0,aimX-0.04);
+    if(e.code==='ArrowRight')aimX=Math.min(1,aimX+0.04);
   }
 
-  // ── Resize ────────────────────────────────────────────────────
+  // ── Resize ───────────────────────────────────────────────────
   function resize() {
-    if (!canvas || !wrap) return;
-    canvas.width  = wrap.clientWidth;
-    canvas.height = wrap.clientHeight;
-    computeView(canvas.width, canvas.height);
+    if (!canvas||!wrap) return;
+    canvas.width =wrap.clientWidth;
+    canvas.height=wrap.clientHeight;
+    const prevMW=L.mw||0;
+    computeLayout();
+    // Re-seed only if layout changed drastically (first run)
+    if (!prevMW) seedShelves();
+    else {
+      // Reposition coins to fit new layout (scale positions)
+      const scale=L.mw/prevMW;
+      [...upperCoins,...lowerCoins].forEach(c=>{ c.cx*=scale; c.r=L.CR*(c.type==='bonus'?1.35:1); });
+    }
+    uPush.speed=L.pusherSpeed; lPush.speed=L.pusherSpeed*0.85;
   }
 
-  // ── Build DOM ─────────────────────────────────────────────────
+  // ── Build DOM ────────────────────────────────────────────────
   function buildHTML(el) {
-    el.innerHTML = `
+    el.innerHTML=`
       <style>
-        #cp-root {
-          width:100%; height:100%;
-          display:flex; flex-direction:column;
-          background:#080318;
-          font-family:'Share Tech Mono',monospace;
-          user-select:none;
-        }
-        #cp-topbar {
-          display:flex; align-items:center;
-          justify-content:space-between;
-          padding:5px 12px;
-          border-bottom:1px solid rgba(180,100,255,0.2);
-          flex-shrink:0; gap:8px;
-        }
-        #cp-title {
-          font-family:'Orbitron',sans-serif;
-          font-size:clamp(0.6rem,2vw,1rem);
-          color:#c084fc; letter-spacing:0.2em;
-          text-shadow:0 0 10px rgba(192,132,252,0.6);
-        }
-        #cp-wrap {
-          flex:1; min-height:0; position:relative;
-          cursor:crosshair; touch-action:none;
-        }
-        #cp-canvas { display:block; width:100%; height:100%; }
-        .cp-btn {
-          padding:3px 10px; background:transparent;
-          border:1px solid rgba(180,100,255,0.35);
-          color:rgba(180,100,255,0.8);
-          font-family:'Share Tech Mono',monospace;
-          font-size:clamp(0.46rem,1.1vw,0.65rem);
-          letter-spacing:0.1em; cursor:pointer;
-          transition:all 0.15s; white-space:nowrap;
-        }
-        .cp-btn:hover { background:rgba(180,100,255,0.1); border-color:#c084fc; color:#c084fc; }
+        #cp-root{width:100%;height:100%;display:flex;flex-direction:column;
+          background:#0d0820;font-family:'Share Tech Mono',monospace;user-select:none;}
+        #cp-topbar{display:flex;align-items:center;justify-content:space-between;
+          padding:5px 12px;border-bottom:1px solid rgba(160,90,240,0.25);
+          flex-shrink:0;gap:8px;}
+        #cp-title{font-family:'Orbitron',sans-serif;font-size:clamp(0.6rem,2vw,1rem);
+          color:#c084fc;letter-spacing:0.2em;text-shadow:0 0 10px rgba(192,132,252,0.6);}
+        #cp-wrap{flex:1;min-height:0;position:relative;cursor:crosshair;touch-action:none;}
+        #cp-canvas{display:block;width:100%;height:100%;}
+        .cp-btn{padding:3px 10px;background:transparent;
+          border:1px solid rgba(160,90,240,0.35);color:rgba(180,110,255,0.8);
+          font-family:'Share Tech Mono',monospace;font-size:clamp(0.46rem,1.1vw,0.65rem);
+          letter-spacing:0.1em;cursor:pointer;transition:all 0.15s;white-space:nowrap;}
+        .cp-btn:hover{background:rgba(160,90,240,0.1);border-color:#c084fc;color:#c084fc;}
       </style>
       <div id="cp-root">
         <div id="cp-topbar">
           <div id="cp-title">🪙 COIN PUSHER</div>
-          <div style="font-size:clamp(0.44rem,1vw,0.6rem);color:rgba(180,100,255,0.4);letter-spacing:0.07em">
-            MOUSE / TOUCH to aim · CLICK / SPACE to drop
+          <div style="font-size:clamp(0.44rem,1vw,0.6rem);color:rgba(160,90,240,0.45);letter-spacing:0.07em">
+            AIM WITH MOUSE · CLICK / SPACE TO DROP
           </div>
           <div style="display:flex;gap:6px">
             <button class="cp-btn" id="cp-new-btn">▶ NEW GAME</button>
             <button class="arcade-back-btn" id="cp-back-btn">🕹 ARCADE</button>
           </div>
         </div>
-        <div id="cp-wrap">
-          <canvas id="cp-canvas"></canvas>
-        </div>
-      </div>
-    `;
+        <div id="cp-wrap"><canvas id="cp-canvas"></canvas></div>
+      </div>`;
 
-    canvas = el.querySelector('#cp-canvas');
-    wrap   = el.querySelector('#cp-wrap');
-    ctx    = canvas.getContext('2d');
+    canvas=el.querySelector('#cp-canvas');
+    wrap=el.querySelector('#cp-wrap');
+    ctx=canvas.getContext('2d');
 
-    el.querySelector('#cp-new-btn').addEventListener('click', startGame);
-    el.querySelector('#cp-back-btn').addEventListener('click', () => window.backToGameSelect?.());
-
-    canvas.addEventListener('mousemove', onMouseMove);
-    canvas.addEventListener('click',     onMouseClick);
-    canvas.addEventListener('touchmove', onTouchMove, { passive: false });
-    canvas.addEventListener('touchstart', e => { e.preventDefault(); onMouseClick(e); }, { passive: false });
-
-    window.addEventListener('keydown', onKey);
-    window.addEventListener('resize',  resize);
-
-    setTimeout(resize, 0);
+    el.querySelector('#cp-new-btn').addEventListener('click',startGame);
+    el.querySelector('#cp-back-btn').addEventListener('click',()=>window.backToGameSelect?.());
+    canvas.addEventListener('mousemove',onMouseMove);
+    canvas.addEventListener('click',onClick);
+    canvas.addEventListener('touchmove',onTouchMove,{passive:false});
+    canvas.addEventListener('touchstart',e=>{e.preventDefault();onClick();},{passive:false});
+    window.addEventListener('keydown',onKey);
+    window.addEventListener('resize',resize);
+    setTimeout(resize,0);
   }
 
   function startGame() {
-    playerMoney = 100;
-    winnings    = 0;
-    coinsInHand = 50;
-    dropActive  = false;
-    dropCoin    = null;
-    trayCoins   = [];
-    winFlashes  = [];
-    bonusSpawnTimer = 4;
-    upperPusher = { x: SHELF_D * 0.85, dir: 1 };
-    lowerPusher = { x: SHELF_D * 0.85, dir: 1 };
-    seedShelves();
+    balance=100; winnings=0;
+    falling=null; popups=[]; bonusTimer=5;
+    uPush={x:L.shelfL||0,dir:1,speed:L.pusherSpeed||80,initialised:true};
+    lPush={x:(L.shelfL||0)+(L.shelfW||0)*0.3,dir:-1,speed:(L.pusherSpeed||80)*0.85,initialised:true};
+    if(L.mw) seedShelves();
   }
 
-  // ── Public API ────────────────────────────────────────────────
   function init() {
-    const screenEl = document.getElementById('coinpusher-screen');
-    if (!screenEl) { console.warn('[coinpusher] screen not found'); return; }
-    destroyed = false;
-    container = screenEl;
-    buildHTML(screenEl);
-    startGame();
-    rafId = requestAnimationFrame(loop);
+    const el=document.getElementById('coinpusher-screen');
+    if(!el){console.warn('[coinpusher] screen not found');return;}
+    destroyed=false;
+    buildHTML(el);
+    rafId=requestAnimationFrame(loop);
   }
 
   function destroy() {
-    destroyed = true;
-    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-    window.removeEventListener('keydown', onKey);
-    window.removeEventListener('resize',  resize);
-    const el = document.getElementById('coinpusher-screen');
-    if (el) el.innerHTML = '';
+    destroyed=true;
+    if(rafId){cancelAnimationFrame(rafId);rafId=null;}
+    window.removeEventListener('keydown',onKey);
+    window.removeEventListener('resize',resize);
+    const el=document.getElementById('coinpusher-screen');
+    if(el) el.innerHTML='';
   }
 
-  return { init, destroy };
+  return {init,destroy};
 })();
