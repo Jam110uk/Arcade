@@ -7836,10 +7836,6 @@ window.headerLeave = function() {
 // minesweeper.js (5KB), scrabble.js (45KB) — loaded on demand by games.js
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ── Load HS (High Scores) eagerly — needed across all games ──────────────────
-import('./hs.js').then(mod => { window.HS = mod.default ?? mod; })
-  .catch(err => console.warn('[HS] Failed to load:', err));
-
 // BUBBLE BREAKER ENGINE — Neon Walls + Real Physics
 // ============================================================
 
@@ -9260,7 +9256,7 @@ const FX = (() => {
     let _oceanLastTs = 0;
     function loop(ts) {
       // Pause when tab hidden or battleship screen not visible
-      if (document.hidden) { _oceanRaf = requestAnimationFrame(loop); return; }
+      if (document.hidden) { _oceanRaf = null; return; } // stop when hidden
       const bsScreen = document.getElementById('battleship-screen');
       if (!bsScreen || !bsScreen.classList.contains('active')) {
         _oceanRaf = null; return; // truly stop — startGridOceanLoop() restarts it when needed
