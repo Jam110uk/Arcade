@@ -12973,7 +12973,7 @@ const FX = (() => {
   let _fxTickLast = 0;
   function tick(ts) {
     // Pause when tab is hidden — don't burn CPU or keep browser spinner active
-    if (document.hidden) { raf = requestAnimationFrame(tick); return; }
+    if (document.hidden) { raf = null; return; } // stop when hidden, resume on visibility change
     // Delta-time so particle physics is frame-rate independent
     const _dt = Math.min((ts - (_fxTickLast || ts)) / (1000/60), 3);
     _fxTickLast = ts;
@@ -13032,7 +13032,7 @@ const FX = (() => {
   let starRaf = null;
   function starLoop() {
     // Stop if tab hidden or not on home screen
-    if (document.hidden) { starRaf = requestAnimationFrame(starLoop); return; }
+    if (document.hidden) { starRaf = null; return; } // stop when hidden, visibilitychange restarts it
     const screen = document.querySelector('.screen.active');
     const screenId = screen ? screen.id : 'game-select-screen';
     if (screenId !== 'game-select-screen') {
