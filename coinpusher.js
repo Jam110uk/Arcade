@@ -577,10 +577,11 @@ export default (() => {
     body.addShape(new CANNON.Cylinder(CR, CR, CT, 12), new CANNON.Vec3(), shapeQuat);
 
     const dropX = (aimFrac - 0.5) * MW * 0.86;
-    // Back wall inner face Z. Coin drops with its edge just clear of the wall.
-    // CR = coin radius — centre sits one radius away from wall face.
-    const backWallZ = -MD/2 + WT;
-    const dropZ = backWallZ + CR + 0.05;  // small clearance so physics doesn't instantly collide
+    // Pegs are at Z = -MD/2 + WT + MD*0.045 ≈ -1.44
+    // Back wall face = -MD/2 + WT = -1.60
+    // Coin radius CR = 0.26, peg radius = 0.08 → need clearance > 0.34
+    // Drop coin at Z = -1.0 (well clear of pegs at -1.44, well inside the chute)
+    const dropZ = -MD/2 + WT + MD * 0.18;  // ≈ -1.28 → clear of pegs
     body.position.set(dropX, CHUTE_TOP - 0.2, dropZ);
     // Falls straight down; no Z velocity so it stays against back wall under gravity
     body.velocity.set((Math.random()-0.5)*0.2, -2.2, 0);
@@ -783,8 +784,7 @@ export default (() => {
     // Ghost coin — matches exact drop position and orientation
     if (aimArrow) {
       const ax = (aimFrac - 0.5) * MW * 0.86;
-      const backWallZ = -MD/2 + WT;
-      const dropZ = backWallZ + CR + 0.05;
+      const dropZ = -MD/2 + WT + MD * 0.18;
       aimArrow.position.set(ax, CHUTE_TOP + 0.1, dropZ);
       // Apply same meshOffset as dropped coin (edge-down, face-forward)
       if (!aimArrow._offsetSet) {
@@ -809,7 +809,8 @@ export default (() => {
       const py = obj.body.position.y;
 
       // Coin landed from chute onto upper shelf
-      if (obj.shelf === 'falling' && py < UPPER_TOP + SHELF_THICK + CT + 0.15) {
+      // Face-forward dropped coin has radius CR in Y direction
+      if (obj.shelf === 'falling' && py < UPPER_TOP + SHELF_THICK + CR + 0.2) {
         obj.shelf = 'upper';
         if (fallingBody === obj.body) { fallingBody=null; fallingMesh=null; }
         sndLand();
