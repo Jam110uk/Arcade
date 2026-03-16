@@ -11,6 +11,14 @@
 // ============================================================
 
 export const GAMES = {
+  // ── Bubble puzzle games ────────────────────────────────────
+  bubbleburst:  { label: '💥 Bubble Burst',     module: './bubbleburst.js',  screen: 'bubbleburst-screen',  global: 'BBURST', init: m => m.init() },
+  floatpop:     { label: '🎈 Float & Pop',      module: './floatpop.js',     screen: 'floatpop-screen',     global: 'FPOP',   init: m => m.init() },
+  pressurepop:  { label: '🔴 Pressure Pop',     module: './pressurepop.js',  screen: 'pressurepop-screen',  global: 'PPOP',   init: m => m.init() },
+  bubbleswap:   { label: '🔮 Bubble Swap',      module: './bubbleswap.js',   screen: 'bubbleswap-screen',   global: 'BSWAP',  init: m => m.init() },
+  colorflood:   { label: '🌊 Colour Flood',     module: './colorflood.js',   screen: 'colorflood-screen',   global: 'CFLOOD', init: m => m.init() },
+  bubbledrop:   { label: '🫧 Bubble Drop',      module: './bubbledrop.js',   screen: 'bubbledrop-screen',   global: 'BDROP',  init: m => m.init() },
+
   // ── Solo / local games ─────────────────────────────────────
   snake:        { label: '🐍 Snake',          module: './snk.js',    screen: 'snake-screen',         global: 'SNK',   init: m => m.init() },
   wordle:       { label: '📝 Wordle',          module: './wrd.js',    screen: 'wordle-screen',        global: 'WRD',   init: m => m.init() },

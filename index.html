@@ -4863,6 +4863,42 @@
       <div class="game-desc">Drop chips through a field of pegs and watch them bounce into prize slots!</div>
     </div>
 
+    <div class="game-card" style="--card-accent:#ff2d78" onclick="selectGame('bubbleburst')">
+      <span class="game-icon">💥</span>
+      <div class="game-name">BUBBLE BURST</div>
+      <div class="game-desc">Click one bubble to trigger a chain reaction — the bigger the group, the bigger the score.</div>
+    </div>
+
+    <div class="game-card" style="--card-accent:#39ff14" onclick="selectGame('floatpop')">
+      <span class="game-icon">🎈</span>
+      <div class="game-name">FLOAT & POP</div>
+      <div class="game-desc">Bubbles rise upward — pop them before they escape the top. Match colours for combos.</div>
+    </div>
+
+    <div class="game-card" style="--card-accent:#00f5ff" onclick="selectGame('pressurepop')">
+      <span class="game-icon">🔴</span>
+      <div class="game-name">PRESSURE POP</div>
+      <div class="game-desc">Add pressure to bubbles — overload them to explode, cascading into their neighbours.</div>
+    </div>
+
+    <div class="game-card" style="--card-accent:#bf00ff" onclick="selectGame('bubbleswap')">
+      <span class="game-icon">🔮</span>
+      <div class="game-name">BUBBLE SWAP</div>
+      <div class="game-desc">Swap adjacent bubbles to match 3 or more. Cascades collapse and refill the board.</div>
+    </div>
+
+    <div class="game-card" style="--card-accent:#ffe600" onclick="selectGame('colorflood')">
+      <span class="game-icon">🌊</span>
+      <div class="game-name">COLOUR FLOOD</div>
+      <div class="game-desc">Flood-fill from the corner — conquer the whole board in as few moves as possible.</div>
+    </div>
+
+    <div class="game-card" style="--card-accent:#ff6a00" onclick="selectGame('bubbledrop')">
+      <span class="game-icon">🫧</span>
+      <div class="game-name">BUBBLE DROP</div>
+      <div class="game-desc">Bubbles fall from above — aim and drop to match 3+ in a row or column. Cascades score big.</div>
+    </div>
+
     <div class="game-card" style="--card-accent:#00f5ff" onclick="selectGame('orbit')">
       <span class="game-icon">🪐</span>
       <div class="game-name">ORBIT</div>
@@ -6310,6 +6346,7 @@ const GAME_SCREEN_IDS = new Set([
   'solitaire-screen','minesweeper-screen','pool-screen','scrabble-screen',
   'trivia-screen','trivia-wait-screen','connectfour-screen','zuma-screen',
   'placement-screen','hm-set-screen','poker-screen','chess-screen','guesswho-screen','guesswho-lobby-screen','pacman-screen','tron-screen','tron-lobby-screen','monopoly-screen','plinko-screen','orbit-screen',
+  'bubbleburst-screen','floatpop-screen','pressurepop-screen','bubbleswap-screen','colorflood-screen','bubbledrop-screen',
 ]);
 
 function showScreen(id) {
@@ -7803,6 +7840,12 @@ window.backToGameSelect = function() {
     ['BJW',    () => { if (window.BJW   && typeof BJW.destroy   === 'function') BJW.destroy(); }],
     ['MONO',   () => { if (window.MONO  && typeof MONO.destroy  === 'function') MONO.destroy(); }],
     ['PLINKO', () => { if (window.PLINKO && typeof PLINKO.destroy === 'function') PLINKO.destroy(); }],
+    ['BBURST', () => { if (window.BBURST && typeof BBURST.destroy === 'function') BBURST.destroy(); }],
+    ['FPOP',   () => { if (window.FPOP   && typeof FPOP.destroy   === 'function') FPOP.destroy(); }],
+    ['PPOP',   () => { if (window.PPOP   && typeof PPOP.destroy   === 'function') PPOP.destroy(); }],
+    ['BSWAP',  () => { if (window.BSWAP  && typeof BSWAP.destroy  === 'function') BSWAP.destroy(); }],
+    ['CFLOOD', () => { if (window.CFLOOD && typeof CFLOOD.destroy === 'function') CFLOOD.destroy(); }],
+    ['BDROP',  () => { if (window.BDROP  && typeof BDROP.destroy  === 'function') BDROP.destroy(); }],
   ].forEach(([name, fn]) => { try { fn(); } catch(e) { console.warn('Game cleanup error [' + name + ']:', e); } });
   // Shared cleanup
   _safeHide('room-code-display');
@@ -13288,6 +13331,389 @@ window._setupMONO = function(MONOmodule) {
 </div>
 
 </script>
+
+<!-- ============================================================ -->
+<!-- BUBBLE BURST SCREEN                                         -->
+<!-- ============================================================ -->
+<div class="screen" id="bubbleburst-screen">
+<style>
+#bubbleburst-screen { background:#030810; padding:0; overflow:hidden; align-items:stretch; }
+.bburst-root { display:flex; flex-direction:column; width:100%; height:100%; min-height:0; }
+.bburst-topbar { display:flex; align-items:center; justify-content:space-between; padding:5px 12px; background:rgba(0,0,0,0.55); border-bottom:1px solid rgba(255,45,120,0.25); flex-shrink:0; gap:8px; flex-wrap:wrap; }
+.bburst-stats { display:flex; gap:16px; align-items:center; }
+.bburst-stat { display:flex; flex-direction:column; align-items:center; }
+.bburst-stat-label { font-size:0.44rem; letter-spacing:0.18em; color:var(--dim); }
+.bburst-stat-value { font-family:'Orbitron',sans-serif; font-size:0.9rem; color:#ff2d78; text-shadow:0 0 8px rgba(255,45,120,0.6); }
+.bburst-stat-value.cyan { color:#00f5ff; text-shadow:0 0 8px rgba(0,245,255,0.6); }
+.bburst-btns { display:flex; gap:5px; flex-shrink:0; }
+.bburst-btn { padding:4px 10px; background:transparent; border:1px solid rgba(255,45,120,0.4); color:rgba(255,45,120,0.85); font-family:'Share Tech Mono',monospace; font-size:var(--fs-xs); letter-spacing:0.1em; cursor:pointer; transition:all 0.15s; }
+.bburst-btn:hover { background:rgba(255,45,120,0.1); border-color:#ff2d78; color:#ff2d78; }
+.bburst-main { display:flex; flex:1; min-height:0; align-items:center; justify-content:center; padding:8px; gap:10px; }
+.bburst-canvas-wrap { position:relative; flex:1; display:flex; align-items:center; justify-content:center; max-width:540px; max-height:540px; aspect-ratio:1; }
+#bburst-canvas { display:block; cursor:crosshair; width:100%; height:100%; }
+.bburst-pu-bar { display:flex; flex-direction:column; gap:6px; flex-shrink:0; }
+.bburst-pu-btn { padding:6px 10px; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.15); color:var(--text); font-family:'Share Tech Mono',monospace; font-size:var(--fs-xs); letter-spacing:0.08em; cursor:pointer; transition:all 0.15s; white-space:nowrap; border-radius:3px; }
+.bburst-pu-btn:hover { border-color:rgba(255,230,0,0.5); color:#ffe600; }
+.bburst-pu-btn.active { border-color:#ffe600; color:#ffe600; background:rgba(255,230,0,0.1); box-shadow:0 0 8px rgba(255,230,0,0.4); }
+.bburst-overlay { display:none; position:absolute; inset:0; background:rgba(3,8,20,0.92); flex-direction:column; align-items:center; justify-content:center; gap:14px; text-align:center; z-index:20; }
+.bburst-overlay.active,.bburst-overlay[style*="flex"] { display:flex; }
+.bburst-ov-title { font-family:'Orbitron',sans-serif; font-size:clamp(1.2rem,3vw,2rem); color:#ff2d78; text-shadow:0 0 20px rgba(255,45,120,0.8); letter-spacing:0.2em; }
+.bburst-ov-score { font-family:'Orbitron',sans-serif; font-size:1.1rem; color:#ffe600; }
+@media(max-width:500px) { .bburst-pu-bar { flex-direction:row; } }
+</style>
+<div class="bburst-root">
+  <div class="bburst-topbar">
+    <div class="bburst-stats">
+      <div class="bburst-stat"><div class="bburst-stat-label">SCORE</div><div class="bburst-stat-value" id="bburst-score">0</div></div>
+      <div class="bburst-stat"><div class="bburst-stat-label">BEST</div><div class="bburst-stat-value" id="bburst-best">0</div></div>
+      <div class="bburst-stat"><div class="bburst-stat-label">MOVES</div><div class="bburst-stat-value cyan" id="bburst-moves">20</div></div>
+      <div class="bburst-stat"><div class="bburst-stat-label">LEVEL</div><div class="bburst-stat-value cyan" id="bburst-level">1</div></div>
+    </div>
+    <div class="bburst-btns">
+      <button class="bburst-btn" onclick="window.bburstNewGame?.()">🆕 NEW</button>
+      <button class="arcade-back-btn" onclick="window.BBURST?.destroy();backToGameSelect()">🕹 ARCADE</button>
+    </div>
+  </div>
+  <div class="bburst-main">
+    <div class="bburst-canvas-wrap" id="bburst-canvas-wrap">
+      <canvas id="bburst-canvas"></canvas>
+      <div class="bburst-overlay" id="bburst-over">
+        <div class="bburst-ov-title">GAME OVER</div>
+        <div class="bburst-ov-score" id="bburst-over-score">0</div>
+        <button class="bburst-btn" onclick="window.bburstNewGame?.()">▶ PLAY AGAIN</button>
+        <button class="arcade-back-btn" onclick="window.BBURST?.destroy();backToGameSelect()">🕹 ARCADE</button>
+      </div>
+    </div>
+    <div class="bburst-pu-bar">
+      <div style="font-size:0.44rem;letter-spacing:0.18em;color:var(--dim);text-align:center">POWER-UPS</div>
+      <button class="bburst-pu-btn" id="bburst-pu-bomb">💣 0</button>
+      <button class="bburst-pu-btn" id="bburst-pu-lightning">⚡ 0</button>
+      <button class="bburst-pu-btn" id="bburst-pu-rainbow">🌈 0</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- FLOAT & POP SCREEN                                          -->
+<!-- ============================================================ -->
+<div class="screen" id="floatpop-screen">
+<style>
+#floatpop-screen { background:#030c10; padding:0; overflow:hidden; align-items:stretch; }
+.fpop-root { display:flex; flex-direction:column; width:100%; height:100%; min-height:0; }
+.fpop-topbar { display:flex; align-items:center; justify-content:space-between; padding:5px 12px; background:rgba(0,0,0,0.55); border-bottom:1px solid rgba(57,255,20,0.25); flex-shrink:0; gap:8px; flex-wrap:wrap; }
+.fpop-stats { display:flex; gap:16px; }
+.fpop-stat { display:flex; flex-direction:column; align-items:center; }
+.fpop-stat-label { font-size:0.44rem; letter-spacing:0.18em; color:var(--dim); }
+.fpop-stat-value { font-family:'Orbitron',sans-serif; font-size:0.9rem; color:#39ff14; text-shadow:0 0 8px rgba(57,255,20,0.6); }
+.fpop-btns { display:flex; gap:5px; flex-shrink:0; }
+.fpop-btn { padding:4px 10px; background:transparent; border:1px solid rgba(57,255,20,0.4); color:rgba(57,255,20,0.85); font-family:'Share Tech Mono',monospace; font-size:var(--fs-xs); letter-spacing:0.1em; cursor:pointer; transition:all 0.15s; }
+.fpop-btn:hover { background:rgba(57,255,20,0.1); border-color:#39ff14; color:#39ff14; }
+.fpop-main { display:flex; flex:1; min-height:0; align-items:center; justify-content:center; padding:8px; gap:10px; }
+.fpop-canvas-wrap { position:relative; display:flex; align-items:center; justify-content:center; flex:1; min-height:0; max-width:500px; }
+#fpop-canvas { display:block; cursor:crosshair; max-width:100%; max-height:100%; }
+.fpop-pu-bar { display:flex; flex-direction:column; gap:6px; flex-shrink:0; }
+.fpop-pu-btn { padding:6px 10px; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.15); color:var(--text); font-family:'Share Tech Mono',monospace; font-size:var(--fs-xs); cursor:pointer; transition:all 0.15s; white-space:nowrap; border-radius:3px; }
+.fpop-pu-btn:hover { border-color:rgba(57,255,20,0.5); color:#39ff14; }
+.fpop-pu-btn.active { border-color:#39ff14; color:#39ff14; background:rgba(57,255,20,0.1); box-shadow:0 0 8px rgba(57,255,20,0.4); }
+.fpop-overlay { display:none; position:fixed; inset:0; background:rgba(3,8,20,0.92); flex-direction:column; align-items:center; justify-content:center; gap:14px; text-align:center; z-index:20; }
+.fpop-ov-title { font-family:'Orbitron',sans-serif; font-size:clamp(1.2rem,3vw,2rem); color:#39ff14; text-shadow:0 0 20px rgba(57,255,20,0.8); letter-spacing:0.2em; }
+.fpop-ov-score { font-family:'Orbitron',sans-serif; font-size:1.1rem; color:#ffe600; }
+@media(max-width:500px) { .fpop-pu-bar { flex-direction:row; } }
+</style>
+<div class="fpop-root">
+  <div class="fpop-topbar">
+    <div class="fpop-stats">
+      <div class="fpop-stat"><div class="fpop-stat-label">SCORE</div><div class="fpop-stat-value" id="fpop-score">0</div></div>
+      <div class="fpop-stat"><div class="fpop-stat-label">BEST</div><div class="fpop-stat-value" id="fpop-best">0</div></div>
+      <div class="fpop-stat"><div class="fpop-stat-label">LEVEL</div><div class="fpop-stat-value" id="fpop-level">1</div></div>
+    </div>
+    <div class="fpop-btns">
+      <button class="fpop-btn" onclick="window.fpopNewGame?.()">🆕 NEW</button>
+      <button class="arcade-back-btn" onclick="window.FPOP?.destroy();backToGameSelect()">🕹 ARCADE</button>
+    </div>
+  </div>
+  <div class="fpop-main">
+    <div class="fpop-canvas-wrap" id="fpop-canvas-wrap">
+      <canvas id="fpop-canvas"></canvas>
+      <div class="fpop-overlay" id="fpop-over">
+        <div class="fpop-ov-title">TOO HIGH!</div>
+        <div class="fpop-ov-score" id="fpop-over-score">0</div>
+        <button class="fpop-btn" onclick="window.fpopNewGame?.()">▶ PLAY AGAIN</button>
+        <button class="arcade-back-btn" onclick="window.FPOP?.destroy();backToGameSelect()">🕹 ARCADE</button>
+      </div>
+    </div>
+    <div class="fpop-pu-bar">
+      <div style="font-size:0.44rem;letter-spacing:0.18em;color:var(--dim);text-align:center">POWER-UPS</div>
+      <button class="fpop-pu-btn" id="fpop-pu-clearCol">💨 0</button>
+      <button class="fpop-pu-btn" id="fpop-pu-slow">🧊 0</button>
+      <button class="fpop-pu-btn" id="fpop-pu-wild">🌟 0</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- PRESSURE POP SCREEN                                         -->
+<!-- ============================================================ -->
+<div class="screen" id="pressurepop-screen">
+<style>
+#pressurepop-screen { background:#080310; padding:0; overflow:hidden; align-items:stretch; }
+.ppop-root { display:flex; flex-direction:column; width:100%; height:100%; min-height:0; }
+.ppop-topbar { display:flex; align-items:center; justify-content:space-between; padding:5px 12px; background:rgba(0,0,0,0.55); border-bottom:1px solid rgba(191,0,255,0.25); flex-shrink:0; gap:8px; flex-wrap:wrap; }
+.ppop-stats { display:flex; gap:16px; }
+.ppop-stat { display:flex; flex-direction:column; align-items:center; }
+.ppop-stat-label { font-size:0.44rem; letter-spacing:0.18em; color:var(--dim); }
+.ppop-stat-value { font-family:'Orbitron',sans-serif; font-size:0.9rem; color:#bf00ff; text-shadow:0 0 8px rgba(191,0,255,0.6); }
+.ppop-stat-value.cyan { color:#00f5ff; text-shadow:0 0 8px rgba(0,245,255,0.5); }
+.ppop-btns { display:flex; gap:5px; flex-shrink:0; }
+.ppop-btn { padding:4px 10px; background:transparent; border:1px solid rgba(191,0,255,0.4); color:rgba(191,0,255,0.85); font-family:'Share Tech Mono',monospace; font-size:var(--fs-xs); letter-spacing:0.1em; cursor:pointer; transition:all 0.15s; }
+.ppop-btn:hover { background:rgba(191,0,255,0.1); border-color:#bf00ff; color:#bf00ff; }
+.ppop-main { display:flex; flex:1; min-height:0; align-items:center; justify-content:center; padding:8px; gap:10px; }
+.ppop-canvas-wrap { position:relative; display:flex; align-items:center; justify-content:center; flex:1; max-width:520px; max-height:520px; aspect-ratio:1; }
+#ppop-canvas { display:block; cursor:crosshair; width:100%; height:100%; }
+.ppop-pu-bar { display:flex; flex-direction:column; gap:6px; flex-shrink:0; }
+.ppop-pu-btn { padding:6px 10px; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.15); color:var(--text); font-family:'Share Tech Mono',monospace; font-size:var(--fs-xs); cursor:pointer; transition:all 0.15s; white-space:nowrap; border-radius:3px; }
+.ppop-pu-btn:hover { border-color:rgba(191,0,255,0.5); color:#bf00ff; }
+.ppop-pu-btn.active { border-color:#bf00ff; color:#bf00ff; background:rgba(191,0,255,0.1); box-shadow:0 0 8px rgba(191,0,255,0.4); }
+.ppop-overlay { display:none; position:absolute; inset:0; background:rgba(3,8,20,0.92); flex-direction:column; align-items:center; justify-content:center; gap:14px; text-align:center; z-index:20; }
+.ppop-ov-title { font-family:'Orbitron',sans-serif; font-size:clamp(1.2rem,3vw,2rem); color:#bf00ff; text-shadow:0 0 20px rgba(191,0,255,0.8); letter-spacing:0.2em; }
+.ppop-ov-score { font-family:'Orbitron',sans-serif; font-size:1.1rem; color:#ffe600; }
+@media(max-width:500px) { .ppop-pu-bar { flex-direction:row; } }
+</style>
+<div class="ppop-root">
+  <div class="ppop-topbar">
+    <div class="ppop-stats">
+      <div class="ppop-stat"><div class="ppop-stat-label">SCORE</div><div class="ppop-stat-value" id="ppop-score">0</div></div>
+      <div class="ppop-stat"><div class="ppop-stat-label">BEST</div><div class="ppop-stat-value" id="ppop-best">0</div></div>
+      <div class="ppop-stat"><div class="ppop-stat-label">MOVES</div><div class="ppop-stat-value cyan" id="ppop-moves">20</div></div>
+      <div class="ppop-stat"><div class="ppop-stat-label">LEVEL</div><div class="ppop-stat-value cyan" id="ppop-level">1</div></div>
+    </div>
+    <div class="ppop-btns">
+      <button class="ppop-btn" onclick="window.ppopNewGame?.()">🆕 NEW</button>
+      <button class="arcade-back-btn" onclick="window.PPOP?.destroy();backToGameSelect()">🕹 ARCADE</button>
+    </div>
+  </div>
+  <div class="ppop-main">
+    <div class="ppop-canvas-wrap" id="ppop-canvas-wrap">
+      <canvas id="ppop-canvas"></canvas>
+      <div class="ppop-overlay" id="ppop-over">
+        <div class="ppop-ov-title">OVERLOADED</div>
+        <div class="ppop-ov-score" id="ppop-over-score">0</div>
+        <button class="ppop-btn" onclick="window.ppopNewGame?.()">▶ PLAY AGAIN</button>
+        <button class="arcade-back-btn" onclick="window.PPOP?.destroy();backToGameSelect()">🕹 ARCADE</button>
+      </div>
+    </div>
+    <div class="ppop-pu-bar">
+      <div style="font-size:0.44rem;letter-spacing:0.18em;color:var(--dim);text-align:center">POWER-UPS</div>
+      <button class="ppop-pu-btn" id="ppop-pu-vent">💨 0</button>
+      <button class="ppop-pu-btn" id="ppop-pu-detonate">💣 0</button>
+      <button class="ppop-pu-btn" id="ppop-pu-shield">🛡️ 0</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- BUBBLE SWAP SCREEN                                          -->
+<!-- ============================================================ -->
+<div class="screen" id="bubbleswap-screen">
+<style>
+#bubbleswap-screen { background:#06031a; padding:0; overflow:hidden; align-items:stretch; }
+.bswap-root { display:flex; flex-direction:column; width:100%; height:100%; min-height:0; }
+.bswap-topbar { display:flex; align-items:center; justify-content:space-between; padding:5px 12px; background:rgba(0,0,0,0.55); border-bottom:1px solid rgba(191,0,255,0.25); flex-shrink:0; gap:8px; flex-wrap:wrap; }
+.bswap-stats { display:flex; gap:16px; }
+.bswap-stat { display:flex; flex-direction:column; align-items:center; }
+.bswap-stat-label { font-size:0.44rem; letter-spacing:0.18em; color:var(--dim); }
+.bswap-stat-value { font-family:'Orbitron',sans-serif; font-size:0.9rem; color:#bf00ff; text-shadow:0 0 8px rgba(191,0,255,0.6); }
+.bswap-stat-value.cyan { color:#00f5ff; text-shadow:0 0 8px rgba(0,245,255,0.5); }
+.bswap-btns { display:flex; gap:5px; flex-shrink:0; }
+.bswap-btn { padding:4px 10px; background:transparent; border:1px solid rgba(191,0,255,0.4); color:rgba(191,0,255,0.85); font-family:'Share Tech Mono',monospace; font-size:var(--fs-xs); letter-spacing:0.1em; cursor:pointer; transition:all 0.15s; }
+.bswap-btn:hover { background:rgba(191,0,255,0.1); border-color:#bf00ff; color:#bf00ff; }
+.bswap-main { display:flex; flex:1; min-height:0; align-items:center; justify-content:center; padding:8px; gap:10px; }
+.bswap-canvas-wrap { position:relative; display:flex; align-items:center; justify-content:center; flex:1; max-width:520px; max-height:520px; aspect-ratio:1; }
+#bswap-canvas { display:block; cursor:pointer; width:100%; height:100%; }
+.bswap-pu-bar { display:flex; flex-direction:column; gap:6px; flex-shrink:0; }
+.bswap-pu-btn { padding:6px 10px; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.15); color:var(--text); font-family:'Share Tech Mono',monospace; font-size:var(--fs-xs); cursor:pointer; transition:all 0.15s; white-space:nowrap; border-radius:3px; }
+.bswap-pu-btn:hover { border-color:rgba(191,0,255,0.5); color:#bf00ff; }
+.bswap-pu-btn.active { border-color:#bf00ff; color:#bf00ff; background:rgba(191,0,255,0.1); box-shadow:0 0 8px rgba(191,0,255,0.4); }
+.bswap-overlay { display:none; position:absolute; inset:0; background:rgba(3,8,20,0.92); flex-direction:column; align-items:center; justify-content:center; gap:14px; text-align:center; z-index:20; }
+.bswap-ov-title { font-family:'Orbitron',sans-serif; font-size:clamp(1.2rem,3vw,2rem); color:#bf00ff; text-shadow:0 0 20px rgba(191,0,255,0.8); letter-spacing:0.2em; }
+.bswap-ov-score { font-family:'Orbitron',sans-serif; font-size:1.1rem; color:#ffe600; }
+@media(max-width:500px) { .bswap-pu-bar { flex-direction:row; } }
+</style>
+<div class="bswap-root">
+  <div class="bswap-topbar">
+    <div class="bswap-stats">
+      <div class="bswap-stat"><div class="bswap-stat-label">SCORE</div><div class="bswap-stat-value" id="bswap-score">0</div></div>
+      <div class="bswap-stat"><div class="bswap-stat-label">BEST</div><div class="bswap-stat-value" id="bswap-best">0</div></div>
+      <div class="bswap-stat"><div class="bswap-stat-label">MOVES</div><div class="bswap-stat-value cyan" id="bswap-moves">30</div></div>
+      <div class="bswap-stat"><div class="bswap-stat-label">LEVEL</div><div class="bswap-stat-value cyan" id="bswap-level">1</div></div>
+    </div>
+    <div class="bswap-btns">
+      <button class="bswap-btn" onclick="window.bswapNewGame?.()">🆕 NEW</button>
+      <button class="arcade-back-btn" onclick="window.BSWAP?.destroy();backToGameSelect()">🕹 ARCADE</button>
+    </div>
+  </div>
+  <div class="bswap-main">
+    <div class="bswap-canvas-wrap" id="bswap-canvas-wrap">
+      <canvas id="bswap-canvas"></canvas>
+      <div class="bswap-overlay" id="bswap-over">
+        <div class="bswap-ov-title">NO MOVES LEFT</div>
+        <div class="bswap-ov-score" id="bswap-over-score">0</div>
+        <button class="bswap-btn" onclick="window.bswapNewGame?.()">▶ PLAY AGAIN</button>
+        <button class="arcade-back-btn" onclick="window.BSWAP?.destroy();backToGameSelect()">🕹 ARCADE</button>
+      </div>
+    </div>
+    <div class="bswap-pu-bar">
+      <div style="font-size:0.44rem;letter-spacing:0.18em;color:var(--dim);text-align:center">POWER-UPS</div>
+      <button class="bswap-pu-btn" id="bswap-pu-shuffle">🔀 0</button>
+      <button class="bswap-pu-btn" id="bswap-pu-bomb">💣 0</button>
+      <button class="bswap-pu-btn" id="bswap-pu-colorwild">🌈 0</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- COLOUR FLOOD SCREEN                                         -->
+<!-- ============================================================ -->
+<div class="screen" id="colorflood-screen">
+<style>
+#colorflood-screen { background:#020810; padding:0; overflow:hidden; align-items:stretch; }
+.cflood-root { display:flex; flex-direction:column; width:100%; height:100%; min-height:0; }
+.cflood-topbar { display:flex; align-items:center; justify-content:space-between; padding:5px 12px; background:rgba(0,0,0,0.55); border-bottom:1px solid rgba(255,230,0,0.2); flex-shrink:0; gap:8px; flex-wrap:wrap; }
+.cflood-stats { display:flex; gap:14px; align-items:center; }
+.cflood-stat { display:flex; flex-direction:column; align-items:center; }
+.cflood-stat-label { font-size:0.44rem; letter-spacing:0.18em; color:var(--dim); }
+.cflood-stat-value { font-family:'Orbitron',sans-serif; font-size:0.9rem; color:#ffe600; text-shadow:0 0 8px rgba(255,230,0,0.6); }
+.cflood-stat-value.cyan { color:#00f5ff; text-shadow:0 0 6px rgba(0,245,255,0.5); }
+.cflood-btns { display:flex; gap:5px; flex-shrink:0; }
+.cflood-btn { padding:4px 10px; background:transparent; border:1px solid rgba(255,230,0,0.4); color:rgba(255,230,0,0.85); font-family:'Share Tech Mono',monospace; font-size:var(--fs-xs); letter-spacing:0.1em; cursor:pointer; transition:all 0.15s; }
+.cflood-btn:hover { background:rgba(255,230,0,0.08); border-color:#ffe600; color:#ffe600; }
+.cflood-main { display:flex; flex:1; min-height:0; flex-direction:column; align-items:center; padding:8px; gap:8px; }
+.cflood-canvas-wrap { position:relative; flex:1; display:flex; align-items:center; justify-content:center; min-height:0; width:100%; }
+#cflood-canvas { display:block; cursor:pointer; max-width:100%; max-height:100%; }
+.cflood-bottom { display:flex; flex-direction:column; align-items:center; gap:6px; flex-shrink:0; width:100%; }
+.cflood-prog-bar { width:100%; max-width:520px; height:6px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,230,0,0.2); border-radius:3px; overflow:hidden; }
+.cflood-prog-fill { height:100%; width:0%; background:linear-gradient(90deg,#ffe600,#ff6a00); transition:width 0.3s; border-radius:3px; box-shadow:0 0 8px rgba(255,230,0,0.5); }
+#cflood-colors { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }
+.cflood-color-btn { width:40px; height:40px; border-radius:50%; border:3px solid rgba(255,255,255,0.2); cursor:pointer; transition:transform 0.12s,border-color 0.12s,box-shadow 0.12s; }
+.cflood-color-btn:hover { transform:scale(1.2); border-color:rgba(255,255,255,0.8); box-shadow:0 0 12px currentColor; }
+.cflood-pu-row { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }
+.cflood-pu-btn { padding:5px 12px; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.15); color:var(--text); font-family:'Share Tech Mono',monospace; font-size:var(--fs-xs); cursor:pointer; transition:all 0.15s; border-radius:3px; }
+.cflood-pu-btn:hover { border-color:rgba(255,230,0,0.5); color:#ffe600; }
+.cflood-overlay { display:none; position:fixed; inset:0; background:rgba(3,8,20,0.92); flex-direction:column; align-items:center; justify-content:center; gap:14px; text-align:center; z-index:20; }
+.cflood-ov-title { font-family:'Orbitron',sans-serif; font-size:clamp(1.2rem,3vw,2rem); color:#ffe600; text-shadow:0 0 20px rgba(255,230,0,0.8); letter-spacing:0.2em; }
+.cflood-ov-score { font-family:'Orbitron',sans-serif; font-size:1.1rem; color:#00f5ff; }
+</style>
+<div class="cflood-root">
+  <div class="cflood-topbar">
+    <div class="cflood-stats">
+      <div class="cflood-stat"><div class="cflood-stat-label">SCORE</div><div class="cflood-stat-value" id="cflood-score">0</div></div>
+      <div class="cflood-stat"><div class="cflood-stat-label">BEST</div><div class="cflood-stat-value" id="cflood-best">0</div></div>
+      <div class="cflood-stat"><div class="cflood-stat-label">MOVES</div><div class="cflood-stat-value cyan" id="cflood-moves">0</div><div class="cflood-stat-label">/ <span id="cflood-max">35</span></div></div>
+      <div class="cflood-stat"><div class="cflood-stat-label">LEVEL</div><div class="cflood-stat-value cyan" id="cflood-level">1</div></div>
+    </div>
+    <div class="cflood-btns">
+      <button class="cflood-btn" onclick="window.cfloodNewGame?.()">🆕 NEW</button>
+      <button class="arcade-back-btn" onclick="window.CFLOOD?.destroy();backToGameSelect()">🕹 ARCADE</button>
+    </div>
+  </div>
+  <div class="cflood-main">
+    <div class="cflood-canvas-wrap" id="cflood-canvas-wrap">
+      <canvas id="cflood-canvas"></canvas>
+      <div class="cflood-overlay" id="cflood-over">
+        <div class="cflood-ov-title">OUT OF MOVES</div>
+        <div class="cflood-ov-score" id="cflood-over-score">0</div>
+        <button class="cflood-btn" onclick="window.cfloodNewGame?.()">▶ PLAY AGAIN</button>
+        <button class="arcade-back-btn" onclick="window.CFLOOD?.destroy();backToGameSelect()">🕹 ARCADE</button>
+      </div>
+    </div>
+    <div class="cflood-bottom">
+      <div class="cflood-prog-bar"><div class="cflood-prog-fill" id="cflood-prog"></div></div>
+      <div id="cflood-colors"></div>
+      <div class="cflood-pu-row">
+        <button class="cflood-pu-btn" id="cflood-pu-flood2">🌊 0</button>
+        <button class="cflood-pu-btn" id="cflood-pu-rainbow">🌈 0</button>
+        <button class="cflood-pu-btn" id="cflood-pu-peek">👁️ 0</button>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- BUBBLE DROP SCREEN                                          -->
+<!-- ============================================================ -->
+<div class="screen" id="bubbledrop-screen">
+<style>
+#bubbledrop-screen { background:#040810; padding:0; overflow:hidden; align-items:stretch; }
+.bdrop-root { display:flex; flex-direction:column; width:100%; height:100%; min-height:0; }
+.bdrop-topbar { display:flex; align-items:center; justify-content:space-between; padding:5px 12px; background:rgba(0,0,0,0.55); border-bottom:1px solid rgba(255,106,0,0.25); flex-shrink:0; gap:8px; flex-wrap:wrap; }
+.bdrop-stats { display:flex; gap:16px; align-items:center; }
+.bdrop-stat { display:flex; flex-direction:column; align-items:center; }
+.bdrop-stat-label { font-size:0.44rem; letter-spacing:0.18em; color:var(--dim); }
+.bdrop-stat-value { font-family:'Orbitron',sans-serif; font-size:0.9rem; color:#ff6a00; text-shadow:0 0 8px rgba(255,106,0,0.6); }
+.bdrop-stat-value.cyan { color:#00f5ff; text-shadow:0 0 6px rgba(0,245,255,0.5); }
+.bdrop-btns { display:flex; gap:5px; flex-shrink:0; }
+.bdrop-btn { padding:4px 10px; background:transparent; border:1px solid rgba(255,106,0,0.4); color:rgba(255,106,0,0.85); font-family:'Share Tech Mono',monospace; font-size:var(--fs-xs); letter-spacing:0.1em; cursor:pointer; transition:all 0.15s; }
+.bdrop-btn:hover { background:rgba(255,106,0,0.1); border-color:#ff6a00; color:#ff6a00; }
+.bdrop-main { display:flex; flex:1; min-height:0; align-items:center; justify-content:center; padding:8px; gap:10px; }
+.bdrop-canvas-wrap { position:relative; flex:1; display:flex; align-items:center; justify-content:flex-start; flex-direction:column; max-width:420px; min-height:0; }
+#bdrop-canvas { display:block; cursor:pointer; max-width:100%; }
+.bdrop-side { display:flex; flex-direction:column; gap:8px; flex-shrink:0; align-items:center; }
+.bdrop-next-wrap { background:rgba(0,0,0,0.4); border:1px solid rgba(255,106,0,0.2); border-radius:4px; padding:8px; text-align:center; }
+.bdrop-next-label { font-size:0.44rem; letter-spacing:0.2em; color:var(--dim); margin-bottom:5px; }
+#bdrop-next { width:30px; height:30px; border-radius:50%; display:inline-block; border:2px solid rgba(255,255,255,0.3); }
+.bdrop-hint { font-size:0.44rem; color:rgba(0,245,255,0.3); letter-spacing:0.1em; text-align:center; line-height:1.7; }
+.bdrop-pu-bar { display:flex; flex-direction:column; gap:6px; }
+.bdrop-pu-btn { padding:6px 10px; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.15); color:var(--text); font-family:'Share Tech Mono',monospace; font-size:var(--fs-xs); cursor:pointer; transition:all 0.15s; white-space:nowrap; border-radius:3px; }
+.bdrop-pu-btn:hover { border-color:rgba(255,106,0,0.5); color:#ff6a00; }
+.bdrop-pu-btn.active { border-color:#ff6a00; color:#ff6a00; background:rgba(255,106,0,0.1); box-shadow:0 0 8px rgba(255,106,0,0.4); }
+.bdrop-overlay { display:none; position:absolute; inset:0; background:rgba(3,8,20,0.92); flex-direction:column; align-items:center; justify-content:center; gap:14px; text-align:center; z-index:20; }
+.bdrop-ov-title { font-family:'Orbitron',sans-serif; font-size:clamp(1.2rem,3vw,2rem); color:#ff6a00; text-shadow:0 0 20px rgba(255,106,0,0.8); letter-spacing:0.2em; }
+.bdrop-ov-score { font-family:'Orbitron',sans-serif; font-size:1.1rem; color:#ffe600; }
+@media(max-width:500px) { .bdrop-side { flex-direction:row; align-items:flex-start; } .bdrop-hint { display:none; } }
+</style>
+<div class="bdrop-root">
+  <div class="bdrop-topbar">
+    <div class="bdrop-stats">
+      <div class="bdrop-stat"><div class="bdrop-stat-label">SCORE</div><div class="bdrop-stat-value" id="bdrop-score">0</div></div>
+      <div class="bdrop-stat"><div class="bdrop-stat-label">BEST</div><div class="bdrop-stat-value" id="bdrop-best">0</div></div>
+      <div class="bdrop-stat"><div class="bdrop-stat-label">LEVEL</div><div class="bdrop-stat-value cyan" id="bdrop-level">1</div></div>
+    </div>
+    <div class="bdrop-btns">
+      <button class="bdrop-btn" onclick="window.bdropNewGame?.()">🆕 NEW</button>
+      <button class="arcade-back-btn" onclick="window.BDROP?.destroy();backToGameSelect()">🕹 ARCADE</button>
+    </div>
+  </div>
+  <div class="bdrop-main">
+    <div class="bdrop-canvas-wrap" id="bdrop-canvas-wrap">
+      <canvas id="bdrop-canvas"></canvas>
+      <div class="bdrop-overlay" id="bdrop-over">
+        <div class="bdrop-ov-title">TOPPED OUT</div>
+        <div class="bdrop-ov-score" id="bdrop-over-score">0</div>
+        <button class="bdrop-btn" onclick="window.bdropNewGame?.()">▶ PLAY AGAIN</button>
+        <button class="arcade-back-btn" onclick="window.BDROP?.destroy();backToGameSelect()">🕹 ARCADE</button>
+      </div>
+    </div>
+    <div class="bdrop-side">
+      <div class="bdrop-next-wrap">
+        <div class="bdrop-next-label">NEXT</div>
+        <span id="bdrop-next"></span>
+      </div>
+      <div class="bdrop-pu-bar">
+        <div style="font-size:0.44rem;letter-spacing:0.18em;color:var(--dim);text-align:center">POWER-UPS</div>
+        <button class="bdrop-pu-btn" id="bdrop-pu-laser">⚡ 0</button>
+        <button class="bdrop-pu-btn" id="bdrop-pu-nuke">💣 0</button>
+        <button class="bdrop-pu-btn" id="bdrop-pu-magnet">🧲 0</button>
+      </div>
+      <div class="bdrop-hint">← → MOVE<br>↓ DROP<br>CLICK COL</div>
+    </div>
+  </div>
+</div>
+</div>
 
 <script>
 // ── Page Visibility: pause all RAF loops when tab is hidden ──────────────
