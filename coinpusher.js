@@ -223,7 +223,7 @@ export default (() => {
         const xOff = (ri % 2 === 0) ? 0 : (MW * 0.085);
         const body = new CANNON.Body({ mass:0 });
         body.addShape(new CANNON.Cylinder(0.08, 0.08, MD*0.09, 10));
-        body.position.set(xf * MW + xOff, CHUTE_BOT + yf * chuteH, 0);
+        body.position.set(xf * MW + xOff, CHUTE_BOT + yf * chuteH, -MD/2 + WT + MD*0.045);
         body.quaternion.setFromEuler(Math.PI/2, 0, 0);
         world.addBody(body);
         pegBodies.push(body);
@@ -377,17 +377,19 @@ export default (() => {
     scene.add(trayLabel);
 
     // ── Pegs — short studs on back wall ─────────────────────────
-    const PEG_LEN = MD * 0.09;   // 1/10th of original length
+    const PEG_LEN = MD * 0.09;   // 1/10th of original length — short studs
     const pegGeo = new THREE.CylinderGeometry(0.08, 0.08, PEG_LEN, 12);
     pegGeo.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI/2));
     const chuteH = CHUTE_TOP - CHUTE_BOT;
+    // Back wall inner face is at -MD/2 + WT. Peg sticks out from it into the chute.
+    const pegZ = -MD/2 + WT + PEG_LEN/2;
     const pegRows = [0.15, 0.30, 0.47, 0.62, 0.78];
     const pegCols = [-0.42, -0.26, -0.10, 0.10, 0.26, 0.42];
     pegRows.forEach((yf, ri) => {
       pegCols.forEach(xf => {
         const xOff = (ri % 2 === 0) ? 0 : (MW * 0.085);
         const m = new THREE.Mesh(pegGeo, pegMat);
-        m.position.set(xf * MW + xOff, CHUTE_BOT + yf * chuteH, 0);
+        m.position.set(xf * MW + xOff, CHUTE_BOT + yf * chuteH, pegZ);
         m.castShadow = true;
         scene.add(m);
       });
