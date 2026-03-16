@@ -21,7 +21,8 @@ export default (() => {
   const MD         = 3.5;    // machine depth
   const MH         = 9.5;    // machine total height
   const WT         = 0.15;   // wall thickness
-  const SHELF_D    = MD - WT * 2 - 0.1;
+  const SHELF_D    = MD - WT * 2 - 0.1;   // upper shelf depth (back half)
+  const LOWER_D    = MD - WT * 2 - 0.1;   // lower shelf depth — full machine depth, extends to front
 
   // Vertical layout (Y from machine bottom = 0)
   const TRAY_FLOOR  = 0.08;
@@ -175,36 +176,64 @@ export default (() => {
     addStaticBox(WT, MH, MD,  -MW/2-WT/2, MH/2, 0);                   // left
     addStaticBox(WT, MH, MD,   MW/2+WT/2, MH/2, 0);                   // right
     addStaticBox(MW, WT, MD,   0, 0, 0);                               // floor
-    // Shelf surfaces
-    addStaticBox(MW, SHELF_THICK, SHELF_D, 0, UPPER_TOP+SHELF_THICK/2, 0);
-    addStaticBox(MW, SHELF_THICK, SHELF_D, 0, LOWER_TOP+SHELF_THICK/2, 0);
-    // Tray floor
-    addStaticBox(MW, 0.1, SHELF_D, 0, TRAY_FLOOR+0.05, 0);
-    // Front lips (stop coins falling straight off front)
-    addStaticBox(MW, 0.25, WT,  0, UPPER_TOP+0.12,  SHELF_D/2+WT/2);
-    addStaticBox(MW, 0.25, WT,  0, LOWER_TOP+0.12,  SHELF_D/2+WT/2);
 
-    // Pegs (static cylinders in chute)
+    // Upper shelf — sits at back half of machine
+    const upperShelfD = SHELF_D * 0.55;  // shorter, only back portion
+    const upperShelfZ = -MD/2 + upperShelfD/2 + WT;
+    addStaticBox(MW, SHELF_THICK, upperShelfD, 0, UPPER_TOP+SHELF_THICK/2, upperShelfZ);
+    // Front lip on upper shelf
+    addStaticBox(MW, 0.25, WT, 0, UPPER_TOP+0.12, upperShelfZ + upperShelfD/2 + WT/2);
+
+    // Lower shelf — extends much further forward so upper coins land on it
+    const lowerShelfD = LOWER_D;  // full machine depth minus walls
+    const lowerShelfZ = -MD/2 + lowerShelfD/2 + WT;
+    addStaticBox(MW, SHELF_THICK, lowerShelfD, 0, LOWER_TOP+SHELF_THICK/2, lowerShelfZ);
+    // Front lip on lower shelf (short — coins push over it into tray)
+    addStaticBox(MW, 0.20, WT, 0, LOWER_TOP+0.10, lowerShelfZ + lowerShelfD/2 + WT/2);
+
+    // Win tray — sits just in front of lower shelf front lip
+    const trayDepth = MD * 0.55;
+    const trayFrontZ = lowerShelfZ + lowerShelfD/2 + WT;   // front edge of lower shelf lip
+    const trayZ = trayFrontZ + trayDepth/2 + WT/2;
+    addStaticBox(MW, 0.1,  trayDepth, 0, TRAY_FLOOR+0.05, trayZ);
+    addStaticBox(MW, 0.85, WT,        0, TRAY_FLOOR+0.42, trayZ + trayDepth/2 + WT/2);
+
+    // Pegs — full width grid across back wall chute area
     const chuteH = CHUTE_TOP - CHUTE_BOT;
-    PEG_DEFS.forEach(([xf, yf]) => {
-      const body = new CANNON.Body({ mass:0 });
-      body.addShape(new CANNON.Cylinder(0.08, 0.08, 0.18, 10));
-      body.position.set(xf * MW * 0.44, CHUTE_BOT + yf * chuteH, 0);
-      world.addBody(body);
-      pegBodies.push(body);
+    const pegRowsP = [0.15, 0.30, 0.47, 0.62, 0.78];
+    const pegColsP = [-0.42, -0.26, -0.10, 0.10, 0.26, 0.42];
+    pegRowsP.forEach((yf, ri) => {
+      pegColsP.forEach(xf => {
+        const xOff = (ri % 2 === 0) ? 0 : (MW * 0.085);
+        const body = new CANNON.Body({ mass:0 });
+        body.addShape(new CANNON.Cylinder(0.08, 0.08, MD*0.9, 10));
+        body.position.set(xf * MW + xOff, CHUTE_BOT + yf * chuteH, 0);
+        body.quaternion.setFromEuler(Math.PI/2, 0, 0);
+        world.addBody(body);
+        pegBodies.push(body);
+      });
     });
 
-    // Kinematic pusher plates
-    const pShape = new CANNON.Box(new CANNON.Vec3(MW/2, PUSH_H/2, SHELF_D/2));
-
+    // Upper pusher — covers upper shelf (short)
+    const upperShelfD = SHELF_D * 0.55;
+    const upperShelfZ = -MD/2 + upperShelfD/2 + WT;
+    const upperPusherHalfD = upperShelfD / 4;
+    const upperPusherBack  = upperShelfZ - upperShelfD/2 + upperPusherHalfD;
+    const upperPShape = new CANNON.Box(new CANNON.Vec3(MW/2, PUSH_H/2, upperPusherHalfD));
     upperPusherBody = new CANNON.Body({ mass:0, type:CANNON.Body.KINEMATIC });
-    upperPusherBody.addShape(pShape);
-    upperPusherBody.position.set(0, UPPER_TOP + PUSH_H/2, 0);
+    upperPusherBody.addShape(upperPShape);
+    upperPusherBody.position.set(0, UPPER_TOP + PUSH_H/2, upperPusherBack);
     world.addBody(upperPusherBody);
 
+    // Lower pusher — covers full lower shelf depth
+    const lowerShelfD = LOWER_D;
+    const lowerShelfZ = -MD/2 + lowerShelfD/2 + WT;
+    const lowerPusherHalfD = lowerShelfD / 4;
+    const lowerPusherBack  = lowerShelfZ - lowerShelfD/2 + lowerPusherHalfD;
+    const lowerPShape = new CANNON.Box(new CANNON.Vec3(MW/2, PUSH_H/2, lowerPusherHalfD));
     lowerPusherBody = new CANNON.Body({ mass:0, type:CANNON.Body.KINEMATIC });
-    lowerPusherBody.addShape(pShape);
-    lowerPusherBody.position.set(0, LOWER_TOP + PUSH_H/2, SHELF_D * 0.15);
+    lowerPusherBody.addShape(lowerPShape);
+    lowerPusherBody.position.set(0, LOWER_TOP + PUSH_H/2, lowerPusherBack);
     world.addBody(lowerPusherBody);
   }
 
@@ -224,11 +253,10 @@ export default (() => {
 
     clock = new THREE.Clock();
 
-    // Camera — pulled back and wider FOV to show full cabinet
+    // Camera — orbit controlled, initial position
     const aspect = wrap.clientWidth / wrap.clientHeight;
     camera = new THREE.PerspectiveCamera(58, aspect, 0.1, 80);
-    camera.position.set(0, MH * 0.50, MD * 3.2);
-    camera.lookAt(0, MH * 0.38, 0);
+    updateCamera();  // sets position from camTheta/camPhi/camDist
 
     // Renderer
     renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -318,43 +346,58 @@ export default (() => {
     scene.add(glass);
 
     // ── Shelves ─────────────────────────────────────────────────
-    // Upper shelf
-    addMesh(new THREE.BoxGeometry(MW, SHELF_THICK, SHELF_D), shelfMat,
-            0, UPPER_TOP + SHELF_THICK/2, 0);
-    addMesh(new THREE.BoxGeometry(MW, 0.25, 0.10), chromeMat,
-            0, UPPER_TOP + 0.12, SHELF_D/2 + 0.05);
+    const upperShelfDv = SHELF_D * 0.55;
+    const upperShelfZv = -MD/2 + upperShelfDv/2 + WT;
+    const lowerShelfDv = LOWER_D;
+    const lowerShelfZv = -MD/2 + lowerShelfDv/2 + WT;
 
-    // Lower shelf
-    addMesh(new THREE.BoxGeometry(MW, SHELF_THICK, SHELF_D), shelfMat,
-            0, LOWER_TOP + SHELF_THICK/2, 0);
+    // Upper shelf — shorter, sits at back
+    addMesh(new THREE.BoxGeometry(MW, SHELF_THICK, upperShelfDv), shelfMat,
+            0, UPPER_TOP + SHELF_THICK/2, upperShelfZv);
     addMesh(new THREE.BoxGeometry(MW, 0.25, 0.10), chromeMat,
-            0, LOWER_TOP + 0.12, SHELF_D/2 + 0.05);
+            0, UPPER_TOP + 0.12, upperShelfZv + upperShelfDv/2 + 0.05);
 
-    // Win tray
-    addMesh(new THREE.BoxGeometry(MW, 0.10, SHELF_D), trayMat, 0, TRAY_FLOOR+0.05, 0, false);
-    addMesh(new THREE.BoxGeometry(MW, 0.85, 0.10),    trayMat, 0, TRAY_FLOOR+0.42, SHELF_D/2+0.05, false);
+    // Lower shelf — full machine depth, extends far forward so coins from upper shelf land here
+    addMesh(new THREE.BoxGeometry(MW, SHELF_THICK, lowerShelfDv), shelfMat,
+            0, LOWER_TOP + SHELF_THICK/2, lowerShelfZv);
+    addMesh(new THREE.BoxGeometry(MW, 0.20, 0.10), chromeMat,
+            0, LOWER_TOP + 0.10, lowerShelfZv + lowerShelfDv/2 + 0.05);
+
+    // Win tray — sits just in front of lower shelf front lip
+    const trayDepthV = MD * 0.55;
+    const trayFrontZv = lowerShelfZv + lowerShelfDv/2 + WT;
+    const trayZv = trayFrontZv + trayDepthV/2 + WT/2;
+    addMesh(new THREE.BoxGeometry(MW, 0.10, trayDepthV), trayMat, 0, TRAY_FLOOR+0.05, trayZv, false);
+    addMesh(new THREE.BoxGeometry(MW, 0.85, 0.10),       trayMat, 0, TRAY_FLOOR+0.42, trayZv + trayDepthV/2 + 0.05, false);
 
     // Tray label
     const trayLabel = makeTextSprite('WIN TRAY', 0.55);
-    trayLabel.position.set(0, TRAY_FLOOR + 0.50, SHELF_D/2 + 0.12);
+    trayLabel.position.set(0, TRAY_FLOOR + 0.50, trayZv + trayDepthV/2 + 0.12);
     scene.add(trayLabel);
 
-    // ── Pegs ────────────────────────────────────────────────────
-    const pegGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.18, 12);
+    // ── Pegs — full width of back wall ──────────────────────────
+    const pegGeo = new THREE.CylinderGeometry(0.08, 0.08, MD * 0.9, 12);
+    pegGeo.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI/2));
     const chuteH = CHUTE_TOP - CHUTE_BOT;
-    PEG_DEFS.forEach(([xf, yf]) => {
-      const m = new THREE.Mesh(pegGeo, pegMat);
-      m.position.set(xf * MW * 0.44, CHUTE_BOT + yf * chuteH, 0);
-      m.castShadow = true;
-      scene.add(m);
+    const pegRows = [0.15, 0.30, 0.47, 0.62, 0.78];
+    const pegCols = [-0.42, -0.26, -0.10, 0.10, 0.26, 0.42];
+    pegRows.forEach((yf, ri) => {
+      pegCols.forEach(xf => {
+        const xOff = (ri % 2 === 0) ? 0 : (MW * 0.085);
+        const m = new THREE.Mesh(pegGeo, pegMat);
+        m.position.set(xf * MW + xOff, CHUTE_BOT + yf * chuteH, 0);
+        m.castShadow = true;
+        scene.add(m);
+      });
     });
 
-    // ── Pusher plates ────────────────────────────────────────────
-    const pushGeo = new THREE.BoxGeometry(MW, PUSH_H, SHELF_D);
-    upperPusherMesh = new THREE.Mesh(pushGeo, pusherMat);
+    // ── Pusher plates — each sized to match their shelf ──────────
+    const upperPushGeo = new THREE.BoxGeometry(MW, PUSH_H, upperShelfDv/2);
+    upperPusherMesh = new THREE.Mesh(upperPushGeo, pusherMat);
     scene.add(upperPusherMesh);
 
-    lowerPusherMesh = new THREE.Mesh(pushGeo, pusherMat);
+    const lowerPushGeo = new THREE.BoxGeometry(MW, PUSH_H, lowerShelfDv/2);
+    lowerPusherMesh = new THREE.Mesh(lowerPushGeo, pusherMat);
     scene.add(lowerPusherMesh);
 
     // ── Seed coins ───────────────────────────────────────────────
@@ -463,25 +506,44 @@ export default (() => {
 
   // ── Seed shelves with initial coins ───────────────────────────
   function seedCoins() {
-    const hw = MW/2 - CR*1.4;
-    const hd = SHELF_D/2 - CR*1.4;
+    const upperShelfDs = SHELF_D * 0.55;
+    const upperShelfZs = -MD/2 + upperShelfDs/2 + WT;
+    const lowerShelfDs = LOWER_D;
+    const lowerShelfZs = -MD/2 + lowerShelfDs/2 + WT;
+    const hw = MW/2 - CR*1.6;
 
-    for (let i=0; i<24; i++) {
-      const x = (Math.random()*2-1)*hw;
-      const z = (Math.random()*2-1)*hd;
-      const y = UPPER_TOP + SHELF_THICK + CT/2 + Math.floor(i/8)*CT*0.6 + Math.random()*0.04;
-      spawnCoin(x, y, z, 'upper');
+    // Scattered coins across upper shelf
+    const uhd = upperShelfDs/2 - CR*1.4;
+    for (let i = 0; i < 16; i++) {
+      const x = (Math.random()*2-1) * hw;
+      const z = upperShelfZs + (Math.random()*2-1) * uhd;
+      spawnCoin(x, UPPER_TOP + SHELF_THICK + CT/2 + 0.01, z, 'upper');
     }
-    for (let i=0; i<28; i++) {
-      const x = (Math.random()*2-1)*hw;
-      const z = (Math.random()*2-1)*hd;
-      const y = LOWER_TOP + SHELF_THICK + CT/2 + Math.floor(i/9)*CT*0.6 + Math.random()*0.04;
-      spawnCoin(x, y, z, 'lower');
+    // Stacks on upper shelf
+    [[-MW*0.28, -uhd*0.3], [0, uhd*0.1], [MW*0.28, -uhd*0.5]].forEach(([sx, dz]) => {
+      const h = 4 + Math.floor(Math.random()*3);
+      for (let k = 0; k < h; k++)
+        spawnCoin(sx+(Math.random()-.5)*.12, UPPER_TOP+SHELF_THICK+CT/2+k*CT*1.05, upperShelfZs+dz+(Math.random()-.5)*.12, 'upper');
+    });
+
+    // Scattered coins across lower shelf
+    const lhd = lowerShelfDs/2 - CR*1.4;
+    for (let i = 0; i < 28; i++) {
+      const x = (Math.random()*2-1) * hw;
+      const z = lowerShelfZs + (Math.random()*2-1) * lhd;
+      spawnCoin(x, LOWER_TOP + SHELF_THICK + CT/2 + 0.01, z, 'lower');
     }
-    // A few bonus items
-    spawnBonus(-MW*0.22, UPPER_TOP+SHELF_THICK+0.45, -SHELF_D*0.1);
-    spawnBonus( MW*0.22, UPPER_TOP+SHELF_THICK+0.45,  SHELF_D*0.1);
-    spawnBonus( 0,       LOWER_TOP+SHELF_THICK+0.45,  0);
+    // Stacks on lower shelf
+    [[-MW*0.35,lhd*.3],[-MW*0.12,-lhd*.4],[MW*0.15,lhd*.1],[MW*0.35,-lhd*.2]].forEach(([sx,dz]) => {
+      const h = 3 + Math.floor(Math.random()*4);
+      for (let k = 0; k < h; k++)
+        spawnCoin(sx+(Math.random()-.5)*.12, LOWER_TOP+SHELF_THICK+CT/2+k*CT*1.05, lowerShelfZs+dz+(Math.random()-.5)*.12, 'lower');
+    });
+
+    // Bonus items
+    spawnBonus(-MW*0.22, UPPER_TOP+SHELF_THICK+0.45, upperShelfZs-uhd*0.2);
+    spawnBonus( MW*0.22, UPPER_TOP+SHELF_THICK+0.45, upperShelfZs+uhd*0.2);
+    spawnBonus( 0,       LOWER_TOP+SHELF_THICK+0.45, lowerShelfZs);
   }
 
   // ── Drop a coin from the chute ─────────────────────────────────
@@ -590,27 +652,28 @@ export default (() => {
     if (hudWinEl)   hudWinEl.textContent   = `£${(winnings/100).toFixed(2)}`;
   }
 
-  // ── Aim guide (arrow sprite above chute) ──────────────────────
-  let aimArrow;
+  // ── Ghost coin drop indicator ──────────────────────────────────
+  let ghostCoin;
   function buildAimArrow() {
-    const c = document.createElement('canvas');
-    c.width=64; c.height=64;
-    const x=c.getContext('2d');
-    x.fillStyle='rgba(0,240,200,0.85)';
-    x.beginPath(); x.moveTo(32,8); x.lineTo(52,32); x.lineTo(36,32);
-    x.lineTo(36,56); x.lineTo(28,56); x.lineTo(28,32); x.lineTo(12,32);
-    x.closePath(); x.fill();
-    const mat = new THREE.SpriteMaterial({ map:new THREE.CanvasTexture(c), transparent:true });
-    aimArrow = new THREE.Sprite(mat);
-    aimArrow.scale.set(0.5,0.5,0.5);
-    scene.add(aimArrow);
+    const geo = new THREE.CylinderGeometry(CR, CR, CT, 22);
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x00ffcc, emissive: 0x00ffcc, emissiveIntensity: 0.6,
+      transparent: true, opacity: 0.45, metalness: 0.3, roughness: 0.4
+    });
+    ghostCoin = new THREE.Mesh(geo, mat);
+    // Lay flat like a real coin
+    ghostCoin.rotation.x = Math.PI / 2;
+    scene.add(ghostCoin);
+    // Reuse aimArrow variable so existing code doesn't break
+    aimArrow = ghostCoin;
   }
 
   // ── Main loop ──────────────────────────────────────────────────
+  let gamePaused = false;
   function animate() {
     if (destroyed) return;
     animId = requestAnimationFrame(animate);
-    if (document.hidden) return;
+    if (document.hidden || gamePaused) return;
 
     const dt = Math.min(clock.getDelta(), 0.05);
 
@@ -629,19 +692,28 @@ export default (() => {
       }
     });
 
-    // Move pusher plates (kinematic) — slide front-to-back along Z to push coins off edge
-    const maxZ =  SHELF_D * 0.38;
-    const minZ = -SHELF_D * 0.38;
+    // Move pusher plates — sweep back→front, stop before front lip
+    const upperShelfDa = SHELF_D * 0.55;
+    const upperShelfZa = -MD/2 + upperShelfDa/2 + WT;
+    const uPusherHD    = upperShelfDa / 4;
+    const uPusherBack  = upperShelfZa - upperShelfDa/2 + uPusherHD;
+    const uPusherFront = upperShelfZa + upperShelfDa/2 - uPusherHD - 0.10;
 
     upperPusherBody.position.z += PUSH_SPEED * upperPusherDir * dt;
-    if (upperPusherBody.position.z > maxZ) { upperPusherBody.position.z = maxZ; upperPusherDir=-1; }
-    if (upperPusherBody.position.z < minZ) { upperPusherBody.position.z = minZ; upperPusherDir= 1; }
+    if (upperPusherBody.position.z > uPusherFront) { upperPusherBody.position.z = uPusherFront; upperPusherDir=-1; }
+    if (upperPusherBody.position.z < uPusherBack)  { upperPusherBody.position.z = uPusherBack;  upperPusherDir= 1; }
     upperPusherMesh.position.copy(upperPusherBody.position);
     upperPusherMesh.position.y = UPPER_TOP + PUSH_H/2;
 
+    const lowerShelfDa = LOWER_D;
+    const lowerShelfZa = -MD/2 + lowerShelfDa/2 + WT;
+    const lPusherHD    = lowerShelfDa / 4;
+    const lPusherBack  = lowerShelfZa - lowerShelfDa/2 + lPusherHD;
+    const lPusherFront = lowerShelfZa + lowerShelfDa/2 - lPusherHD - 0.10;
+
     lowerPusherBody.position.z += PUSH_SPEED * lowerPusherDir * dt * 0.82;
-    if (lowerPusherBody.position.z > maxZ) { lowerPusherBody.position.z = maxZ; lowerPusherDir=-1; }
-    if (lowerPusherBody.position.z < minZ) { lowerPusherBody.position.z = minZ; lowerPusherDir= 1; }
+    if (lowerPusherBody.position.z > lPusherFront) { lowerPusherBody.position.z = lPusherFront; lowerPusherDir=-1; }
+    if (lowerPusherBody.position.z < lPusherBack)  { lowerPusherBody.position.z = lPusherBack;  lowerPusherDir= 1; }
     lowerPusherMesh.position.copy(lowerPusherBody.position);
     lowerPusherMesh.position.y = LOWER_TOP + PUSH_H/2;
 
@@ -659,11 +731,15 @@ export default (() => {
       );
     }
 
-    // Aim arrow
+    // Ghost coin — sits at drop position above chute, pulses gently
     if (aimArrow) {
       const ax = (aimFrac - 0.5) * MW * 0.86;
-      aimArrow.position.set(ax, CHUTE_TOP + 0.35, MD*0.48);
+      aimArrow.position.set(ax, CHUTE_TOP + 0.05, 0);
       aimArrow.visible = !dropLocked && balance >= 2;
+      // Gentle pulse on opacity
+      if (aimArrow.material) {
+        aimArrow.material.opacity = 0.3 + 0.2 * Math.sin(clock.elapsedTime * 4);
+      }
     }
 
     updateHUD();
@@ -724,18 +800,83 @@ export default (() => {
     });
   }
 
+  // ── Camera orbit state ─────────────────────────────────────────
+  let camTheta = 0;          // horizontal angle (radians)
+  let camPhi   = 0.38;       // vertical angle (radians, 0=side, Pi/2=top)
+  let camDist  = MD * 3.2;   // distance from target
+  let isDragging = false;
+  let dragStartX = 0, dragStartY = 0;
+  let dragTheta = 0, dragPhi = 0;
+  const CAM_TARGET_Y = MH * 0.38;
+  const CAM_PHI_MIN  = 0.08;
+  const CAM_PHI_MAX  = 1.1;
+  const CAM_DIST_MIN = 4;
+  const CAM_DIST_MAX = 22;
+
+  function updateCamera() {
+    if (!camera) return;
+    const x = camDist * Math.sin(camPhi) * Math.sin(camTheta);
+    const y = CAM_TARGET_Y + camDist * Math.cos(camPhi);
+    const z = camDist * Math.sin(camPhi) * Math.cos(camTheta);
+    camera.position.set(x, y, z);
+    camera.lookAt(0, CAM_TARGET_Y, 0);
+  }
+
   // ── Input ──────────────────────────────────────────────────────
   function getAim(clientX) {
     const r = wrap.getBoundingClientRect();
     aimFrac = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
   }
-  function onMouseMove(e) { getAim(e.clientX); }
-  function onTouchMove(e) { e.preventDefault(); if(e.touches[0]) getAim(e.touches[0].clientX); }
-  function onClick()      { try{getAC().resume();}catch(e){} dropCoin(); }
+
+  function onMouseDown(e) {
+    if (e.button === 2 || e.button === 1) {
+      // Right/middle drag = orbit
+      isDragging = true;
+      dragStartX = e.clientX; dragStartY = e.clientY;
+      dragTheta = camTheta; dragPhi = camPhi;
+      e.preventDefault();
+    }
+  }
+  function onMouseMove(e) {
+    if (isDragging) {
+      const dx = (e.clientX - dragStartX) / wrap.clientWidth;
+      const dy = (e.clientY - dragStartY) / wrap.clientHeight;
+      camTheta = dragTheta - dx * Math.PI * 2;
+      camPhi   = Math.max(CAM_PHI_MIN, Math.min(CAM_PHI_MAX, dragPhi + dy * Math.PI));
+      updateCamera();
+    } else {
+      getAim(e.clientX);
+    }
+  }
+  function onMouseUp(e) { if (e.button === 2 || e.button === 1) isDragging = false; }
+  function onContextMenu(e) { e.preventDefault(); }
+  function onWheel(e) {
+    e.preventDefault();
+    camDist = Math.max(CAM_DIST_MIN, Math.min(CAM_DIST_MAX, camDist + e.deltaY * 0.02));
+    updateCamera();
+  }
+  function onTouchMove(e) {
+    e.preventDefault();
+    if (e.touches.length === 1) getAim(e.touches[0].clientX);
+  }
+  function onClick(e) {
+    if (isDragging) return;
+    try{getAC().resume();}catch(ex){}
+    dropCoin();
+  }
   function onKey(e) {
     if (e.code==='Space'||e.code==='Enter') { e.preventDefault(); try{getAC().resume();}catch(ex){} dropCoin(); }
     if (e.code==='ArrowLeft')  aimFrac = Math.max(0, aimFrac-0.04);
     if (e.code==='ArrowRight') aimFrac = Math.min(1, aimFrac+0.04);
+  }
+  function onVisibilityChange() {
+    // Pause physics when tab hidden or window blurred — handled in animate() via document.hidden
+    // Also reset clock so dt doesn't spike on resume
+    if (document.hidden && clock) clock.getDelta();
+  }
+  function onBlur() {
+    // Window lost focus — stop clock accumulation
+    if (clock) clock.getDelta();
   }
 
   // ── Resize ─────────────────────────────────────────────────────
@@ -781,7 +922,7 @@ export default (() => {
       <div id="cp3-root">
         <div id="cp3-topbar">
           <div id="cp3-title">🪙 COIN PUSHER 3D</div>
-          <div id="cp3-hint">AIM WITH MOUSE · CLICK / SPACE TO DROP</div>
+          <div id="cp3-hint">CLICK TO DROP · RIGHT-DRAG ORBIT · SCROLL ZOOM</div>
           <div style="display:flex;gap:6px">
             <button class="cp3-btn" id="cp3-new">▶ NEW GAME</button>
             <button class="arcade-back-btn" id="cp3-back">🕹 ARCADE</button>
@@ -799,12 +940,18 @@ export default (() => {
     wrap = el.querySelector('#cp3-wrap');
     el.querySelector('#cp3-new').addEventListener('click', restartGame);
     el.querySelector('#cp3-back').addEventListener('click', () => window.backToGameSelect?.());
-    wrap.addEventListener('mousemove', onMouseMove);
-    wrap.addEventListener('click', onClick);
-    wrap.addEventListener('touchmove', onTouchMove, { passive:false });
+    wrap.addEventListener('mousemove',   onMouseMove);
+    wrap.addEventListener('mousedown',   onMouseDown);
+    wrap.addEventListener('mouseup',     onMouseUp);
+    wrap.addEventListener('click',       onClick);
+    wrap.addEventListener('contextmenu', onContextMenu);
+    wrap.addEventListener('wheel',       onWheel, { passive:false });
+    wrap.addEventListener('touchmove',   onTouchMove, { passive:false });
     wrap.addEventListener('touchstart', e => { e.preventDefault(); onClick(); }, { passive:false });
-    window.addEventListener('keydown', onKey);
-    window.addEventListener('resize', onResize);
+    window.addEventListener('keydown',          onKey);
+    window.addEventListener('resize',           onResize);
+    window.addEventListener('blur',             onBlur);
+    document.addEventListener('visibilitychange', onVisibilityChange);
   }
 
   function setLoadingProgress(pct, msg) {
@@ -830,10 +977,13 @@ export default (() => {
       world.removeBody(obj.body);
     });
     coinBodies.length = 0;
-    // Reset pushers
+    const upperShelfDr = SHELF_D * 0.55;
+    const upperShelfZr = -MD/2 + upperShelfDr/2 + WT;
+    const lowerShelfDr = LOWER_D;
+    const lowerShelfZr = -MD/2 + lowerShelfDr/2 + WT;
     upperPusherDir=1; lowerPusherDir=-1;
-    upperPusherBody.position.set(0, UPPER_TOP+PUSH_H/2, 0);
-    lowerPusherBody.position.set(0, LOWER_TOP+PUSH_H/2, SHELF_D*0.15);
+    upperPusherBody.position.set(0, UPPER_TOP+PUSH_H/2, upperShelfZr - upperShelfDr/2 + upperShelfDr/4);
+    lowerPusherBody.position.set(0, LOWER_TOP+PUSH_H/2, lowerShelfZr - lowerShelfDr/2 + lowerShelfDr/4);
     seedCoins();
     updateHUD();
   }
@@ -887,8 +1037,10 @@ export default (() => {
   function destroy() {
     destroyed = true;
     if (animId) { cancelAnimationFrame(animId); animId=null; }
-    window.removeEventListener('keydown', onKey);
-    window.removeEventListener('resize', onResize);
+    window.removeEventListener('keydown',           onKey);
+    window.removeEventListener('resize',            onResize);
+    window.removeEventListener('blur',              onBlur);
+    document.removeEventListener('visibilitychange', onVisibilityChange);
     if (renderer) { renderer.dispose(); renderer=null; }
     const el = document.getElementById('coinpusher-screen');
     if (el) el.innerHTML='';
