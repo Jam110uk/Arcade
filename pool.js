@@ -196,7 +196,6 @@ const P3 = {
 };
 
 async function pool3DInit() {
-  // Load Three.js (reuse same loader pattern as coinpusher)
   async function loadMod(src) {
     const base = document.baseURI || location.href;
     const url = src.startsWith('http') ? src : new URL(src, base).href;
@@ -211,192 +210,194 @@ async function pool3DInit() {
   if (!THREE) THREE = await loadMod('https://unpkg.com/three@0.128.0/build/three.module.js');
   P3.THREE = THREE;
 
-  // Container — sits over the hidden canvas
-  const screenEl = document.getElementById('pool-screen');
-  const canvasParent = POOL.canvas.parentElement;
+  // Scale factor: map 2D px coords → 3D units (table becomes ~14 × 7 units)
+  const SCALE = 1 / 50;
+  P3.SCALE = SCALE;
+  const tw3 = POOL.TW * SCALE;   // ~14
+  const th3 = POOL.TH * SCALE;   // ~7
+
+  // Container — attach to the canvas element itself, sized to match it
+  // We replace the canvas visually by overlaying the WebGL canvas on top
+  const canvasEl = POOL.canvas;
+  canvasEl.style.cssText = 'display:block;width:100%;height:100%;visibility:hidden;';
+  const canvasParent = canvasEl.parentElement;
+  canvasParent.style.position = 'relative';
+
   const container = document.createElement('div');
   container.id = 'pool-3d-container';
-  container.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:1;';
-  canvasParent.style.position = 'relative';
+  container.style.cssText = [
+    'position:absolute',
+    'top:0','left:0','right:0','bottom:0',
+    'z-index:2',
+    'pointer-events:none',
+    'overflow:hidden',
+  ].join(';');
   canvasParent.appendChild(container);
   P3.container = container;
 
-  // Renderer
+  // Renderer — sized to fill the container
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.1;
-  renderer.domElement.style.cssText = 'width:100%;height:100%;display:block;';
+  renderer.domElement.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
   container.appendChild(renderer.domElement);
   P3.renderer = renderer;
 
   // Scene
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0a0a12);
+  scene.background = new THREE.Color(0x0d0d18);
   P3.scene = scene;
 
-  // Camera — fixed top-down angled view matching the 2D canvas perspective
-  const tw = POOL.TW, th = POOL.TH;
-  const aspect = tw / th;
-  const camera = new THREE.PerspectiveCamera(38, aspect, 0.1, 2000);
-  // Position above the table centre, looking down at a slight angle
-  camera.position.set(tw * 0.5, tw * 0.72, th * 1.15);
-  camera.lookAt(tw * 0.5, 0, th * 0.5);
+  // Camera — top-down perspective, looking at centre of table
+  // Table spans x: 0→tw3, z: 0→th3, y=0 is the felt surface
+  const cx3 = tw3 * 0.5, cz3 = th3 * 0.5;
+  const camH = tw3 * 0.55;   // height above table
+  const camTilt = th3 * 0.35; // slight forward tilt (behind the table centre)
+
+  const aspect = 2; // will be updated by resize
+  const camera = new THREE.PerspectiveCamera(52, aspect, 0.1, 200);
+  camera.position.set(cx3, camH, cz3 + camTilt);
+  camera.lookAt(cx3, 0, cz3 - th3 * 0.05);
   P3.camera = camera;
+  P3.SCALE = SCALE;
 
   // Lighting
-  scene.add(new THREE.AmbientLight(0xffeedd, 0.55));
+  scene.add(new THREE.AmbientLight(0xfff0e0, 0.6));
 
-  const sun = new THREE.DirectionalLight(0xfff5e0, 1.1);
-  sun.position.set(tw * 0.5, tw * 0.9, th * 0.2);
+  const sun = new THREE.DirectionalLight(0xfffae8, 1.2);
+  sun.position.set(cx3, tw3 * 0.9, -th3 * 0.5);
+  sun.target.position.set(cx3, 0, cz3);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 1024);
-  sun.shadow.camera.left   = -tw * 0.6;
-  sun.shadow.camera.right  =  tw * 0.6;
-  sun.shadow.camera.top    =  th * 0.7;
-  sun.shadow.camera.bottom = -th * 0.7;
-  scene.add(sun);
+  sun.shadow.camera.left   = -tw3 * 0.65;
+  sun.shadow.camera.right  =  tw3 * 0.65;
+  sun.shadow.camera.top    =  th3 * 0.8;
+  sun.shadow.camera.bottom = -th3 * 0.8;
+  scene.add(sun); scene.add(sun.target);
 
-  // Warm overhead fill lights
-  [tw*0.25, tw*0.5, tw*0.75].forEach((x, i) => {
-    const pl = new THREE.PointLight([0xfff0c0, 0xe8f4ff, 0xfff0c0][i], 0.7, tw * 0.9);
-    pl.position.set(x, tw * 0.55, th * 0.5);
+  [0.2, 0.5, 0.8].forEach((t, i) => {
+    const pl = new THREE.PointLight([0xffe8b0, 0xe8f0ff, 0xffe8b0][i], 0.5, tw3 * 0.9);
+    pl.position.set(tw3 * t, tw3 * 0.4, cz3);
     scene.add(pl);
   });
 
-  // Build table geometry
-  pool3DBuildTable(THREE, scene, tw, th);
-
-  // Build ball meshes (one per ball id 0-15)
-  pool3DBuildBalls(THREE, scene);
-
-  // Build cue mesh
+  pool3DBuildTable(THREE, scene, tw3, th3);
+  pool3DBuildBalls(THREE, scene, tw3, th3);
   pool3DBuildCue(THREE, scene);
-
-  // Aim line (dashed line rendered as thin box segments)
   pool3DBuildAimLine(THREE, scene);
 
   P3.ready = true;
 
-  // Resize handler
   function onResize() {
     if (!P3.renderer || !P3.camera) return;
     const rect = container.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return;
-    P3.renderer.setSize(rect.width, rect.height, false);
+    if (rect.width < 10 || rect.height < 10) return;
+    renderer.setSize(rect.width, rect.height, false);
     P3.camera.aspect = rect.width / rect.height;
     P3.camera.updateProjectionMatrix();
   }
   window.addEventListener('resize', onResize);
-  setTimeout(onResize, 100);
+  // Multiple attempts to catch layout settling
+  setTimeout(onResize, 50);
+  setTimeout(onResize, 300);
+  setTimeout(onResize, 800);
 
-  // Initial draw
   poolDraw();
 }
 
-function pool3DBuildTable(THREE, scene, tw, th) {
-  const pr = POOL.POCKET_R;
+function pool3DBuildTable(THREE, scene, tw3, th3) {
+  const pr3 = POOL.POCKET_R * P3.SCALE;
+  const gap3 = POOL.MID_GAP * P3.SCALE;
+  const cw3 = pr3 * 0.7; // cushion height
 
   // Felt surface
-  const feltGeo = new THREE.PlaneGeometry(tw - pr*2, th - pr*2);
+  const feltGeo = new THREE.PlaneGeometry(tw3 - pr3*2, th3 - pr3*2);
   const feltCanvas = document.createElement('canvas');
   feltCanvas.width = 512; feltCanvas.height = 256;
   const fc = feltCanvas.getContext('2d');
   const fg = fc.createRadialGradient(256,128,0, 256,128,280);
-  fg.addColorStop(0,   '#1e7a3c');
-  fg.addColorStop(0.5, '#196832');
-  fg.addColorStop(1,   '#124d25');
+  fg.addColorStop(0,'#1e7a3c'); fg.addColorStop(0.5,'#196832'); fg.addColorStop(1,'#124d25');
   fc.fillStyle = fg; fc.fillRect(0,0,512,256);
-  // Felt noise
   for (let i = 0; i < 4000; i++) {
     fc.fillStyle = Math.random() > 0.5
       ? `rgba(0,200,80,${(Math.random()*0.04).toFixed(3)})`
       : `rgba(0,0,0,${(Math.random()*0.06).toFixed(3)})`;
     fc.fillRect(Math.random()*512, Math.random()*256, 1, 1);
   }
-  // Nap lines
-  fc.strokeStyle = 'rgba(255,255,255,0.02)'; fc.lineWidth = 1;
-  for (let y = 8; y < 256; y += 8) { fc.beginPath(); fc.moveTo(0,y); fc.lineTo(512,y); fc.stroke(); }
-  // Baulk line
-  const bx = (tw-pr*2)*0.20/tw * 512;
+  fc.strokeStyle='rgba(255,255,255,0.02)'; fc.lineWidth=1;
+  for (let y=8;y<256;y+=8){fc.beginPath();fc.moveTo(0,y);fc.lineTo(512,y);fc.stroke();}
+  const bx3pct = 0.20;
+  const bxPx = bx3pct * 512;
   fc.strokeStyle='rgba(255,255,255,0.18)'; fc.lineWidth=1.5;
-  fc.beginPath(); fc.moveTo(bx,0); fc.lineTo(bx,256); fc.stroke();
-  // D arc
-  const dR = (th-pr*2)*0.28 / th * 256;
-  fc.beginPath(); fc.arc(bx,128,dR,-Math.PI/2,Math.PI/2);
-  fc.stroke();
+  fc.beginPath();fc.moveTo(bxPx,0);fc.lineTo(bxPx,256);fc.stroke();
+  const dRpx = (th3 - pr3*2) / (th3) * 256 * 0.28;
+  fc.beginPath();fc.arc(bxPx,128,dRpx,-Math.PI/2,Math.PI/2);fc.stroke();
 
   const feltTex = new THREE.CanvasTexture(feltCanvas);
-  feltTex.wrapS = feltTex.wrapT = THREE.RepeatWrapping;
-  const feltMat = new THREE.MeshStandardMaterial({
-    map: feltTex, roughness: 0.92, metalness: 0.0, color: 0xffffff
-  });
+  const feltMat = new THREE.MeshStandardMaterial({ map: feltTex, roughness: 0.92, metalness: 0.0 });
   const feltMesh = new THREE.Mesh(feltGeo, feltMat);
-  feltMesh.rotation.x = -Math.PI / 2;
-  feltMesh.position.set(tw/2, 0, th/2);
+  feltMesh.rotation.x = -Math.PI/2;
+  feltMesh.position.set(tw3/2, 0, th3/2);
   feltMesh.receiveShadow = true;
   scene.add(feltMesh);
 
-  // Wooden rail (outer frame)
-  const railMat = new THREE.MeshStandardMaterial({ color: 0x3d1e08, roughness: 0.7, metalness: 0.05 });
+  // Wooden rail boxes
+  const railMat = new THREE.MeshStandardMaterial({ color:0x3d1e08, roughness:0.7, metalness:0.05 });
+  const rh = pr3 * 0.6; // rail height
   [
-    // top rail
-    [tw, pr, tw/2, pr/2, pr/2],
-    // bottom rail
-    [tw, pr, tw/2, pr/2, th - pr/2],
-    // left rail
-    [pr, th, pr/2, tw/2 - (tw-pr)/2 - pr/2, th/2],
-    // right rail
-    [pr, th, pr/2, tw/2 + (tw-pr)/2 + pr/2, th/2],
-  ].forEach(([w, d, h, x, z]) => {
-    const g = new THREE.BoxGeometry(w, h, d);
-    const m = new THREE.Mesh(g, railMat);
-    m.position.set(x, h/2, z);
+    {w:tw3, d:pr3, x:tw3/2,   z:pr3/2},
+    {w:tw3, d:pr3, x:tw3/2,   z:th3-pr3/2},
+    {w:pr3, d:th3, x:pr3/2,   z:th3/2},
+    {w:pr3, d:th3, x:tw3-pr3/2, z:th3/2},
+  ].forEach(({w,d,x,z}) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, rh, d), railMat);
+    m.position.set(x, rh/2, z);
     m.castShadow = true; m.receiveShadow = true;
     scene.add(m);
   });
 
-  // Cushions (green rubber bumpers)
-  const cushMat = new THREE.MeshStandardMaterial({ color: 0x166028, roughness: 0.6 });
-  const gap = POOL.MID_GAP;
-  const cH = pr * 0.7;
-  // Top/bottom cushion segments (split at middle pocket)
+  // Green cushions
+  const cushMat = new THREE.MeshStandardMaterial({ color:0x167030, roughness:0.55 });
+  const ch = cw3;
+  // top/bottom segments (2 each, split at mid pocket)
+  const topLeft  = tw3/2 - pr3/2 - gap3;
+  const topRight = tw3/2 + pr3/2 + gap3;
   [
-    [tw/2-pr-gap*2, cH, tw/4+pr/2, cH/2, pr/2],
-    [tw/2-pr-gap*2, cH, tw*3/4-pr/2, cH/2, pr/2],
-    [tw/2-pr-gap*2, cH, tw/4+pr/2, cH/2, th-pr/2],
-    [tw/2-pr-gap*2, cH, tw*3/4-pr/2, cH/2, th-pr/2],
-    // Left/right cushions
-    [pr*0.6, th-pr*2-gap*2, cH, pr/2, th/2],
-    [pr*0.6, th-pr*2-gap*2, cH, tw-pr/2, th/2],
-  ].forEach(([w, d, h, x, z]) => {
-    const g = new THREE.BoxGeometry(w, h, d);
-    const m = new THREE.Mesh(g, cushMat);
-    m.position.set(x, h/2, z);
+    {w:topLeft-pr3, d:cw3*0.6, x:pr3+(topLeft-pr3)/2,     z:pr3/2},
+    {w:tw3-topRight-pr3, d:cw3*0.6, x:topRight+(tw3-topRight-pr3)/2, z:pr3/2},
+    {w:topLeft-pr3, d:cw3*0.6, x:pr3+(topLeft-pr3)/2,     z:th3-pr3/2},
+    {w:tw3-topRight-pr3, d:cw3*0.6, x:topRight+(tw3-topRight-pr3)/2, z:th3-pr3/2},
+    // left/right
+    {w:cw3*0.6, d:th3-pr3*2-gap3*2, x:pr3/2, z:th3/2},
+    {w:cw3*0.6, d:th3-pr3*2-gap3*2, x:tw3-pr3/2, z:th3/2},
+  ].forEach(({w,d,x,z}) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, ch, d), cushMat);
+    m.position.set(x, ch/2, z);
     scene.add(m);
   });
 
-  // Pockets (dark cylinders sunken at corners and midpoints)
-  const pocketMat = new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 1.0 });
+  // Pockets
+  const pocketMat = new THREE.MeshStandardMaterial({ color:0x050505, roughness:1.0 });
+  const ringMat   = new THREE.MeshStandardMaterial({ color:0x5a3a10, roughness:0.5, metalness:0.3 });
   POOL.POCKETS.forEach(p => {
-    const pg = new THREE.CylinderGeometry(pr, pr * 1.1, pr * 0.5, 20);
+    const px3 = p.x * P3.SCALE, pz3 = p.y * P3.SCALE;
+    const prr = pr3 * 1.05;
+    const pg = new THREE.CylinderGeometry(prr, prr*1.1, pr3*0.4, 20);
     const pm = new THREE.Mesh(pg, pocketMat);
-    pm.position.set(p.x, -pr * 0.1, p.y);
+    pm.position.set(px3, -pr3*0.05, pz3);
     scene.add(pm);
-    // Pocket rim ring
-    const ringGeo = new THREE.TorusGeometry(pr, 1.5, 8, 24);
-    const ringMat = new THREE.MeshStandardMaterial({ color: 0x4a3010, roughness: 0.5, metalness: 0.3 });
-    const ring = new THREE.Mesh(ringGeo, ringMat);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(prr, pr3*0.06, 8, 24), ringMat);
     ring.rotation.x = Math.PI/2;
-    ring.position.set(p.x, 1, p.y);
+    ring.position.set(px3, pr3*0.05, pz3);
     scene.add(ring);
   });
 }
 
-function pool3DBuildBalls(THREE, scene) {
-  const r = POOL.BALL_R;
+function pool3DBuildBalls(THREE, scene, tw3, th3) {
+  const r3 = POOL.BALL_R * P3.SCALE;
   P3.ballMeshes = [];
 
   for (let id = 0; id <= 15; id++) {
@@ -437,15 +438,13 @@ function pool3DBuildBalls(THREE, scene) {
     bctx.fillStyle='rgba(255,255,255,0.55)'; bctx.fill();
 
     const tex = new THREE.CanvasTexture(bc);
-    const geo = new THREE.SphereGeometry(r, 32, 24);
+    const geo = new THREE.SphereGeometry(r3, 32, 24);
     const mat = new THREE.MeshStandardMaterial({
       map: tex, roughness: 0.12, metalness: 0.08,
-      envMapIntensity: 0.6,
     });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.castShadow = true;
-    mesh.receiveShadow = false;
-    mesh.position.set(0, r, 0);
+    mesh.position.set(0, r3, 0);
     mesh.visible = false;
     scene.add(mesh);
     P3.ballMeshes[id] = mesh;
@@ -453,12 +452,12 @@ function pool3DBuildBalls(THREE, scene) {
 }
 
 function pool3DBuildCue(THREE, scene) {
-  // Cue stick — tapered cylinder (thin at tip, thick at butt)
-  const CUE_LEN = 160;
+  const S = P3.SCALE;
+  const CUE_LEN = 160 * S;
   const pts = [];
   for (let i = 0; i <= 20; i++) {
     const t = i / 20;
-    pts.push(new THREE.Vector2(1.5 + t * 2.5, t * CUE_LEN));
+    pts.push(new THREE.Vector2((1.5 + t * 2.5) * S, t * CUE_LEN));
   }
   const cueGeo = new THREE.LatheGeometry(pts, 12);
   const cueTex = document.createElement('canvas');
@@ -479,33 +478,22 @@ function pool3DBuildCue(THREE, scene) {
   P3.cueMesh = cueMesh;
 
   // Tip sphere
-  const tipGeo = new THREE.SphereGeometry(2, 10, 8);
+  const tipGeo = new THREE.SphereGeometry(2 * P3.SCALE, 10, 8);
   const tipMat = new THREE.MeshStandardMaterial({ color: 0x4488ff, roughness: 0.4 });
   const tipMesh = new THREE.Mesh(tipGeo, tipMat);
   tipMesh.visible = false;
   scene.add(tipMesh);
   P3.cueTipMesh = tipMesh;
-
-  // Aim trajectory line (rendered as thin flat box)
-  const aimGeo = new THREE.PlaneGeometry(1, 1);
-  const aimMat = new THREE.MeshBasicMaterial({
-    color: 0xffffff, transparent: true, opacity: 0.45,
-    depthWrite: false, side: P3.THREE.DoubleSide
-  });
-  const aimMesh = new THREE.Mesh(aimGeo, aimMat);
-  aimMesh.rotation.x = -Math.PI/2;
-  aimMesh.visible = false;
-  scene.add(aimMesh);
-  P3.aimLineMesh = aimMesh;
+  P3.aimLineMesh = null; // unused — replaced by aimDashes
 }
 
 function pool3DBuildAimLine(THREE, scene) {
-  // Dashed aim line rendered as repeating small boxes along a line
+  const S = P3.SCALE;
   P3.aimDashes = [];
-  const dashMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5, depthWrite: false });
-  for (let i = 0; i < 20; i++) {
-    const dg = new THREE.BoxGeometry(1.5, 0.5, 6);
-    const dm = new THREE.Mesh(dg, dashMat);
+  const dashMat = new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.5, depthWrite:false });
+  for (let i = 0; i < 24; i++) {
+    const dg = new THREE.BoxGeometry(POOL.BALL_R * S * 0.6, S * 0.5, S * 5);
+    const dm = new THREE.Mesh(dg, dashMat.clone());
     dm.visible = false;
     scene.add(dm);
     P3.aimDashes.push(dm);
@@ -663,22 +651,17 @@ function poolTouchEnd(e) {
 
 function poolDraw() {
   if (!P3.ready || !P3.renderer) return;
-  const THREE = P3.THREE;
-  const tw = POOL.TW, th = POOL.TH;
-  const r  = POOL.BALL_R;
+  const S   = P3.SCALE;
+  const r3  = POOL.BALL_R * S;
 
-  // ── Sync ball meshes from physics positions ───────────────────
+  // ── Sync ball meshes from 2D physics positions ───────────────
   POOL.balls.forEach(ball => {
     const mesh = P3.ballMeshes[ball.id];
     if (!mesh) return;
-    if (ball.potted) {
-      mesh.visible = false;
-      return;
-    }
+    if (ball.potted) { mesh.visible = false; return; }
     mesh.visible = true;
-    // Map 2D physics coords (x: 0→TW, y: 0→TH) to 3D (x: 0→TW, z: 0→TH, y = ball radius)
-    mesh.position.set(ball.x, r, ball.y);
-    // Rotate ball based on accumulated roll angle for visual spin
+    // 2D: x→X, y→Z  (Y = ball radius off the felt)
+    mesh.position.set(ball.x * S, r3, ball.y * S);
     if (ball._rollAcc) {
       const dir = Math.atan2(ball.vy || 0, ball.vx || 0);
       mesh.rotation.z =  Math.cos(dir) * ball._rollAcc;
@@ -686,64 +669,52 @@ function poolDraw() {
     }
   });
 
-  // ── Sparks (reuse 2D spark data — draw as 3D point sprites) ──
-  // (skipped — sparks are fast enough to ignore in 3D; physics still generates them)
-
   // ── Cue stick ─────────────────────────────────────────────────
-  const showMyCue    = !POOL.isMoving && POOL.myTurn && POOL.cueBall && !POOL.cueBall.potted;
-  const showOppCue   = !POOL.isMoving && !POOL.myTurn && POOL.oppCue && POOL.cueBall && !POOL.cueBall.potted;
-  const showAnyCue   = showMyCue || showOppCue;
+  const showMyCue  = !POOL.isMoving && POOL.myTurn  && POOL.cueBall && !POOL.cueBall.potted;
+  const showOppCue = !POOL.isMoving && !POOL.myTurn && POOL.oppCue  && POOL.cueBall && !POOL.cueBall.potted;
 
   if (P3.cueMesh) {
-    if (showAnyCue) {
+    if (showMyCue || showOppCue) {
       const cb     = POOL.cueBall;
       const angle  = showMyCue
         ? (POOL.shotState === 'locked' ? POOL.lockedAngle : POOL.aimAngle)
         : POOL.oppCue.angle;
-      const power  = showMyCue
-        ? (POOL.shotState === 'locked' ? POOL.pullback : 0.3)
-        : (POOL.oppCue.pullback || 0.3);
-      const PULLBACK_MAX = 50;
-      const TIP_GAP      = r + 2;
-      const pullPx       = (showMyCue ? (POOL.shotState === 'locked' ? POOL.pullback : 0) : (POOL.oppCue.state === 'locked' ? (POOL.oppCue.pullback || 0) : 0)) * PULLBACK_MAX;
-      const tipDist      = TIP_GAP + pullPx;
+      const locked = showMyCue ? POOL.shotState === 'locked' : POOL.oppCue?.state === 'locked';
+      const pullback = showMyCue
+        ? (locked ? POOL.pullback : 0)
+        : (locked ? (POOL.oppCue?.pullback || 0) : 0);
 
-      // Tip world position
-      const tipX3  = cb.x  - Math.cos(angle) * tipDist;
-      const tipZ3  = cb.y  - Math.sin(angle) * tipDist;
-      const buttX3 = tipX3 - Math.cos(angle) * 160;
-      const buttZ3 = tipZ3 - Math.sin(angle) * 160;
+      const TIP_GAP     = (POOL.BALL_R + 2) * S;
+      const CUE_LEN     = 160 * S;
+      const PULLBACK_MAX = 50 * S;
+      const pullDist    = pullback * PULLBACK_MAX;
+      const tipDist     = TIP_GAP + pullDist;
 
-      // Position cue pivot at tip, rotate to point toward butt
-      P3.cueMesh.position.set(tipX3, r * 1.1, tipZ3);
+      const cbx3 = cb.x * S, cbz3 = cb.y * S;
+      const tipX3  = cbx3 - Math.cos(angle) * tipDist;
+      const tipZ3  = cbz3 - Math.sin(angle) * tipDist;
+
+      P3.cueMesh.position.set(tipX3, r3 * 1.1, tipZ3);
       P3.cueMesh.rotation.set(Math.PI/2, 0, 0);
       P3.cueMesh.rotation.y = -(angle + Math.PI/2);
       P3.cueMesh.visible = true;
 
       if (P3.cueTipMesh) {
-        P3.cueTipMesh.position.set(tipX3, r * 1.1, tipZ3);
+        P3.cueTipMesh.position.set(tipX3, r3 * 1.1, tipZ3);
         P3.cueTipMesh.visible = true;
       }
 
-      // Color cue based on whose turn / power
-      const isMy = showMyCue && POOL.shotState === 'locked';
-      P3.cueMesh.material && (P3.cueMesh.material.color?.setHex(showMyCue ? 0xd4b070 : 0xe09040));
-
       // Aim dashes
       if (P3.aimDashes) {
-        const aimLen  = 60 + power * 140;
-        const numDash = P3.aimDashes.length;
-        const dashSpc = aimLen / numDash;
+        const power  = locked ? pullback : 0.3;
+        const aimLen = (60 + power * 140) * S;
+        const nd     = P3.aimDashes.length;
+        const spc    = aimLen / nd;
         P3.aimDashes.forEach((d, i) => {
-          const t    = (i + 0.5) * dashSpc;
-          const dx3  = cb.x  + Math.cos(angle) * t;
-          const dz3  = cb.y  + Math.sin(angle) * t;
-          d.position.set(dx3, 0.8, dz3);
+          const t   = (i + 0.5) * spc;
+          d.position.set(cbx3 + Math.cos(angle)*t, 0.02, cbz3 + Math.sin(angle)*t);
           d.rotation.y = -angle;
-          const alpha = showMyCue
-            ? (POOL.shotState === 'locked' ? 0.6 : 0.4)
-            : 0.3;
-          d.material.opacity = alpha * (1 - i / numDash * 0.6);
+          d.material.opacity = (locked ? 0.6 : 0.4) * (1 - i/nd*0.5);
           d.visible = true;
         });
       }
@@ -754,7 +725,6 @@ function poolDraw() {
     }
   }
 
-  // ── Render ────────────────────────────────────────────────────
   P3.renderer.render(P3.scene, P3.camera);
 }
 
