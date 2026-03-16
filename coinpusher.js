@@ -1,6 +1,6 @@
 // ============================================================
 //  COIN PUSHER 3D  —  British beach arcade coin pusher
-//  Requires in repo root: three_core_min.js + cannon-es_min.js
+//  Requires in repo root: three_module_min.js + cannon-es_min.js
 //  No CDN needed — all local files.
 // ============================================================
 
@@ -114,14 +114,46 @@ export default (() => {
     });
   }
 
-  async function loadThree(src) {
-    // three_core_min.js is an ES module — use dynamic import()
-    // Resolve relative to the page URL so it works on GitHub Pages
+  async function loadESModule(src) {
     const base = document.baseURI || location.href;
-    const url = new URL(src, base).href;
-    const mod = await import(/* webpackIgnore: true */ url);
-    // The module exports everything as named exports; wrap into a THREE namespace
-    return mod;
+    const url = src.startsWith('http') ? src : new URL(src, base).href;
+    return await import(/* webpackIgnore: true */ url);
+  }
+
+  async function loadTHREE() {
+    // Try local file first — but three_module_min.js is a stripped build that
+    // omits WebGLRenderer. If it's missing, fall back to the full CDN build.
+    try {
+      const mod = await loadESModule('./three_module_min.js');
+      if (mod && mod.WebGLRenderer) {
+        console.log('[coinpusher3d] THREE loaded from local three_module_min.js');
+        return mod;
+      }
+      console.warn('[coinpusher3d] three_module_min.js missing WebGLRenderer — it is a core-only build. Falling back to CDN.');
+    } catch(e) {
+      console.warn('[coinpusher3d] Local three_module_min.js failed:', e.message);
+    }
+    // Full Three.js r128 ES module build from CDN
+    const CDN = 'https://unpkg.com/three@0.128.0/build/three.module.js';
+    console.log('[coinpusher3d] Loading THREE from CDN:', CDN);
+    return await loadESModule(CDN);
+  }
+
+  async function loadCANNON() {
+    // Try local cannon-es_min.js first
+    try {
+      const mod = await loadESModule('./cannon-es_min.js');
+      if (mod && mod.World) {
+        console.log('[coinpusher3d] CANNON loaded from local cannon-es_min.js');
+        return mod;
+      }
+    } catch(e) {
+      console.warn('[coinpusher3d] Local cannon-es_min.js failed:', e.message);
+    }
+    // Fallback: cannon-es from CDN
+    const CDN = 'https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js';
+    console.log('[coinpusher3d] Loading CANNON from CDN:', CDN);
+    return await loadESModule(CDN);
   }
 
   // ── Build physics world ────────────────────────────────────────
@@ -814,14 +846,12 @@ export default (() => {
 
     try {
       setLoadingProgress(10, 'LOADING THREE.JS...');
-      // three_core_min.js is an ES module — load via dynamic import()
-      THREE = await loadThree('./three_core_min.js');
-      if (!THREE || !THREE.WebGLRenderer) throw new Error('THREE.WebGLRenderer not found — check three_core_min.js');
+      THREE = await loadTHREE();
+      if (!THREE || !THREE.WebGLRenderer) throw new Error('THREE.WebGLRenderer still not found after CDN fallback');
 
       setLoadingProgress(55, 'LOADING PHYSICS...');
-      // cannon-es_min.js is also an ES module — load via dynamic import()
-      CANNON = await loadThree('./cannon-es_min.js');
-      if (!CANNON || !CANNON.World) throw new Error('CANNON.World not found — check cannon-es_min.js');
+      CANNON = await loadCANNON();
+      if (!CANNON || !CANNON.World) throw new Error('CANNON.World still not found after CDN fallback');
 
       setLoadingProgress(80, 'BUILDING SCENE...');
       buildPhysics();
@@ -844,7 +874,7 @@ export default (() => {
             Failed to load 3D engine.<br>
             <span style="font-size:0.8em;color:rgba(255,100,100,0.7)">
               ${e.message}<br><br>
-              Make sure <b>three_core_min.js</b> and <b>cannon-es_min.js</b><br>
+              Make sure <b>three_module_min.js</b> and <b>cannon-es_min.js</b><br>
               are in your repo root.
             </span>
           </div>`;
