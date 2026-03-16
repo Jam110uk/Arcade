@@ -1,63 +1,66 @@
 // ============================================================
-//  STACK IT  —  arcade stacker game
+//  STACK IT  —  endless arcade stacker
 //  export default { init, destroy }
-//  Faithful to LAI Games "Stacker" mechanics:
-//    Rows 1-3:  3 blocks wide
-//    Row  4:    2 blocks wide (auto-reduced)
-//    Row 10:    1 block wide (auto-reduced)
-//    15 rows total  →  WIN
-//    Speed increases every row
-//    Overhang trimmed, if width→0 = GAME OVER
+//
+//  Rules:
+//    - Blocks always start at 3 wide
+//    - Width only shrinks when overhang is trimmed off
+//    - If trimming reduces width to 0 → GAME OVER
+//    - Endless — stack climbs forever, viewport scrolls up
+//    - Speed ramps up gradually with height
+//    - Score based on height + perfect bonuses
 // ============================================================
 
 export default (() => {
 
   // ── Constants ───────────────────────────────────────────────
-  const COLS       = 7;          // grid width in cells
-  const ROWS       = 15;         // total rows to stack
-  const MINOR_ROW  = 11;         // minor prize row (1-indexed from bottom)
-  const MAJOR_ROW  = 15;         // win row
+  const COLS         = 7;    // grid width in cells
+  const VISIBLE_ROWS = 15;   // rows shown on screen at once
+  const START_WIDTH  = 3;    // always start with 3 blocks
 
   // Speed: ms per cell movement (lower = faster)
-  const BASE_SPEED = 420;
-  const MIN_SPEED  = 68;
+  const BASE_SPEED   = 400;
+  const MIN_SPEED    = 55;
+  const SPEED_ROWS   = 60;   // rows to reach minimum speed
 
-  // Colours per zone (row bands, 1-indexed from bottom)
+  // Colour zones — cycle every 5 rows as you go higher
   const ZONE_COLORS = [
-    { from: 1,  to: 5,  cell: '#00e5ff', glow: 'rgba(0,229,255,0.9)',  shadow: 'rgba(0,180,220,0.5)' },
-    { from: 6,  to: 9,  cell: '#00ff88', glow: 'rgba(0,255,136,0.9)',  shadow: 'rgba(0,200,100,0.5)' },
-    { from: 10, to: 11, cell: '#ffdd00', glow: 'rgba(255,221,0,0.9)',   shadow: 'rgba(200,160,0,0.5)' },
-    { from: 12, to: 14, cell: '#ff6a00', glow: 'rgba(255,106,0,0.9)',   shadow: 'rgba(200,80,0,0.5)'  },
-    { from: 15, to: 15, cell: '#ff2d78', glow: 'rgba(255,45,120,0.9)',  shadow: 'rgba(200,20,80,0.5)' },
+    { cell: '#00e5ff', glow: 'rgba(0,229,255,0.85)'  },
+    { cell: '#00ff88', glow: 'rgba(0,255,136,0.85)'  },
+    { cell: '#ffe600', glow: 'rgba(255,230,0,0.85)'  },
+    { cell: '#ff6a00', glow: 'rgba(255,106,0,0.85)'  },
+    { cell: '#ff2d78', glow: 'rgba(255,45,120,0.85)' },
+    { cell: '#a855f7', glow: 'rgba(168,85,247,0.85)' },
   ];
 
   function zoneFor(row1) {
-    return ZONE_COLORS.find(z => row1 >= z.from && row1 <= z.to) || ZONE_COLORS[0];
+    const idx = Math.floor((row1 - 1) / 5) % ZONE_COLORS.length;
+    return ZONE_COLORS[idx];
   }
 
   // ── State ────────────────────────────────────────────────────
   let canvas, ctx, wrap;
-  let cellW, cellH, padX, padY;
-  let gameState;    // 'idle'|'playing'|'minor'|'win'|'lose'
-  let stack = [];   // array of {col, width} for each row placed (index 0 = bottom row 1)
-  let moverCol   = 0;    // leftmost col of moving block
-  let moverWidth = 3;    // current block width
-  let moverDir   = 1;    // 1 = right, -1 = left
-  let moverRow   = 0;    // which row (0-indexed) we're filling next
-  let rafId      = null;
-  let lastTick   = 0;
-  let tickAcc    = 0;
-  let speed      = BASE_SPEED;
-  let destroyed  = false;
-  let animPhase  = 0;    // for win/lose animations
-  let animFrame  = 0;
-  let flashCells = [];   // [{col, row}] cells to flash for drop-trim animation
-  let flashTimer = 0;
-  let perfectStack = 0;  // consecutive perfect stacks
-  let score      = 0;
-  let bestScore  = 0;
+  let cellW, cellH, padX;
+  let gameState     = 'idle'; // 'idle'|'playing'|'lose'
+  let stack         = [];     // [{col, width}] index 0 = row 1 (bottom)
+  let moverCol      = 0;
+  let moverWidth    = START_WIDTH;
+  let moverDir      = 1;
+  let moverRow      = 0;      // next row index to fill (0-based)
+  let rafId         = null;
+  let lastTick      = 0;
+  let tickAcc       = 0;
+  let speed         = BASE_SPEED;
+  let destroyed     = false;
+  let animFrame     = 0;
+  let flashCells    = [];     // [{col, row}] overhang trim animation
+  let flashTimer    = 0;
+  let perfectStreak = 0;
+  let score         = 0;
+  let bestScore     = 0;
+  let scrollBase    = 0;      // row index shown at bottom of viewport
 
-  // ── Audio (Web Audio API) ────────────────────────────────────
+  // ── Audio — soft, warm, low-volume tones ─────────────────────
   let audioCtx;
 
   function ac() {
@@ -65,55 +68,62 @@ export default (() => {
     return audioCtx;
   }
 
-  function beep(freq, type, dur, vol = 0.25, delay = 0) {
+  // Soft filtered tone — low-pass removes harshness, gentle volumes
+  function tone(freq, dur, vol = 0.06, delay = 0, type = 'sine') {
     try {
-      const a = ac();
-      const o = a.createOscillator();
-      const g = a.createGain();
-      o.connect(g); g.connect(a.destination);
-      o.type      = type;
-      o.frequency.setValueAtTime(freq, a.currentTime + delay);
-      g.gain.setValueAtTime(0, a.currentTime + delay);
-      g.gain.linearRampToValueAtTime(vol, a.currentTime + delay + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + delay + dur);
-      o.start(a.currentTime + delay);
-      o.stop(a.currentTime + delay + dur + 0.05);
+      const a   = ac();
+      const osc = a.createOscillator();
+      const env = a.createGain();
+      const lpf = a.createBiquadFilter();
+      lpf.type            = 'lowpass';
+      lpf.frequency.value = Math.min(freq * 2.2, 1800);
+      lpf.Q.value         = 0.4;
+      osc.connect(lpf); lpf.connect(env); env.connect(a.destination);
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, a.currentTime + delay);
+      env.gain.setValueAtTime(0, a.currentTime + delay);
+      env.gain.linearRampToValueAtTime(vol, a.currentTime + delay + 0.025);
+      env.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + delay + dur);
+      osc.start(a.currentTime + delay);
+      osc.stop(a.currentTime + delay + dur + 0.06);
     } catch(e) {}
   }
 
   function sndPlace(perfect) {
     if (perfect) {
-      beep(880, 'sine', 0.12, 0.3);
-      beep(1320,'sine', 0.10, 0.25, 0.08);
-      beep(1760,'sine', 0.08, 0.2,  0.16);
+      // Warm ascending chime — quiet and pleasant
+      tone(392, 0.20, 0.07);
+      tone(523, 0.18, 0.06, 0.10);
+      tone(659, 0.16, 0.055, 0.20);
     } else {
-      beep(440, 'sine', 0.1, 0.22);
+      // Single soft thud
+      tone(294, 0.15, 0.07, 0, 'triangle');
     }
   }
 
-  function sndTrim(cells) {
-    beep(200 - cells*20, 'sawtooth', 0.18, 0.3);
+  function sndTrim() {
+    // Very soft descending blip
+    tone(260, 0.12, 0.05, 0,    'triangle');
+    tone(196, 0.10, 0.04, 0.08, 'triangle');
   }
 
   function sndFail() {
-    beep(300, 'sawtooth', 0.12, 0.35);
-    beep(200, 'sawtooth', 0.20, 0.35, 0.12);
-    beep(120, 'sawtooth', 0.30, 0.35, 0.28);
+    // Gentle falling tone — not sharp at all
+    tone(220, 0.22, 0.08, 0,    'triangle');
+    tone(175, 0.24, 0.07, 0.18, 'triangle');
+    tone(130, 0.30, 0.06, 0.38, 'triangle');
   }
 
-  function sndWin() {
-    const notes = [523,659,784,1047,1319,1568];
-    notes.forEach((f,i) => beep(f, 'sine', 0.18, 0.28, i*0.1));
+  function sndMilestone() {
+    // Soft ascending arpeggio every 10 rows
+    tone(392, 0.18, 0.065);
+    tone(494, 0.16, 0.06,  0.12);
+    tone(587, 0.14, 0.055, 0.24);
   }
 
-  function sndMinor() {
-    const notes = [523,659,784,659,784,1047];
-    notes.forEach((f,i) => beep(f, 'sine', 0.15, 0.22, i*0.09));
-  }
-
-  function sndMove() {
-    // subtle tick
-    beep(1200, 'square', 0.025, 0.05);
+  function sndStart() {
+    tone(330, 0.14, 0.06);
+    tone(440, 0.12, 0.055, 0.14);
   }
 
   // ── Layout ───────────────────────────────────────────────────
@@ -122,138 +132,260 @@ export default (() => {
     const W = wrap.clientWidth;
     const H = wrap.clientHeight;
 
-    // Keep arcade cabinet proportions — tall narrow column
-    const aspectW = COLS + 2;          // cells + margins
-    const aspectH = ROWS + 3;          // cells + top/bottom margin
-    const cw = Math.floor(W / aspectW);
-    const ch = Math.floor(H / aspectH);
-    cellW = cellH = Math.max(8, Math.min(cw, ch, 52));
+    const cw = Math.floor(W / (COLS + 2.5));
+    const ch = Math.floor(H / (VISIBLE_ROWS + 2));
+    cellW = cellH = Math.max(8, Math.min(cw, ch, 54));
 
     padX = Math.floor((W - cellW * COLS) / 2);
-    padY = Math.floor((H - cellH * ROWS) / 2);
 
     canvas.width  = W;
     canvas.height = H;
     draw();
   }
 
-  // ── Drawing ──────────────────────────────────────────────────
-  function cellRect(col, rowFromBottom) {
-    // row 0 = bottom, row ROWS-1 = top
-    const x = padX + col * cellW;
-    const y = padY + (ROWS - 1 - rowFromBottom) * cellH;
-    return [x, y, cellW - 2, cellH - 2];
+  // Convert stack row index → canvas Y, accounting for scrollBase
+  function rowToY(rowIndex) {
+    const H       = canvas.height;
+    const totalH  = cellH * VISIBLE_ROWS;
+    const bottomY = H - Math.floor((H - totalH) / 2);
+    const relRow  = rowIndex - scrollBase;
+    return bottomY - (relRow + 1) * cellH;
   }
 
-  function drawCell(col, rowFromBottom, color, glowColor, alpha = 1) {
-    const [x, y, w, h] = cellRect(col, rowFromBottom);
+  function cellRect(col, rowIndex) {
+    return [padX + col * cellW, rowToY(rowIndex), cellW - 2, cellH - 2];
+  }
+
+  function drawCell(col, rowIndex, color, glowColor, alpha = 1) {
+    const [x, y, w, h] = cellRect(col, rowIndex);
+    if (y + h < -4 || y > canvas.height + 4) return;
     ctx.save();
     ctx.globalAlpha = alpha;
     if (!window.PERF?.isLowQuality()) {
       ctx.shadowColor = glowColor;
-      ctx.shadowBlur  = 12;
+      ctx.shadowBlur  = 9;
     }
     ctx.fillStyle = color;
     ctx.fillRect(x, y, w, h);
-    // inner highlight
     ctx.shadowBlur = 0;
-    ctx.fillStyle  = 'rgba(255,255,255,0.18)';
+    // Inner highlight sheen
+    ctx.fillStyle  = 'rgba(255,255,255,0.13)';
     ctx.fillRect(x + 2, y + 2, w - 4, 3);
     ctx.restore();
   }
 
   function drawGrid() {
-    ctx.strokeStyle = 'rgba(0,180,220,0.07)';
+    const H = canvas.height;
+    ctx.strokeStyle = 'rgba(0,180,220,0.055)';
     ctx.lineWidth   = 1;
     for (let c = 0; c <= COLS; c++) {
       const x = padX + c * cellW;
-      ctx.beginPath();
-      ctx.moveTo(x, padY);
-      ctx.lineTo(x, padY + ROWS * cellH);
-      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
     }
-    for (let r = 0; r <= ROWS; r++) {
-      const y = padY + r * cellH;
-      ctx.beginPath();
-      ctx.moveTo(padX, y);
-      ctx.lineTo(padX + COLS * cellW, y);
-      ctx.stroke();
+    for (let r = -1; r <= VISIBLE_ROWS + 1; r++) {
+      const y = rowToY(scrollBase + r);
+      ctx.beginPath(); ctx.moveTo(padX, y); ctx.lineTo(padX + COLS * cellW, y); ctx.stroke();
     }
   }
 
-  function drawRowLabels() {
-    ctx.font         = `${Math.max(8, cellH * 0.35)}px 'Share Tech Mono', monospace`;
+  function drawMilestoneLines() {
+    ctx.save();
+    ctx.setLineDash([5, 4]);
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.5;
+    const first = Math.floor(scrollBase / 10) * 10 + 9;
+    for (let r = first; r <= scrollBase + VISIBLE_ROWS + 2; r += 10) {
+      const y = rowToY(r);
+      if (y < -10 || y > canvas.height + 10) continue;
+      ctx.strokeStyle = 'rgba(255,221,0,0.28)';
+      ctx.beginPath(); ctx.moveTo(padX, y); ctx.lineTo(padX + COLS * cellW, y); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawRowNumbers() {
+    if (cellH < 12) return;
+    const fs = Math.max(7, cellH * 0.3);
+    ctx.font         = `${fs}px 'Share Tech Mono', monospace`;
     ctx.textAlign    = 'right';
     ctx.textBaseline = 'middle';
-    for (let r = 0; r < ROWS; r++) {
+    for (let r = scrollBase - 1; r <= scrollBase + VISIBLE_ROWS + 1; r++) {
+      if (r < 0) continue;
+      const y    = rowToY(r) + cellH / 2;
+      if (y < -cellH || y > canvas.height + cellH) continue;
       const row1 = r + 1;
-      const [,cy] = cellRect(0, r);
-      const cy2   = cy + (cellH - 2) / 2;
-      const x     = padX - 6;
-
-      if (row1 === MINOR_ROW) {
+      if (row1 % 10 === 0) {
         ctx.fillStyle = '#ffdd00';
-        ctx.fillText('★', x, cy2);
-      } else if (row1 === MAJOR_ROW) {
-        ctx.fillStyle = '#ff2d78';
-        ctx.fillText('★★', x, cy2);
+        ctx.fillText(`${row1} ★`, padX - 5, y);
+      } else if (row1 % 5 === 0) {
+        ctx.fillStyle = 'rgba(0,229,255,0.35)';
+        ctx.fillText(row1, padX - 5, y);
       } else {
-        ctx.fillStyle = 'rgba(0,200,230,0.3)';
-        ctx.fillText(row1, x, cy2);
+        ctx.fillStyle = 'rgba(0,200,230,0.18)';
+        ctx.fillText(row1, padX - 5, y);
       }
     }
     ctx.textAlign = 'left';
   }
 
-  function drawMinorLine() {
-    const r = MINOR_ROW - 1;
-    const [,y] = cellRect(0, r);
+  function drawHUD() {
+    const hx = padX + COLS * cellW + 10;
+    const hy = 14;
+    if (canvas.width - hx < 28) return;
+
+    const fs = Math.max(8, Math.min(cellW * 0.52, 17));
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+
+    ctx.font      = `${fs * 0.68}px 'Share Tech Mono', monospace`;
+    ctx.fillStyle = 'rgba(0,140,180,0.5)';
+    ctx.fillText('SCORE', hx, hy);
+    ctx.font      = `${fs * 1.2}px 'Orbitron', sans-serif`;
+    ctx.fillStyle = '#00e5ff';
+    if (!window.PERF?.isLowQuality()) { ctx.shadowColor = 'rgba(0,229,255,0.4)'; ctx.shadowBlur = 7; }
+    ctx.fillText(score, hx, hy + fs * 0.75);
+    ctx.shadowBlur = 0;
+
+    ctx.font      = `${fs * 0.68}px 'Share Tech Mono', monospace`;
+    ctx.fillStyle = 'rgba(0,140,180,0.5)';
+    ctx.fillText('BEST', hx, hy + fs * 2.8);
+    ctx.font      = `${fs}px 'Orbitron', sans-serif`;
+    ctx.fillStyle = '#ffdd00';
+    ctx.fillText(bestScore, hx, hy + fs * 3.6);
+
+    ctx.font      = `${fs * 0.68}px 'Share Tech Mono', monospace`;
+    ctx.fillStyle = 'rgba(0,140,180,0.5)';
+    ctx.fillText('ROW', hx, hy + fs * 5.4);
+    ctx.font      = `${fs}px 'Orbitron', sans-serif`;
+    ctx.fillStyle = '#00ff88';
+    ctx.fillText(moverRow + 1, hx, hy + fs * 6.2);
+
+    if (perfectStreak >= 2) {
+      ctx.font      = `${fs * 0.62}px 'Share Tech Mono', monospace`;
+      ctx.fillStyle = '#ff2d78';
+      if (!window.PERF?.isLowQuality()) { ctx.shadowColor = 'rgba(255,45,120,0.5)'; ctx.shadowBlur = 5; }
+      ctx.fillText('PERFECT', hx, hy + fs * 8.2);
+      ctx.fillText(`×${perfectStreak}`, hx, hy + fs * 9.1);
+      ctx.shadowBlur = 0;
+    }
+  }
+
+  function drawLoseOverlay() {
+    const t = animFrame;
+    const W = canvas.width, H = canvas.height;
+
     ctx.save();
-    ctx.strokeStyle = '#ffdd00';
-    ctx.lineWidth   = 2;
-    ctx.setLineDash([6, 4]);
-    ctx.globalAlpha = 0.55;
-    ctx.beginPath();
-    ctx.moveTo(padX, y);
-    ctx.lineTo(padX + COLS * cellW, y);
-    ctx.stroke();
+    ctx.globalAlpha = Math.min(0.80, t / 18);
+    ctx.fillStyle   = '#000';
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+
+    ctx.save();
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+
+    const shake = t < 12 ? (Math.random() - 0.5) * 3.5 * (1 - t / 12) : 0;
+
+    ctx.font        = `${Math.min(cellW * 2.1, 54)}px 'Orbitron', sans-serif`;
+    ctx.shadowColor = '#ff4400'; ctx.shadowBlur = 16;
+    ctx.fillStyle   = '#ff4400';
+    ctx.fillText('GAME OVER', W / 2 + shake, H * 0.34);
+
+    ctx.font        = `${Math.min(cellW * 1.05, 26)}px 'Orbitron', sans-serif`;
+    ctx.shadowColor = '#ffdd00'; ctx.shadowBlur = 7;
+    ctx.fillStyle   = '#ffdd00';
+    ctx.fillText(`SCORE  ${score}`, W / 2, H * 0.46);
+
+    ctx.font        = `${Math.min(cellW * 0.9, 20)}px 'Orbitron', sans-serif`;
+    ctx.shadowColor = '#00ff88'; ctx.shadowBlur = 5;
+    ctx.fillStyle   = '#00ff88';
+    ctx.fillText(`ROWS  ${moverRow}`, W / 2, H * 0.55);
+
+    ctx.font        = `${Math.min(cellW * 0.72, 15)}px 'Share Tech Mono', monospace`;
+    ctx.shadowBlur  = 0;
+    const blink     = Math.floor(t / 22) % 2 === 0;
+    ctx.fillStyle   = blink ? 'rgba(200,240,255,0.8)' : 'rgba(200,240,255,0.25)';
+    ctx.fillText('TAP · SPACE · ENTER  to retry', W / 2, H * 0.67);
+    ctx.restore();
+  }
+
+  function drawIdleOverlay() {
+    const t = animFrame;
+    const W = canvas.width, H = canvas.height;
+
+    // Animated demo block
+    const demoCol = Math.round(((Math.sin(t * 0.04) + 1) / 2) * (COLS - 3));
+    const zone    = zoneFor(1);
+    for (let c = demoCol; c < demoCol + 3; c++) {
+      drawCell(c, scrollBase, zone.cell, zone.glow, 0.3 + 0.18 * Math.abs(Math.sin(t * 0.07)));
+    }
+
+    ctx.save();
+    const bg = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, W * 0.65);
+    bg.addColorStop(0, 'rgba(0,0,0,0.88)');
+    bg.addColorStop(1, 'rgba(0,0,0,0.08)');
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+
+    ctx.save();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+
+    const pulse = 1 + 0.04 * Math.sin(t * 0.1);
+    ctx.font        = `${Math.min(cellW * 2.1, 56) * pulse}px 'Orbitron', sans-serif`;
+    ctx.shadowColor = '#00e5ff'; ctx.shadowBlur = 20;
+    ctx.fillStyle   = '#00e5ff';
+    ctx.fillText('STACK IT', W / 2, H * 0.27);
+
+    ctx.font        = `${Math.min(cellW * 0.82, 17)}px 'Share Tech Mono', monospace`;
+    ctx.shadowBlur  = 0;
+    ctx.fillStyle   = 'rgba(200,240,255,0.68)';
+    ctx.fillText('STACK AS HIGH AS YOU CAN', W / 2, H * 0.41);
+    ctx.fillText('OVERHANGS ARE TRIMMED AWAY', W / 2, H * 0.48);
+    ctx.fillText('ZERO BLOCKS LEFT = GAME OVER', W / 2, H * 0.55);
+
+    const blink   = Math.floor(t / 24) % 2 === 0;
+    ctx.font      = `${Math.min(cellW * 0.72, 15)}px 'Share Tech Mono', monospace`;
+    ctx.fillStyle = blink ? '#ffdd00' : 'rgba(255,221,0,0.28)';
+    ctx.fillText('TAP · SPACE · ENTER  to start', W / 2, H * 0.66);
+
+    if (bestScore > 0) {
+      ctx.font      = `${Math.min(cellW * 0.65, 13)}px 'Share Tech Mono', monospace`;
+      ctx.fillStyle = 'rgba(0,229,255,0.4)';
+      ctx.fillText(`BEST: ${bestScore}`, W / 2, H * 0.75);
+    }
     ctx.restore();
   }
 
   function draw() {
     if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
 
-    // Background gradient — deep arcade cabinet feel
-    const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    bg.addColorStop(0, '#030810');
-    bg.addColorStop(1, '#050c1a');
+    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, '#020710');
+    bg.addColorStop(1, '#040b18');
     ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, W, H);
 
     drawGrid();
-    drawMinorLine();
-    drawRowLabels();
+    drawMilestoneLines();
+    drawRowNumbers();
 
-    // Placed stack rows
-    for (let r = 0; r < stack.length; r++) {
+    // Placed stack — cull to visible range only
+    const visStart = scrollBase - 2;
+    const visEnd   = scrollBase + VISIBLE_ROWS + 2;
+    for (let r = Math.max(0, visStart); r < Math.min(stack.length, visEnd); r++) {
       const { col, width } = stack[r];
       const zone = zoneFor(r + 1);
       for (let c = col; c < col + width; c++) {
-        // Check if it's a flash cell (trim animation)
-        const isFlash = flashCells.some(f => f.col === c && f.row === r);
-        if (isFlash) continue;
+        if (flashCells.some(f => f.col === c && f.row === r)) continue;
         drawCell(c, r, zone.cell, zone.glow);
       }
     }
 
-    // Flash animation cells (overhang being trimmed)
+    // Flash overhang cells (white fade-out)
     if (flashTimer > 0) {
-      const alpha = (flashTimer / 8) * 0.9;
-      flashCells.forEach(f => {
-        const zone = zoneFor(f.row + 1);
-        drawCell(f.col, f.row, '#ffffff', 'rgba(255,255,255,0.8)', alpha);
-      });
+      const alpha = (flashTimer / 10) * 0.82;
+      flashCells.forEach(f => drawCell(f.col, f.row, '#ffffff', 'rgba(255,255,255,0.65)', alpha));
     }
 
     // Moving block
@@ -264,287 +396,52 @@ export default (() => {
       }
     }
 
-    // HUD
     drawHUD();
-
-    // Overlays
-    if (gameState === 'win')   drawWinAnim();
-    if (gameState === 'lose')  drawLoseAnim();
-    if (gameState === 'minor') drawMinorAnim();
-    if (gameState === 'idle')  drawIdleScreen();
-  }
-
-  function drawHUD() {
-    const hx     = padX + COLS * cellW + 10;
-    const hy     = padY;
-    const avail  = canvas.width - hx - 6;
-    if (avail < 30) return;
-
-    ctx.font         = `${Math.max(8, cellW * 0.55)}px 'Orbitron', sans-serif`;
-    ctx.fillStyle    = 'rgba(0,229,255,0.8)';
-    ctx.textAlign    = 'left';
-    ctx.textBaseline = 'top';
-
-    const fs = Math.max(8, cellW * 0.5);
-    ctx.font      = `${fs}px 'Orbitron', sans-serif`;
-    ctx.fillStyle = 'rgba(0,140,180,0.6)';
-    ctx.fillText('SCORE', hx, hy);
-    ctx.fillStyle = '#00e5ff';
-    ctx.font      = `${fs * 1.3}px 'Orbitron', sans-serif`;
-    ctx.fillText(score, hx, hy + fs + 2);
-
-    ctx.font      = `${fs}px 'Orbitron', sans-serif`;
-    ctx.fillStyle = 'rgba(0,140,180,0.6)';
-    ctx.fillText('BEST', hx, hy + fs * 3.2);
-    ctx.fillStyle = '#ffdd00';
-    ctx.font      = `${fs * 1.1}px 'Orbitron', sans-serif`;
-    ctx.fillText(bestScore, hx, hy + fs * 4.4);
-
-    if (perfectStack > 0) {
-      ctx.font      = `${fs * 0.85}px 'Share Tech Mono', monospace`;
-      ctx.fillStyle = '#ff2d78';
-      ctx.fillText(`PERFECT ×${perfectStack}`, hx, hy + fs * 6.5);
-    }
-
-    // Row indicator
-    if (gameState === 'playing') {
-      ctx.font      = `${fs * 0.75}px 'Share Tech Mono', monospace`;
-      ctx.fillStyle = 'rgba(0,200,230,0.5)';
-      ctx.fillText(`ROW ${moverRow + 1}/${ROWS}`, hx, hy + fs * 8.5);
-    }
-  }
-
-  // ── Win / Lose / Minor animations ────────────────────────────
-  function drawWinAnim() {
-    const t   = animFrame;
-    const W   = canvas.width;
-    const H   = canvas.height;
-
-    // Flashing full grid of cells
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
-        const phase = (r + c + Math.floor(t / 3)) % 6;
-        const cols  = ['#ff2d78','#ff6a00','#ffdd00','#00ff88','#00e5ff','#a855f7'];
-        const alpha = 0.4 + 0.6 * Math.abs(Math.sin(t * 0.12 + r * 0.5 + c * 0.3));
-        drawCell(c, r, cols[phase], cols[phase], alpha);
-      }
-    }
-
-    // Centre overlay
-    ctx.save();
-    ctx.globalAlpha = Math.min(1, t / 15);
-    const bg = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, W/2);
-    bg.addColorStop(0, 'rgba(0,0,0,0.82)');
-    bg.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
-    ctx.restore();
-
-    ctx.save();
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'middle';
-    const pulse      = 1 + 0.06 * Math.sin(t * 0.2);
-    ctx.font         = `${Math.min(cellW * 2.5, 64) * pulse}px 'Orbitron', sans-serif`;
-    ctx.shadowColor  = '#ff2d78';
-    ctx.shadowBlur   = 30 + 10 * Math.sin(t * 0.15);
-    ctx.fillStyle    = '#ff2d78';
-    ctx.fillText('YOU WIN!', W / 2, H * 0.38);
-    ctx.font         = `${Math.min(cellW * 1.1, 28)}px 'Orbitron', sans-serif`;
-    ctx.shadowColor  = '#ffdd00';
-    ctx.fillStyle    = '#ffdd00';
-    ctx.fillText(`SCORE: ${score}`, W / 2, H * 0.52);
-    ctx.font         = `${Math.min(cellW * 0.85, 18)}px 'Share Tech Mono', monospace`;
-    ctx.shadowBlur   = 6;
-    ctx.fillStyle    = 'rgba(200,240,255,0.75)';
-    ctx.fillText('TAP / SPACE TO PLAY AGAIN', W / 2, H * 0.62);
-    ctx.restore();
-  }
-
-  function drawLoseAnim() {
-    const t  = animFrame;
-    const W  = canvas.width;
-    const H  = canvas.height;
-
-    // Shake / cascade the placed blocks down
-    const fallOffset = Math.min(t * 3, ROWS * cellH);
-    ctx.save();
-    ctx.translate(0, fallOffset * 0.6);
-    ctx.globalAlpha = Math.max(0, 1 - t / 25);
-    for (let r = 0; r < stack.length; r++) {
-      const { col, width } = stack[r];
-      const zone = zoneFor(r + 1);
-      for (let c = col; c < col + width; c++) {
-        drawCell(c, r, zone.cell, zone.glow);
-      }
-    }
-    ctx.restore();
-
-    ctx.save();
-    ctx.globalAlpha = Math.min(1, t / 12);
-    ctx.fillStyle   = 'rgba(0,0,0,0.75)';
-    ctx.fillRect(0, 0, W, H);
-    ctx.restore();
-
-    ctx.save();
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'middle';
-    const shake      = t < 20 ? (Math.random() - 0.5) * 4 * (1 - t/20) : 0;
-    ctx.font         = `${Math.min(cellW * 2.2, 58)}px 'Orbitron', sans-serif`;
-    ctx.shadowColor  = '#ff4400';
-    ctx.shadowBlur   = 20;
-    ctx.fillStyle    = '#ff4400';
-    ctx.fillText('GAME OVER', W / 2 + shake, H * 0.38 + shake);
-    ctx.font         = `${Math.min(cellW * 1.0, 26)}px 'Orbitron', sans-serif`;
-    ctx.shadowColor  = '#ffdd00';
-    ctx.fillStyle    = '#ffdd00';
-    ctx.fillText(`SCORE: ${score}`, W / 2, H * 0.5);
-    ctx.font         = `${Math.min(cellW * 0.85, 18)}px 'Share Tech Mono', monospace`;
-    ctx.shadowBlur   = 4;
-    ctx.fillStyle    = 'rgba(200,240,255,0.65)';
-    ctx.fillText('TAP / SPACE TO RETRY', W / 2, H * 0.6);
-    ctx.restore();
-  }
-
-  function drawMinorAnim() {
-    const t  = animFrame;
-    const W  = canvas.width;
-    const H  = canvas.height;
-
-    // Pulse the minor-row cells
-    const pulse = 0.5 + 0.5 * Math.abs(Math.sin(t * 0.18));
-    const r     = MINOR_ROW - 1;
-    for (let c = 0; c < COLS; c++) {
-      const inStack = stack[r] && c >= stack[r].col && c < stack[r].col + stack[r].width;
-      if (inStack) drawCell(c, r, '#ffdd00', 'rgba(255,221,0,0.9)', pulse);
-    }
-
-    ctx.save();
-    ctx.globalAlpha = 0.82;
-    ctx.fillStyle   = 'rgba(0,0,0,0.7)';
-    ctx.fillRect(0, 0, W, H);
-    ctx.restore();
-
-    ctx.save();
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'middle';
-    const p2 = 1 + 0.04 * Math.sin(t * 0.2);
-    ctx.font         = `${Math.min(cellW * 1.8, 46) * p2}px 'Orbitron', sans-serif`;
-    ctx.shadowColor  = '#ffdd00';
-    ctx.shadowBlur   = 22;
-    ctx.fillStyle    = '#ffdd00';
-    ctx.fillText('MINOR PRIZE!', W / 2, H * 0.32);
-    ctx.font         = `${Math.min(cellW * 0.9, 20)}px 'Share Tech Mono', monospace`;
-    ctx.fillStyle    = '#00e5ff';
-    ctx.shadowColor  = '#00e5ff';
-    ctx.shadowBlur   = 8;
-    ctx.fillText('KEEP GOING FOR MAJOR?', W / 2, H * 0.45);
-    ctx.font         = `${Math.min(cellW * 0.75, 16)}px 'Share Tech Mono', monospace`;
-    ctx.fillStyle    = 'rgba(200,240,255,0.7)';
-    ctx.fillText('[TAP / SPACE] CONTINUE', W / 2, H * 0.54);
-    ctx.fillStyle    = 'rgba(200,240,255,0.5)';
-    ctx.fillText('[Q / BACK]   CLAIM PRIZE', W / 2, H * 0.61);
-    ctx.restore();
-  }
-
-  function drawIdleScreen() {
-    const W = canvas.width;
-    const H = canvas.height;
-    const t = animFrame;
-
-    // Animate a demo block bouncing
-    const demoCol = Math.floor((Math.sin(t * 0.05) * 0.5 + 0.5) * (COLS - 3));
-    const zone    = zoneFor(1);
-    for (let c = demoCol; c < demoCol + 3; c++) {
-      drawCell(c, 0, zone.cell, zone.glow, 0.5 + 0.3 * Math.abs(Math.sin(t * 0.08)));
-    }
-
-    ctx.save();
-    ctx.globalAlpha = 0.88;
-    const bg = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, W * 0.7);
-    bg.addColorStop(0, 'rgba(0,0,0,0.8)');
-    bg.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
-    ctx.restore();
-
-    ctx.save();
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'middle';
-    const pulse = 1 + 0.05 * Math.sin(t * 0.12);
-    ctx.font      = `${Math.min(cellW * 2.4, 60) * pulse}px 'Orbitron', sans-serif`;
-    ctx.shadowColor = '#00e5ff';
-    ctx.shadowBlur  = 24;
-    ctx.fillStyle   = '#00e5ff';
-    ctx.fillText('STACK IT', W / 2, H * 0.3);
-
-    ctx.font      = `${Math.min(cellW * 0.9, 22)}px 'Share Tech Mono', monospace`;
-    ctx.shadowBlur = 6;
-    ctx.fillStyle  = 'rgba(200,240,255,0.9)';
-    ctx.fillText('STACK 15 ROWS TO WIN', W / 2, H * 0.45);
-
-    ctx.font      = `${Math.min(cellW * 0.8, 18)}px 'Share Tech Mono', monospace`;
-    const blink   = Math.floor(t / 25) % 2 === 0;
-    ctx.fillStyle = blink ? '#ffdd00' : 'rgba(255,221,0,0.4)';
-    ctx.fillText('TAP OR PRESS SPACE', W / 2, H * 0.57);
-
-    if (bestScore > 0) {
-      ctx.font      = `${Math.min(cellW * 0.7, 15)}px 'Share Tech Mono', monospace`;
-      ctx.fillStyle = 'rgba(0,229,255,0.55)';
-      ctx.fillText(`BEST: ${bestScore}`, W / 2, H * 0.67);
-    }
-    ctx.restore();
+    if (gameState === 'lose') drawLoseOverlay();
+    if (gameState === 'idle') drawIdleOverlay();
   }
 
   // ── Game logic ───────────────────────────────────────────────
-  function widthForRow(row1) {
-    if (row1 >= 10) return 1;
-    if (row1 >= 4)  return 2;
-    return 3;
-  }
-
   function speedForRow(row1) {
-    // Exponential ramp: starts at BASE_SPEED, hits MIN_SPEED at row 15
-    const t = (row1 - 1) / (ROWS - 1);  // 0→1
-    return Math.max(MIN_SPEED, Math.round(BASE_SPEED * Math.pow(MIN_SPEED / BASE_SPEED, t)));
+    const t = Math.min(1, (row1 - 1) / SPEED_ROWS);
+    return Math.round(BASE_SPEED * Math.pow(MIN_SPEED / BASE_SPEED, t));
   }
 
   function newGame() {
-    stack      = [];
-    moverCol   = 0;
-    moverDir   = 1;
-    moverRow   = 0;
-    moverWidth = widthForRow(1);
-    speed      = speedForRow(1);
-    score      = 0;
-    animFrame  = 0;
-    perfectStack = 0;
-    flashCells = [];
-    flashTimer = 0;
-    gameState  = 'playing';
-    lastTick   = 0;
-    tickAcc    = 0;
-    beep(440, 'sine', 0.08, 0.2);
-    beep(880, 'sine', 0.08, 0.2, 0.1);
+    stack         = [];
+    moverCol      = Math.floor((COLS - START_WIDTH) / 2);
+    moverDir      = 1;
+    moverRow      = 0;
+    moverWidth    = START_WIDTH;
+    speed         = speedForRow(1);
+    score         = 0;
+    animFrame     = 0;
+    perfectStreak = 0;
+    flashCells    = [];
+    flashTimer    = 0;
+    scrollBase    = 0;
+    gameState     = 'playing';
+    lastTick      = 0;
+    tickAcc       = 0;
+    sndStart();
   }
 
   function place() {
     if (gameState !== 'playing') return;
 
     if (moverRow === 0) {
-      // First row — always lands
+      // First row — always full placement
       stack.push({ col: moverCol, width: moverWidth });
-      scoreRow(moverRow, false);
+      scoreRow(moverRow, false, 0);
       advanceRow();
+      sndPlace(false);
       return;
     }
 
-    const prev     = stack[moverRow - 1];
-    const mL       = moverCol;
-    const mR       = moverCol + moverWidth;
-    const pL       = prev.col;
-    const pR       = prev.col + prev.width;
+    const prev = stack[moverRow - 1];
+    const mL   = moverCol,           mR = moverCol + moverWidth;
+    const pL   = prev.col,           pR = prev.col + prev.width;
 
-    // Compute overlap
     const overlapL = Math.max(mL, pL);
     const overlapR = Math.min(mR, pR);
     const overlap  = overlapR - overlapL;
@@ -552,95 +449,76 @@ export default (() => {
     if (overlap <= 0) {
       // Complete miss
       sndFail();
-      gameState = 'lose';
       if (score > bestScore) bestScore = score;
+      gameState = 'lose';
       return;
     }
 
-    // Trim overhanging cells (make flash cells)
+    // Mark overhang cells for flash animation
     flashCells = [];
     for (let c = mL; c < mR; c++) {
-      if (c < overlapL || c >= overlapR) {
-        flashCells.push({ col: c, row: moverRow });
-      }
+      if (c < overlapL || c >= overlapR) flashCells.push({ col: c, row: moverRow });
     }
-    flashTimer = 8;
+    flashTimer = 10;
 
-    const perfect = (overlap === moverWidth && overlap === prev.width);
+    const perfect = overlap === moverWidth && overlap === prev.width;
 
     stack.push({ col: overlapL, width: overlap });
-    scoreRow(moverRow, perfect, overlap < moverWidth ? moverWidth - overlap : 0);
+    scoreRow(moverRow, perfect, moverWidth - overlap);
 
-    if (perfect) {
-      perfectStack++;
-    } else {
-      perfectStack = 0;
-    }
+    perfectStreak = perfect ? perfectStreak + 1 : 0;
 
     sndPlace(perfect);
-    if (flashCells.length > 0) sndTrim(flashCells.length);
+    if (flashCells.length > 0) sndTrim();
 
     advanceRow();
   }
 
-  function scoreRow(row0, perfect, trimmed = 0) {
-    const row1    = row0 + 1;
-    const base    = row1 * 10;
-    const perfBonus = perfect ? row1 * 5 : 0;
-    const trimPen = trimmed * 3;
-    score += Math.max(0, base + perfBonus - trimPen);
+  function scoreRow(row0, perfect, trimmed) {
+    const row1      = row0 + 1;
+    const base      = 10 + Math.floor(row1 / 5);
+    const perfBonus = perfect ? 15 + perfectStreak * 5 : 0;
+    score += Math.max(0, base + perfBonus - trimmed * 2);
     if (score > bestScore) bestScore = score;
   }
 
   function advanceRow() {
     moverRow++;
 
-    if (moverRow >= ROWS) {
-      // WIN!
-      gameState  = 'win';
-      animFrame  = 0;
-      score += 500;
-      if (score > bestScore) bestScore = score;
-      sndWin();
-      return;
-    }
+    // Milestone sound every 10 rows
+    if (moverRow > 0 && moverRow % 10 === 0) sndMilestone();
 
-    // Check minor prize threshold
-    if (moverRow === MINOR_ROW) {
-      gameState = 'minor';
-      animFrame = 0;
-      sndMinor();
-      return;
-    }
-
-    // Auto-reduce width
-    const newWidth = Math.min(widthForRow(moverRow + 1), stack[moverRow - 1].width);
-    moverWidth = newWidth;
-    speed = speedForRow(moverRow + 1);
-
-    // Start mover centred on the row below's block
+    // Width carries forward from what survived trimming — NO automatic reduction
     const below  = stack[moverRow - 1];
+    moverWidth   = below.width;
+    speed        = speedForRow(moverRow + 1);
+
+    // Centre new block over the row below
     const centre = below.col + Math.floor(below.width / 2) - Math.floor(moverWidth / 2);
-    moverCol = Math.max(0, Math.min(COLS - moverWidth, centre));
-    moverDir = (Math.random() < 0.5) ? 1 : -1;
-    tickAcc  = 0;
+    moverCol     = Math.max(0, Math.min(COLS - moverWidth, centre));
+    moverDir     = Math.random() < 0.5 ? 1 : -1;
+    tickAcc      = 0;
+
+    // Scroll viewport up so the active row stays in the lower third
+    const threshold = scrollBase + Math.floor(VISIBLE_ROWS * 0.62);
+    if (moverRow > threshold) {
+      scrollBase = moverRow - Math.floor(VISIBLE_ROWS * 0.62);
+    }
   }
 
   // ── Game loop ────────────────────────────────────────────────
   function tick(ts) {
     if (destroyed) return;
     rafId = requestAnimationFrame(tick);
-
     if (document.hidden) { lastTick = 0; return; }
 
-    const dt = lastTick ? Math.min(ts - lastTick, 100) : 16;
+    const dt  = lastTick ? Math.min(ts - lastTick, 100) : 16;
     lastTick  = ts;
 
     if (gameState === 'playing') {
       tickAcc += dt;
       while (tickAcc >= speed) {
         tickAcc -= speed;
-        // Move mover
         moverCol += moverDir;
         if (moverCol + moverWidth > COLS) { moverCol = COLS - moverWidth; moverDir = -1; }
         if (moverCol < 0)                 { moverCol = 0;                 moverDir =  1; }
@@ -648,9 +526,7 @@ export default (() => {
       if (flashTimer > 0) flashTimer--;
     }
 
-    if (['win','lose','minor','idle'].includes(gameState)) {
-      animFrame++;
-    }
+    if (gameState === 'lose' || gameState === 'idle') animFrame++;
 
     draw();
   }
@@ -658,117 +534,72 @@ export default (() => {
   // ── Input ────────────────────────────────────────────────────
   function handleAction() {
     try { ac().resume(); } catch(e) {}
-
-    if (gameState === 'idle') {
-      newGame();
-    } else if (gameState === 'playing') {
-      place();
-    } else if (gameState === 'win' || gameState === 'lose') {
-      newGame();
-    } else if (gameState === 'minor') {
-      // Continue playing
-      gameState  = 'playing';
-      const newWidth = Math.min(widthForRow(moverRow + 1), stack[moverRow - 1].width);
-      moverWidth = newWidth;
-      speed      = speedForRow(moverRow + 1);
-      const below  = stack[moverRow - 1];
-      const centre = below.col + Math.floor(below.width / 2) - Math.floor(moverWidth / 2);
-      moverCol   = Math.max(0, Math.min(COLS - moverWidth, centre));
-      moverDir   = 1;
-      tickAcc    = 0;
-      animFrame  = 0;
-    }
+    if      (gameState === 'idle')    newGame();
+    else if (gameState === 'playing') place();
+    else if (gameState === 'lose')    newGame();
   }
 
   function handleBack() {
-    if (gameState === 'minor') {
-      // Claim minor prize — go back to arcade
-      gameState = 'idle';
-      window.backToGameSelect?.();
-    } else {
-      gameState = 'idle';
-      animFrame = 0;
-    }
+    gameState = 'idle';
+    animFrame = 0;
   }
 
   function onKey(e) {
-    if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'Enter') {
-      e.preventDefault();
-      handleAction();
-    }
-    if (e.code === 'Escape' || e.code === 'KeyQ') {
-      e.preventDefault();
-      handleBack();
-    }
+    if (['Space','ArrowUp','Enter'].includes(e.code)) { e.preventDefault(); handleAction(); }
+    if (['Escape','KeyQ'].includes(e.code))           { e.preventDefault(); handleBack(); }
   }
 
-  // ── Build HTML ───────────────────────────────────────────────
+  // ── Build DOM ────────────────────────────────────────────────
   function buildHTML(container) {
     container.innerHTML = `
       <style>
         #stackit-root {
           width: 100%; height: 100%;
-          display: flex;
-          flex-direction: column;
-          background: #030810;
+          display: flex; flex-direction: column;
+          background: #020710;
           font-family: 'Share Tech Mono', monospace;
           user-select: none;
         }
         #stackit-topbar {
-          display: flex;
-          align-items: center;
+          display: flex; align-items: center;
           justify-content: space-between;
-          padding: 6px 12px;
-          border-bottom: 1px solid rgba(0,229,255,0.15);
-          flex-shrink: 0;
-          gap: 8px;
+          padding: 5px 12px;
+          border-bottom: 1px solid rgba(0,229,255,0.1);
+          flex-shrink: 0; gap: 8px;
         }
         #stackit-title {
           font-family: 'Orbitron', sans-serif;
-          font-size: clamp(0.65rem, 2vw, 1.1rem);
-          color: #00e5ff;
-          letter-spacing: 0.2em;
-          text-shadow: 0 0 12px rgba(0,229,255,0.7);
+          font-size: clamp(0.6rem, 2vw, 1rem);
+          color: #00e5ff; letter-spacing: 0.2em;
+          text-shadow: 0 0 10px rgba(0,229,255,0.55);
         }
         #stackit-hint {
-          font-size: clamp(0.5rem, 1.2vw, 0.7rem);
-          color: rgba(0,180,220,0.55);
-          letter-spacing: 0.1em;
+          font-size: clamp(0.46rem, 1.1vw, 0.63rem);
+          color: rgba(0,180,220,0.4); letter-spacing: 0.07em;
         }
         .stackit-btn {
-          padding: 4px 10px;
-          background: transparent;
-          border: 1px solid rgba(0,229,255,0.35);
-          color: rgba(0,229,255,0.8);
+          padding: 3px 10px; background: transparent;
+          border: 1px solid rgba(0,229,255,0.28);
+          color: rgba(0,229,255,0.7);
           font-family: 'Share Tech Mono', monospace;
-          font-size: clamp(0.5rem, 1.2vw, 0.7rem);
-          letter-spacing: 0.1em;
-          cursor: pointer;
-          transition: all 0.15s;
-          white-space: nowrap;
+          font-size: clamp(0.46rem, 1.1vw, 0.63rem);
+          letter-spacing: 0.1em; cursor: pointer;
+          transition: all 0.15s; white-space: nowrap;
         }
         .stackit-btn:hover {
-          background: rgba(0,229,255,0.1);
-          border-color: #00e5ff;
-          color: #00e5ff;
+          background: rgba(0,229,255,0.07);
+          border-color: #00e5ff; color: #00e5ff;
         }
         #stackit-wrap {
-          flex: 1;
-          min-height: 0;
-          position: relative;
-          cursor: pointer;
-          touch-action: manipulation;
+          flex: 1; min-height: 0; position: relative;
+          cursor: pointer; touch-action: manipulation;
         }
-        #stackit-canvas {
-          display: block;
-          width: 100%;
-          height: 100%;
-        }
+        #stackit-canvas { display: block; width: 100%; height: 100%; }
       </style>
       <div id="stackit-root">
         <div id="stackit-topbar">
           <div id="stackit-title">STACK IT</div>
-          <div id="stackit-hint">SPACE / TAP to place</div>
+          <div id="stackit-hint">SPACE / TAP to place · endless</div>
           <div style="display:flex;gap:6px">
             <button class="stackit-btn" id="stackit-new-btn">▶ NEW</button>
             <button class="arcade-back-btn" id="stackit-back-btn">🕹 ARCADE</button>
@@ -784,23 +615,16 @@ export default (() => {
     wrap   = container.querySelector('#stackit-wrap');
     ctx    = canvas.getContext('2d');
 
-    container.querySelector('#stackit-new-btn').addEventListener('click', () => {
-      newGame();
-    });
-    container.querySelector('#stackit-back-btn').addEventListener('click', () => {
-      window.backToGameSelect?.();
-    });
+    container.querySelector('#stackit-new-btn').addEventListener('click',  () => { try { ac().resume(); } catch(e){} newGame(); });
+    container.querySelector('#stackit-back-btn').addEventListener('click', () => { window.backToGameSelect?.(); });
 
-    wrap.addEventListener('click', handleAction);
+    wrap.addEventListener('click',      handleAction);
     wrap.addEventListener('touchstart', e => { e.preventDefault(); handleAction(); }, { passive: false });
 
     window.addEventListener('keydown', onKey);
-    window.addEventListener('resize', resize);
+    window.addEventListener('resize',  resize);
 
-    // Initial layout
     setTimeout(resize, 0);
-
-    // Start loop
     gameState = 'idle';
     animFrame = 0;
     rafId = requestAnimationFrame(tick);
@@ -818,7 +642,7 @@ export default (() => {
     destroyed = true;
     if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
     window.removeEventListener('keydown', onKey);
-    window.removeEventListener('resize', resize);
+    window.removeEventListener('resize',  resize);
     const screenEl = document.getElementById('stackit-screen');
     if (screenEl) screenEl.innerHTML = '';
   }
