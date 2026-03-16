@@ -62,7 +62,7 @@ export default (() => {
   let upperPusherMesh, lowerPusherMesh;
   let upperPusherDir = 1, lowerPusherDir = -1;
   const PUSH_SPEED   = 1.5;  // units/sec
-  const PUSH_H       = 0.18; // pusher plate height
+  const PUSH_H       = 0.55; // pusher plate height — tall enough to contact coins lying flat
 
   let fallingBody    = null;
   let fallingMesh    = null;
@@ -224,11 +224,11 @@ export default (() => {
 
     clock = new THREE.Clock();
 
-    // Camera — eye-level looking down into machine
+    // Camera — pulled back and wider FOV to show full cabinet
     const aspect = wrap.clientWidth / wrap.clientHeight;
-    camera = new THREE.PerspectiveCamera(44, aspect, 0.1, 80);
-    camera.position.set(0, MH * 0.54, MD * 2.35);
-    camera.lookAt(0, MH * 0.40, 0);
+    camera = new THREE.PerspectiveCamera(58, aspect, 0.1, 80);
+    camera.position.set(0, MH * 0.50, MD * 3.2);
+    camera.lookAt(0, MH * 0.38, 0);
 
     // Renderer
     renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -629,9 +629,9 @@ export default (() => {
       }
     });
 
-    // Move pusher plates (kinematic)
-    const maxZ =  SHELF_D/2 - 0.10;
-    const minZ = -SHELF_D/2 + 0.10;
+    // Move pusher plates (kinematic) — slide front-to-back along Z to push coins off edge
+    const maxZ =  SHELF_D * 0.38;
+    const minZ = -SHELF_D * 0.38;
 
     upperPusherBody.position.z += PUSH_SPEED * upperPusherDir * dt;
     if (upperPusherBody.position.z > maxZ) { upperPusherBody.position.z = maxZ; upperPusherDir=-1; }
