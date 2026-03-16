@@ -636,13 +636,7 @@ export default (() => {
     ctx    = canvas.getContext('2d');
 
     container.querySelector('#stackit-new-btn').addEventListener('click',  () => { try { ac().resume(); } catch(e){} newGame(); });
-    container.querySelector('#stackit-back-btn').addEventListener('click', () => {
-      if (typeof window.stackitExitToArcade === 'function') {
-        window.stackitExitToArcade();
-      } else {
-        window.backToGameSelect?.();
-      }
-    });
+    container.querySelector('#stackit-back-btn').addEventListener('click', () => { window.backToGameSelect?.(); });
 
     wrap.addEventListener('click',      handleAction);
     wrap.addEventListener('touchstart', e => { e.preventDefault(); handleAction(); }, { passive: false });

@@ -8007,27 +8007,8 @@ window.bburstExitToArcade = function() {
   }
 };
 
-window.stackitExitToArcade = function() {
-  const data = (typeof STACKIT !== 'undefined' && typeof STACKIT.getEndData === 'function') ? STACKIT.getEndData() : null;
-  if (typeof STACKIT !== 'undefined') STACKIT.destroy();
-  if (data && data.score > 0 && window.HS) {
-    // Show the extra "rows" stat in the submit modal
-    const extraEl  = document.getElementById('hs-extra-stat');
-    const extraVal = document.getElementById('hs-extra-val');
-    const extraLbl = document.getElementById('hs-extra-label');
-    if (extraEl && extraVal && extraLbl) {
-      extraVal.textContent = data.rows;
-      extraLbl.textContent = 'ROWS';
-      extraEl.classList.add('visible');
-    }
-    HS.promptSubmitOnExit('stackit', data.score, data.score.toLocaleString(), () => {
-      if (extraEl) extraEl.classList.remove('visible');
-      backToGameSelect();
-    });
-  } else {
-    backToGameSelect();
-  }
-};
+
+
 
 
 
