@@ -12,6 +12,7 @@
 
 export const GAMES = {
   // ── Solo / local games ─────────────────────────────────────
+  colorbook:    { label: '🎨 Colour Book',      module: './clr.js',    screen: 'colorbook-screen',     global: 'CLR',   init: m => m.init() },
   snake:        { label: '🐍 Snake',          module: './snk.js',    screen: 'snake-screen',         global: 'SNK',   init: m => m.init() },
   wordle:       { label: '📝 Wordle',          module: './wrd.js',    screen: 'wordle-screen',        global: 'WRD',   init: m => m.init() },
   tetris:       { label: '🧱 Tetris',          module: './tet.js',    screen: 'tetris-screen',        global: 'TET',   init: () => window.tetInit?.() },
