@@ -146,38 +146,43 @@ export default (() => {
   }
 
   async function loadTHREE() {
-    // Try local file first — but three_module_min.js is a stripped build that
-    // omits WebGLRenderer. If it's missing, fall back to the full CDN build.
-    try {
-      const mod = await loadESModule('./three_module_min.js');
-      if (mod && mod.WebGLRenderer) {
-        console.log('[coinpusher3d] THREE loaded from local three_module_min.js');
-        return mod;
-      }
-      console.warn('[coinpusher3d] three_module_min.js missing WebGLRenderer — it is a core-only build. Falling back to CDN.');
-    } catch(e) {
-      console.warn('[coinpusher3d] Local three_module_min.js failed:', e.message);
+    // Try common path variations before falling back to CDN
+    const paths = [
+      './three_module_min.js',
+      '/Arcade/three_module_min.js',
+      `${location.origin}/Arcade/three_module_min.js`,
+    ];
+    for (const p of paths) {
+      try {
+        const mod = await loadESModule(p);
+        if (mod && mod.WebGLRenderer) {
+          console.log('[coinpusher3d] THREE loaded from', p);
+          return mod;
+        }
+      } catch(e) {}
     }
-    // Full Three.js r128 ES module build from CDN
     const CDN = 'https://unpkg.com/three@0.128.0/build/three.module.js';
-    console.log('[coinpusher3d] Loading THREE from CDN:', CDN);
+    console.log('[coinpusher3d] Loading THREE from CDN');
     return await loadESModule(CDN);
   }
 
   async function loadCANNON() {
-    // Try local cannon-es_min.js first
-    try {
-      const mod = await loadESModule('./cannon-es_min.js');
-      if (mod && mod.World) {
-        console.log('[coinpusher3d] CANNON loaded from local cannon-es_min.js');
-        return mod;
-      }
-    } catch(e) {
-      console.warn('[coinpusher3d] Local cannon-es_min.js failed:', e.message);
+    const paths = [
+      './cannon-es_min.js',
+      '/Arcade/cannon-es_min.js',
+      `${location.origin}/Arcade/cannon-es_min.js`,
+    ];
+    for (const p of paths) {
+      try {
+        const mod = await loadESModule(p);
+        if (mod && mod.World) {
+          console.log('[coinpusher3d] CANNON loaded from', p);
+          return mod;
+        }
+      } catch(e) {}
     }
-    // Fallback: cannon-es from CDN
     const CDN = 'https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js';
-    console.log('[coinpusher3d] Loading CANNON from CDN:', CDN);
+    console.log('[coinpusher3d] Loading CANNON from CDN');
     return await loadESModule(CDN);
   }
 
@@ -557,14 +562,23 @@ export default (() => {
 
     const mesh = new THREE.Mesh(coinGeo(), coinMat);
     mesh.castShadow = true;
+    // Rotate mesh so flat face points forward (toward camera / pegs on back wall)
+    mesh.rotation.x = Math.PI / 2;
     scene.add(mesh);
 
     const body = new CANNON.Body({ mass:0.005, linearDamping:0.18, angularDamping:0.40 });
-    body.addShape(new CANNON.Cylinder(CR, CR, CT, 12));
+    // Rotate shape so cylinder axis is along Z — coin stands upright, face forward
+    const quat = new CANNON.Quaternion();
+    quat.setFromEuler(Math.PI / 2, 0, 0);
+    body.addShape(new CANNON.Cylinder(CR, CR, CT, 12), new CANNON.Vec3(0,0,0), quat);
     const dropX = (aimFrac - 0.5) * MW * 0.86;
-    body.position.set(dropX, CHUTE_TOP - 0.4, (Math.random()-0.5)*0.08);
-    body.velocity.set((Math.random()-0.5)*0.6, -1.8, 0);
-    body.angularVelocity.set((Math.random()-0.5)*4, 0, (Math.random()-0.5)*4);
+    // Drop near the back wall so it slides down past the pegs
+    const dropZ = -MD/2 + WT + CT/2 + 0.05;
+    body.position.set(dropX, CHUTE_TOP - 0.4, dropZ);
+    // Small sideways wobble, slight forward push into pegs, falls under gravity
+    body.velocity.set((Math.random()-0.5)*0.4, -1.8, 0.08);
+    // Spin around Y axis only (tumbling left/right as it falls, not forward roll)
+    body.angularVelocity.set(0, (Math.random()-0.5)*3, 0);
     world.addBody(body);
 
     fallingBody = body;

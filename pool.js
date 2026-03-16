@@ -202,11 +202,23 @@ async function pool3DInit() {
     return await import(/* webpackIgnore: true */ url);
   }
 
+  async function loadThreeMod() {
+    const paths = [
+      './three_module_min.js',
+      '/Arcade/three_module_min.js',
+      `${location.origin}/Arcade/three_module_min.js`,
+    ];
+    for (const p of paths) {
+      try {
+        const mod = await loadMod(p);
+        if (mod && mod.WebGLRenderer) return mod;
+      } catch(e) {}
+    }
+    return await loadMod('https://unpkg.com/three@0.128.0/build/three.module.js');
+  }
+
   let THREE;
-  try {
-    const mod = await loadMod('./three_module_min.js');
-    if (mod && mod.WebGLRenderer) THREE = mod;
-  } catch(e) {}
+  try { THREE = await loadThreeMod(); } catch(e) {}
   if (!THREE) THREE = await loadMod('https://unpkg.com/three@0.128.0/build/three.module.js');
   P3.THREE = THREE;
 
