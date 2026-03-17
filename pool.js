@@ -248,8 +248,8 @@ async function pool3DInit() {
 
   // Camera orbit state
   P3.camTheta  = 0;             // horizontal orbit angle
-  P3.camPhi    = 0.32;          // vertical tilt (0=side, PI/2=top-down)
-  P3.camDist   = tw3 * 0.85;   // distance from table centre
+  P3.camPhi    = 0.75;          // vertical tilt (0=side, PI/2=top-down)
+  P3.camDist   = tw3 * 1.2;    // distance from table centre
   P3.camTarget = null;          // set after cx3/cz3 known
   P3.isDragging = false;
   P3.dragStartX = 0; P3.dragStartY = 0;
@@ -427,9 +427,9 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
 
   // Ball mesh name patterns to strip from GLB
   const BALL_PATTERNS = [
-    /ball/i, /sphere/i, /cue.?ball/i, /^ball_?\d/i,
-    /solid/i, /stripe/i, /^[0-9]+$/,
-    /^mesh\d+_group\d+_model/i,   // exact names in Pool Table.glb
+    /ball/i,
+    /sphere/i,
+    /^mesh\d+_group\d+_model/i,  // exact names in this GLB's ball meshes
   ];
   function looksLikeBall(name) {
     return BALL_PATTERNS.some(p => p.test(name));
@@ -457,86 +457,95 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
       loader.load(paths[i], gltf => {
         const model = gltf.scene;
 
-        // ── Remove balls from GLB (name patterns catch Mesh##_Group1_Model_##) ─
+        // ── Remove ball meshes from the loaded model ──────────────
+        // Only match on the mesh's OWN name (not parent) to avoid removing
+        // table parts that happen to be inside a group named "solid" or "stripe".
+        // Also apply a size guard: skip anything larger than 20% of model width.
+        const _overallBox = new THREE.Box3().setFromObject(model);
+        const _overallSize = new THREE.Vector3();
+        _overallBox.getSize(_overallSize);
+        const _modelSpan = Math.max(_overallSize.x, _overallSize.z);
+
         const toRemove = [];
         model.traverse(node => {
           if (!node.isMesh) return;
-          const name       = (node.name        || '').toLowerCase();
-          const parentName = (node.parent?.name || '').toLowerCase();
-          if (looksLikeBall(name) || looksLikeBall(parentName)) toRemove.push(node);
+          const name = (node.name || '').toLowerCase();
+          if (!looksLikeBall(name)) return;
+          // Size guard — balls must be small relative to the table
+          node.geometry.computeBoundingBox();
+          const bb = node.geometry.boundingBox;
+          if (bb) {
+            const s = new THREE.Vector3();
+            bb.getSize(s);
+            if (Math.max(s.x, s.y, s.z) > _modelSpan * 0.20) {
+              console.log('[pool3d] Skipping large mesh (not a ball):', node.name);
+              return;
+            }
+          }
+          toRemove.push(node);
+          console.log('[pool3d] Removing ball:', node.name);
         });
         toRemove.forEach(n => {
           if (n.parent) n.parent.remove(n);
           if (n.geometry) n.geometry.dispose();
           (Array.isArray(n.material) ? n.material : [n.material]).forEach(m => m && m.dispose());
         });
-        console.log('[pool3d] Removed', toRemove.length, 'ball meshes from GLB');
+        console.log('[pool3d] Removed', toRemove.length, 'ball meshes');
 
-        // ── Scale to match physics table dimensions ───────────────
+        // ── Scale and position model to fit 2D physics coords ─────
+        // Compute bounding box of the table model
         const box = new THREE.Box3().setFromObject(model);
         const size = new THREE.Vector3();
         box.getSize(size);
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+
+        // Scale so the model's longest horizontal dimension matches tw3
+        // Most pool table GLBs have the playing surface as the XZ plane
         const modelW = Math.max(size.x, size.z);
         const modelH = Math.min(size.x, size.z);
-        const scale  = Math.min(tw3 / modelW, th3 / modelH);
+        const scaleX = tw3 / modelW;
+        const scaleZ = th3 / modelH;
+        const scale  = Math.min(scaleX, scaleZ); // uniform scale
+
         model.scale.setScalar(scale);
 
-        // ── Position: sink model so table TOP = Y=0 ───────────────
-        // The playing surface is the TOP of the model (highest Y after scaling).
-        // Balls and cue live at Y >= 0, so we push the model down by box.max.y
-        // so the felt surface aligns to Y=0 exactly.
+        // After scaling, recompute center and align felt surface to Y=0
         const box2 = new THREE.Box3().setFromObject(model);
-        const topY    = box2.max.y;   // highest point = table playing surface
-        const centerX = (box2.min.x + box2.max.x) / 2;
-        const centerZ = (box2.min.z + box2.max.z) / 2;
-
+        const center2 = new THREE.Vector3();
+        box2.getCenter(center2);
+        // box2.min is a direct Vector3 property in Three r128
         model.position.set(
-          tw3/2 - centerX,
-          -topY,             // sink so top of model = Y=0
-          th3/2 - centerZ
+          tw3/2 - center2.x,
+          -box2.min.y,       // lift so legs sit at Y=0
+          th3/2 - center2.z
         );
-        console.log('[pool3d] scale:', scale.toFixed(3), ' topY:', topY.toFixed(4));
 
-        // ── Replace felt material with green canvas texture ───────
-        // Find the largest flat horizontal mesh — that's the playing surface.
-        // Apply green felt to it and anything similarly sized (cushion tops).
-        let feltMeshNode = null;
-        let feltArea = 0;
+        // Enable shadows on all meshes
         model.traverse(node => {
-          if (!node.isMesh) return;
-          const wb = new THREE.Box3().setFromObject(node);
-          const ws = new THREE.Vector3(); wb.getSize(ws);
-          if (ws.y > Math.max(ws.x, ws.z) * 0.25) return; // not flat
-          const area = ws.x * ws.z;
-          if (area > feltArea) { feltArea = area; feltMeshNode = node; }
-        });
-        if (feltMeshNode) {
-          const greenMat = new THREE.MeshStandardMaterial({ map: feltMat.map, roughness: 0.92, metalness: 0 });
-          // Apply to all flat meshes at least 10% as large as the main felt
-          model.traverse(node => {
-            if (!node.isMesh) return;
-            const wb = new THREE.Box3().setFromObject(node);
-            const ws = new THREE.Vector3(); wb.getSize(ws);
-            if (ws.y > Math.max(ws.x, ws.z) * 0.25) return;
-            if ((ws.x * ws.z) < feltArea * 0.10) return;
-            node.material = new THREE.MeshStandardMaterial({ map: feltMat.map, roughness: 0.92, metalness: 0 });
-          });
-          console.log('[pool3d] Applied green felt, area:', feltArea.toFixed(4));
-        }
-
-        // ── Shadows ───────────────────────────────────────────────
-        model.traverse(node => {
-          if (node.isMesh) { node.castShadow = true; node.receiveShadow = true; }
+          if (node.isMesh) {
+            node.castShadow = true;
+            node.receiveShadow = true;
+          }
         });
 
+        // Remove the procedural felt now that we have the GLB
         scene.remove(feltMesh);
         scene.add(model);
         P3.tableModel = model;
-        console.log('[pool3d] Pool Table.glb ready');
+
+        // Point camera at the playing surface, not the floor
+        // Surface is roughly at the top of the model (box2.max.y after positioning)
+        const _finalBox = new THREE.Box3().setFromObject(model);
+        const _surfaceY = _finalBox.max.y * 0.85; // slightly below top (cushion rails above surface)
+        P3.camTarget = { x: tw3 * 0.5, y: _surfaceY, z: th3 * 0.5 };
+        if (P3.pool3DUpdateCamera) P3.pool3DUpdateCamera();
+
+        console.log('[pool3d] Pool Table.glb loaded, scale:', scale.toFixed(3), 'camTargetY:', _surfaceY.toFixed(3));
         poolDraw();
       },
       undefined,
-      (err) => { console.warn('[pool3d] GLB load failed (' + paths[i] + '):', err); tryLoad(i + 1); }
+      () => tryLoad(i + 1)
       );
     }
     tryLoad(0);
