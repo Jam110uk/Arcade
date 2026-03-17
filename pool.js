@@ -399,57 +399,39 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
   scene.add(feltMesh);
 
   // ── Load GLB ──────────────────────────────────────────────────────
-  // Multi-strategy GLTFLoader bootstrap:
-  //   1. Fetch source, rewrite ALL bare/relative 'three' imports, blob-import
-  //   2. Same but from unpkg mirror
-  //   3. <script type="module"> injection (bypasses blob CSP restrictions)
+  // Multi-strategy GLTFLoader bootstrap — avoids the jsDelivr 404 and
+  // blob CSP issues on GitHub Pages.
   async function loadGLTFLoader() {
     const THREE_URL = 'https://unpkg.com/three@0.128.0/build/three.module.js';
 
-    function rewriteSrc(src) {
-      return src
-        // bare specifier: from 'three'
-        .replace(/from\s+['"]three['"]/g, `from '${THREE_URL}'`)
-        // relative three.module.js references
-        .replace(/from\s+['"][./]*three\.module\.js['"]/g, `from '${THREE_URL}'`)
-        // dynamic import('three')
-        .replace(/import\s*\(\s*['"]three['"]\s*\)/g, `import('${THREE_URL}')`)
-        // relative jsm sibling imports (e.g. ../utils/BufferGeometryUtils.js)
-        .replace(/from\s+['"]\.\.\/([\w/.]+)['"]/g,
-          (_, p) => `from 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/${p}'`);
-    }
-
+    // Strategy A: fetch GLTFLoader source, rewrite all 'three' imports → pinned unpkg URL, blob-import
     const LOADER_SRCS = [
-      'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/loaders/GLTFLoader.js',
       'https://unpkg.com/three@0.128.0/examples/jsm/loaders/GLTFLoader.js',
+      'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/loaders/GLTFLoader.js',
     ];
-
-    // Strategy A: fetch → rewrite → blob import
-    for (const loaderSrc of LOADER_SRCS) {
+    for (const src_url of LOADER_SRCS) {
       try {
-        const res = await fetch(loaderSrc);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const src = rewriteSrc(await res.text());
+        const res = await fetch(src_url);
+        if (!res.ok) { console.warn('[pool3d] fetch', src_url, res.status); continue; }
+        let src = await res.text();
+        src = src
+          .replace(/from\s+['"]three['"]/g,                          `from '${THREE_URL}'`)
+          .replace(/from\s+['"][./]*three\.module(\.min)?\.js['"]/g, `from '${THREE_URL}'`)
+          .replace(/import\s*\(\s*['"]three['"]\s*\)/g,              `import('${THREE_URL}')`)
+          .replace(/from\s+['"]\.\.\/([\w/.]+)['"]/g,
+            (_, p) => `from 'https://unpkg.com/three@0.128.0/examples/jsm/${p}'`);
         const blobURL = URL.createObjectURL(new Blob([src], { type: 'application/javascript' }));
         try {
           const mod = await import(/* webpackIgnore: true */ blobURL);
           URL.revokeObjectURL(blobURL);
-          if (mod.GLTFLoader) {
-            console.log('[pool3d] GLTFLoader loaded (blob) from:', loaderSrc);
-            return mod.GLTFLoader;
-          }
-        } catch(importErr) {
-          URL.revokeObjectURL(blobURL);
-          console.warn('[pool3d] Blob import failed:', importErr.message);
-        }
-      } catch(fetchErr) {
-        console.warn('[pool3d] Fetch failed:', loaderSrc, fetchErr.message);
-      }
+          if (mod.GLTFLoader) { console.log('[pool3d] GLTFLoader ready (blob) from', src_url); return mod.GLTFLoader; }
+        } catch(ie) { URL.revokeObjectURL(blobURL); console.warn('[pool3d] blob import failed:', ie.message); }
+      } catch(fe) { console.warn('[pool3d] fetch error:', fe.message); }
     }
 
-    // Strategy B: <script type="module"> injection — sidesteps blob CSP entirely
-    console.log('[pool3d] Trying script-tag GLTFLoader injection...');
-    return new Promise((resolve) => {
+    // Strategy B: <script type="module"> injection — bypasses blob CSP entirely
+    console.log('[pool3d] Trying script-tag GLTFLoader...');
+    return new Promise(resolve => {
       const script = document.createElement('script');
       script.type = 'module';
       script.textContent = `
@@ -457,24 +439,15 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
         window._pool3dGLTFLoader = GLTFLoader;
         window.dispatchEvent(new Event('_pool3dLoaderReady'));
       `;
-      const onReady = () => {
-        window.removeEventListener('_pool3dLoaderReady', onReady);
-        if (window._pool3dGLTFLoader) {
-          console.log('[pool3d] GLTFLoader loaded via script tag');
-        } else {
-          console.warn('[pool3d] Script-tag strategy: loader not found on window');
-        }
-        resolve(window._pool3dGLTFLoader || null);
+      const done = () => {
+        window.removeEventListener('_pool3dLoaderReady', done);
+        const L = window._pool3dGLTFLoader || null;
+        if (L) console.log('[pool3d] GLTFLoader ready (script tag)');
+        else   console.warn('[pool3d] GLTFLoader script tag failed');
+        resolve(L);
       };
-      window.addEventListener('_pool3dLoaderReady', onReady);
-      // Timeout safety: if the script never fires (e.g. network error), resolve null
-      setTimeout(() => {
-        window.removeEventListener('_pool3dLoaderReady', onReady);
-        if (!window._pool3dGLTFLoader) {
-          console.warn('[pool3d] GLTFLoader script-tag timed out — using procedural table');
-          resolve(null);
-        }
-      }, 10000);
+      window.addEventListener('_pool3dLoaderReady', done);
+      setTimeout(() => { window.removeEventListener('_pool3dLoaderReady', done); resolve(window._pool3dGLTFLoader || null); }, 10000);
       document.head.appendChild(script);
     });
   }
@@ -552,14 +525,14 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
         const box2 = new THREE.Box3().setFromObject(model);
         const center2 = new THREE.Vector3();
         box2.getCenter(center2);
-        const min2 = new THREE.Vector3();
-        box2.getMin(min2);
+        // box2.min is a direct Vector3 property in Three r128 (getMin() does not exist)
+        const minY2 = box2.min.y;
 
         // Position: centre of table in XZ matches tw3/2, th3/2
         // Bottom of playing surface aligns to Y=0
         model.position.set(
           tw3/2 - center2.x,
-          -min2.y,           // lift so bottom of model sits at Y=0
+          -minY2,            // lift so bottom of model sits at Y=0
           th3/2 - center2.z
         );
 
@@ -580,10 +553,7 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
         poolDraw();
       },
       undefined,
-      (err) => {
-        console.warn(`[pool3d] GLB load failed (${paths[i]}):`, err);
-        tryLoad(i + 1);
-      }
+      (err) => { console.warn(`[pool3d] GLB load failed (${paths[i]}):`, err); tryLoad(i + 1); }
       );
     }
     tryLoad(0);
