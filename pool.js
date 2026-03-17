@@ -203,17 +203,13 @@ async function pool3DInit() {
   }
 
   async function loadThreeMod() {
-    const paths = [
-      './three_module_min.js',
-      '/Arcade/three_module_min.js',
-      `${location.origin}/Arcade/three_module_min.js`,
-    ];
-    for (const p of paths) {
-      try {
-        const mod = await loadMod(p);
-        if (mod && mod.WebGLRenderer) return mod;
-      } catch(e) {}
-    }
+    // Try local copy first (faster if it exists), then fall back to unpkg CDN.
+    // three_module_min.js is optional — if missing the CDN is used silently.
+    const local = './three_module_min.js';
+    try {
+      const mod = await loadMod(local);
+      if (mod && mod.WebGLRenderer) return mod;
+    } catch(e) { /* not present — use CDN */ }
     return await loadMod('https://unpkg.com/three@0.128.0/build/three.module.js');
   }
 
@@ -402,27 +398,53 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
   // Load GLTFLoader by fetching the jsm source and rewriting the 'three'
   // import to point at the full module URL we already use.
   async function loadGLTFLoader() {
-    try {
-      const LOADER_SRC = 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/loaders/GLTFLoader.js';
-      let src = await fetch(LOADER_SRC).then(r => r.text());
-      // Rewrite bare 'three' specifier to the full CDN URL
-      src = src.replace(
-        /from\s+['"]three['"]/g,
-        `from 'https://unpkg.com/three@0.128.0/build/three.module.js'`
-      );
-      src = src.replace(
-        /import\s+(['"]three['"])/g,
-        `import 'https://unpkg.com/three@0.128.0/build/three.module.js'`
-      );
-      const blob = new Blob([src], { type: 'text/javascript' });
-      const url  = URL.createObjectURL(blob);
-      const mod  = await import(/* webpackIgnore: true */ url);
-      URL.revokeObjectURL(url);
-      if (mod.GLTFLoader) return mod.GLTFLoader;
-    } catch(e) {
-      console.warn('[pool3d] GLTFLoader load failed:', e.message);
+    const THREE_URL = 'https://unpkg.com/three@0.128.0/build/three.module.js';
+    const LOADER_SRCS = [
+      'https://unpkg.com/three@0.128.0/examples/jsm/loaders/GLTFLoader.js',
+      'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/loaders/GLTFLoader.js',
+    ];
+
+    // Strategy A: fetch source, rewrite 'three' imports, blob-import
+    for (const src_url of LOADER_SRCS) {
+      try {
+        const res = await fetch(src_url);
+        if (!res.ok) { console.warn('[pool3d] fetch', src_url, res.status); continue; }
+        let src = await res.text();
+        src = src
+          .replace(/from\s+['"]three['"]/g,                          `from '${THREE_URL}'`)
+          .replace(/from\s+['"][./]*three\.module(\.min)?\.js['"]/g, `from '${THREE_URL}'`)
+          .replace(/import\s*\(\s*['"]three['""]\s*\)/g,              `import('${THREE_URL}')`)
+          .replace(/from\s+['"]\.\.\/([\w/.]+)['"]/g,
+            (_, p) => `from 'https://unpkg.com/three@0.128.0/examples/jsm/${p}'`);
+        const blobURL = URL.createObjectURL(new Blob([src], { type: 'application/javascript' }));
+        try {
+          const mod = await import(/* webpackIgnore: true */ blobURL);
+          URL.revokeObjectURL(blobURL);
+          if (mod.GLTFLoader) { console.log('[pool3d] GLTFLoader ready from', src_url); return mod.GLTFLoader; }
+        } catch(ie) { URL.revokeObjectURL(blobURL); console.warn('[pool3d] blob import failed:', ie.message); }
+      } catch(fe) { console.warn('[pool3d] fetch error:', fe.message); }
     }
-    return null;
+
+    // Strategy B: <script type="module"> injection — bypasses blob CSP
+    return new Promise(resolve => {
+      const script = document.createElement('script');
+      script.type = 'module';
+      script.textContent = `
+        import { GLTFLoader } from 'https://unpkg.com/three@0.128.0/examples/jsm/loaders/GLTFLoader.js';
+        window._pool3dGLTFLoader = GLTFLoader;
+        window.dispatchEvent(new Event('_pool3dLoaderReady'));
+      `;
+      const done = () => {
+        window.removeEventListener('_pool3dLoaderReady', done);
+        const L = window._pool3dGLTFLoader || null;
+        if (L) console.log('[pool3d] GLTFLoader ready (script tag)');
+        else   console.warn('[pool3d] GLTFLoader script tag failed');
+        resolve(L);
+      };
+      window.addEventListener('_pool3dLoaderReady', done);
+      setTimeout(() => { window.removeEventListener('_pool3dLoaderReady', done); resolve(window._pool3dGLTFLoader || null); }, 10000);
+      document.head.appendChild(script);
+    });
   }
 
   // Ball mesh name patterns to strip from GLB
@@ -498,14 +520,10 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
         const box2 = new THREE.Box3().setFromObject(model);
         const center2 = new THREE.Vector3();
         box2.getCenter(center2);
-        const min2 = new THREE.Vector3();
-        box2.getMin(min2);
-
-        // Position: centre of table in XZ matches tw3/2, th3/2
-        // Bottom of playing surface aligns to Y=0
+        // box2.min is a direct Vector3 property in Three r128 (no getMin method)
         model.position.set(
           tw3/2 - center2.x,
-          -min2.y,           // lift so bottom of model sits at Y=0
+          -box2.min.y,       // lift so legs sit at Y=0
           th3/2 - center2.z
         );
 
@@ -517,21 +535,30 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
           }
         });
 
+        // Store playing surface Y — used by poolDraw to place balls/cue on the table
+        const _glbBox = new THREE.Box3().setFromObject(model);
+        const _glbH   = _glbBox.max.y - _glbBox.min.y;
+        P3.tableY = _glbBox.max.y - _glbH * 0.08;
+
+        // Replace felt colour with green canvas texture
+        let _feltArea = 0;
+        model.traverse(n => { if (n.isMesh) { const wb = new THREE.Box3().setFromObject(n); const ws = new THREE.Vector3(); wb.getSize(ws); const a = ws.x*ws.z; if (a>_feltArea) _feltArea=a; }});
+        model.traverse(n => {
+          if (!n.isMesh) return;
+          const wb = new THREE.Box3().setFromObject(n); const ws = new THREE.Vector3(); wb.getSize(ws);
+          if (ws.y > Math.max(ws.x,ws.z)*0.25) return;
+          if (ws.x*ws.z < _feltArea*0.08) return;
+          n.material = new THREE.MeshStandardMaterial({ map: feltMat.map, roughness: 0.92, metalness: 0 });
+        });
+
+        // Point camera at the surface
+        P3.camTarget = { x: tw3*0.5, y: P3.tableY, z: th3*0.5 };
+        if (P3.pool3DUpdateCamera) P3.pool3DUpdateCamera();
+
         // Remove the procedural felt now that we have the GLB
         scene.remove(feltMesh);
         scene.add(model);
         P3.tableModel = model;
-
-        // Store the playing surface Y so poolDraw() can place balls on it.
-        // The model was lifted by -box2.min.y so legs sit at Y=0.
-        // The playing surface is the top of the model minus the cushion/rail height.
-        // Rail height is roughly 8% of total model height.
-        const _glbBox = new THREE.Box3().setFromObject(model);
-        const _glbH   = _glbBox.max.y - _glbBox.min.y;
-        P3.tableY = _glbBox.max.y - _glbH * 0.08;  // just below the rail tops = felt surface
-        // Also update camera target to look at the surface
-        P3.camTarget = { x: tw3 * 0.5, y: P3.tableY, z: th3 * 0.5 };
-        if (P3.pool3DUpdateCamera) P3.pool3DUpdateCamera();
 
         console.log('[pool3d] Pool Table.glb loaded, scale:', scale.toFixed(3), 'tableY:', P3.tableY.toFixed(3));
         poolDraw();
