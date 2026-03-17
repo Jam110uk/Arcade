@@ -972,7 +972,14 @@ export default (() => {
       const obj = coinBodies[i];
       scene.remove(obj.mesh);
       world.removeBody(obj.body);
-      if (obj.mesh.material && obj.mesh.material !== coinMat) obj.mesh.material.dispose();
+      // material can be a single material or an array (bonus tokens use array)
+      if (obj.mesh.material && obj.mesh.material !== coinMat) {
+        if (Array.isArray(obj.mesh.material)) {
+          obj.mesh.material.forEach(m => m && m.dispose && m.dispose());
+        } else {
+          obj.mesh.material.dispose();
+        }
+      }
       coinBodies.splice(i, 1);
     });
   }
