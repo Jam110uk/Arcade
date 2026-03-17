@@ -960,6 +960,8 @@ function poolHandleMove(mx, my, screenX, screenY) {
   if (POOL.isMoving || !POOL.myTurn || !POOL.cueBall || POOL.cueBall.potted) return;
   if (!POOL._screenEl) POOL._screenEl = document.getElementById('pool-screen');
   if (!POOL._screenEl.classList.contains('active')) return;
+  // In locked (pullback) state we always continue regardless of mouse position —
+  // player needs to drag freely outside the canvas to set power
   POOL.mouseX = mx;
   POOL.mouseY = my;
 
@@ -984,30 +986,31 @@ function poolHandleMove(mx, my, screenX, screenY) {
         const hitZ2d = target.z / S;
         // Cue sits on the OPPOSITE side of the ball from the mouse.
         // Angle points FROM mouse TOWARD ball so cue is behind ball, tip at ball.
-        const dx = POOL.cueBall.x - hitX2d;
-        const dy = POOL.cueBall.y - hitZ2d;
+        const dx = hitX2d - POOL.cueBall.x;
+        const dy = hitZ2d - POOL.cueBall.y;
         POOL.aimAngle = Math.atan2(dy, dx);
       }
     } else {
       // Fallback: plain 2D canvas coords — angle FROM mouse TOWARD ball
-      const dx = POOL.cueBall.x - mx;
-      const dy = POOL.cueBall.y - my;
+      const dx = mx - POOL.cueBall.x;
+      const dy = my - POOL.cueBall.y;
       POOL.aimAngle = Math.atan2(dy, dx);
     }
 
   } else if (POOL.shotState === 'locked') {
     // Pull-back mode: use raw screen coords projected onto locked axis
     // This works anywhere on screen, not just over the canvas
-    const cos = Math.cos(POOL.lockedAngle);
-    const sin = Math.sin(POOL.lockedAngle);
-    // Project screen movement onto the shot direction axis
+    // Use screen-space cue direction (computed at lock time via camera projection)
+    // so power tracks correctly regardless of camera angle / perspective
     const sx = (screenX !== undefined ? screenX : mx);
     const sy = (screenY !== undefined ? screenY : my);
     const dx = sx - POOL.lockScreenX;
     const dy = sy - POOL.lockScreenY;
-    const proj = dx * cos + dy * sin;
-    // Negative projection = pulled back (opposite to shot direction)
-    const pullDist = -proj;
+    const sdx = POOL.lockScreenDirX || Math.cos(POOL.lockedAngle);
+    const sdy = POOL.lockScreenDirY || Math.sin(POOL.lockedAngle);
+    const proj = dx * sdx + dy * sdy;
+    // Positive projection = mouse moved toward cue butt = more power
+    const pullDist = proj;
     POOL.pullback = Math.max(0, Math.min(1, pullDist / 250));
 
     // Update power bar UI
@@ -1060,6 +1063,40 @@ function poolHandleClick(e) {
     POOL.lockScreenX = POOL._lastScreenX || POOL.mouseX;
     POOL.lockScreenY = POOL._lastScreenY || POOL.mouseY;
     POOL.pullback = 0;
+    // Compute screen-space direction of the cue axis at lock moment.
+    // Projecting via camera gives the true on-screen cue direction in pixels,
+    // so pullback works correctly regardless of camera angle / perspective.
+    (function() {
+      if (!P3.ready || !P3.camera || !P3.container) {
+        POOL.lockScreenDirX = Math.cos(POOL.lockedAngle);
+        POOL.lockScreenDirY = Math.sin(POOL.lockedAngle);
+        return;
+      }
+      const S   = P3.SCALE;
+      const cb  = POOL.cueBall;
+      const cbx3 = (P3.feltMinX !== undefined)
+        ? P3.feltMinX + (cb.x / POOL.TW) * (P3.feltMaxX - P3.feltMinX) : cb.x * S;
+      const cbz3 = (P3.feltMinZ !== undefined)
+        ? P3.feltMinZ + (cb.y / POOL.TH) * (P3.feltMaxZ - P3.feltMinZ) : cb.y * S;
+      const THREE = P3.THREE;
+      const rect  = P3.container.getBoundingClientRect();
+      const ballVec = new THREE.Vector3(cbx3, POOL.BALL_R * S, cbz3);
+      ballVec.project(P3.camera);
+      const ballSX = (ballVec.x * 0.5 + 0.5) * rect.width  + rect.left;
+      const ballSY = (-ballVec.y * 0.5 + 0.5) * rect.height + rect.top;
+      // Point along the aim direction (away from mouse = direction cue butt extends)
+      const fwdX = cbx3 - Math.cos(POOL.lockedAngle) * 50 * S;
+      const fwdZ = cbz3 - Math.sin(POOL.lockedAngle) * 50 * S;
+      const fwdVec = new THREE.Vector3(fwdX, POOL.BALL_R * S, fwdZ);
+      fwdVec.project(P3.camera);
+      const fwdSX = (fwdVec.x * 0.5 + 0.5) * rect.width  + rect.left;
+      const fwdSY = (-fwdVec.y * 0.5 + 0.5) * rect.height + rect.top;
+      const ddx = fwdSX - ballSX;
+      const ddy = fwdSY - ballSY;
+      const len = Math.sqrt(ddx*ddx + ddy*ddy) || 1;
+      POOL.lockScreenDirX = ddx / len;
+      POOL.lockScreenDirY = ddy / len;
+    })();
     // Show power bar, update hint
     const pb = document.getElementById('pool-power-bar');
     const hint = document.getElementById('pool-hint');
@@ -1084,7 +1121,8 @@ function poolHandleClick(e) {
 }
 
 function poolMouseMove(e) {
-  if (P3.isDragging) return; // camera orbit in progress — don't update aim
+  // During pullback (locked state) always track mouse even outside canvas / during drag
+  if (P3.isDragging && POOL.shotState !== 'locked') return;
   const p = poolGetMousePos(e);
   POOL._lastScreenX = p.screenX;
   POOL._lastScreenY = p.screenY;
@@ -1098,11 +1136,13 @@ function poolMouseClick(e) {
 function poolTouchMove(e) {
   e.preventDefault();
   const touch = e.touches[0];
-  const rect = POOL.canvas.getBoundingClientRect();
-  POOL.scaleFactor = POOL.canvas.width / rect.width;
+  // Always pass raw screen coords — pullback and 3D raycast both use screenX/Y
+  // so touch works correctly even when finger moves outside the canvas boundary
+  const rect = POOL.canvas ? POOL.canvas.getBoundingClientRect() : { left:0, top:0, width:1, height:1 };
+  POOL.scaleFactor = POOL.canvas ? POOL.canvas.width / rect.width : 1;
   poolHandleMove(
     (touch.clientX - rect.left) * POOL.scaleFactor,
-    (touch.clientY - rect.top) * POOL.scaleFactor,
+    (touch.clientY - rect.top)  * POOL.scaleFactor,
     touch.clientX,
     touch.clientY
   );
@@ -1222,7 +1262,7 @@ function poolDraw() {
           const inRange = t <= aimLen;
           if (!inRange) { d.visible = false; return; }
           const _tYd = (P3.tableY !== undefined) ? P3.tableY : 0;
-          d.position.set(cbx3 + Math.cos(angle)*t, _tYd + 0.05, cbz3 + Math.sin(angle)*t);
+          d.position.set(cbx3 - Math.cos(angle)*t, _tYd + 0.05, cbz3 - Math.sin(angle)*t);
           d.rotation.y = -angle;
           // Fade toward end of line, brighter at start
           const fade  = 1 - (t / aimLen) * 0.55;
@@ -1233,8 +1273,8 @@ function poolDraw() {
 
         // Ghost ball at aim end point
         if (P3.aimGhost) {
-          const endX = cbx3 + Math.cos(angle) * aimLen;
-          const endZ = cbz3 + Math.sin(angle) * aimLen;
+          const endX = cbx3 - Math.cos(angle) * aimLen;
+          const endZ = cbz3 - Math.sin(angle) * aimLen;
           const _tYg = (P3.tableY !== undefined) ? P3.tableY : 0;
           P3.aimGhost.position.set(endX, _tYg + POOL.BALL_R * S, endZ);
           const ghostOpacity = locked ? 0.15 + power * 0.35 : 0.12;
@@ -1725,8 +1765,8 @@ async function poolFireShot() {
   const perpOffset = (-Math.sin(angle) * dx + Math.cos(angle) * dy);
   const sideSpin = (perpOffset / (POOL.BALL_R * 2)) * speed * 1.2; // scaled spin
   try { POOL_SFX.cueHit(power / 100); } catch(e) {}
-  cb.vx = Math.cos(angle) * speed;
-  cb.vy = Math.sin(angle) * speed;
+  cb.vx = -Math.cos(angle) * speed;
+  cb.vy = -Math.sin(angle) * speed;
   cb.spin = 0;        // ball starts with NO spin — pure sliding skid on hit
   cb.sliding = true;  // transitions to rolling once spin catches up to velocity
   POOL.firstBallHitId = null;
