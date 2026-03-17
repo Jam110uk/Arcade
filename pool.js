@@ -853,7 +853,7 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
 
           const bx  = MW * 0.25;   // baulk line X
           const cy  = MH * 0.5;    // vertical centre
-          const dR  = MH * 0.38;   // D radius — matches reference (~38% of table width)
+          const dR  = MH * 0.18;   // D radius — ~18% of table width (WEPF standard)
 
           // Baulk line — full width of table
           ctx.lineWidth = 5;
@@ -879,17 +879,22 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
 
           const geo = new THREE.PlaneGeometry(pW, pD);
           const mat = new THREE.MeshBasicMaterial({
-            map:         new THREE.CanvasTexture(mc),
-            transparent: true,
-            depthWrite:  false,
-            depthTest:   false,   // always visible regardless of camera angle
+            map:                 new THREE.CanvasTexture(mc),
+            transparent:         true,
+            depthWrite:          false,
+            depthTest:           true,
+            polygonOffset:       true,
+            polygonOffsetFactor: -2,
+            polygonOffsetUnits:  -2,
           });
           const mesh = new THREE.Mesh(geo, mat);
           mesh.rotation.x = -Math.PI / 2;
-          mesh.renderOrder = 1;   // render after opaque geometry
+          // Position exactly at tableY so it sits flush on the felt surface.
+          // polygonOffset pushes it in front of the felt without lifting it
+          // into ball/cushion territory — so balls and rails still occlude it.
           mesh.position.set(
             (P3.feltMinX + P3.feltMaxX) * 0.5,
-            tY + 0.01,
+            tY,
             (P3.feltMinZ + P3.feltMaxZ) * 0.5
           );
           scene.add(mesh);
