@@ -483,7 +483,7 @@ export default (() => {
     mesh.rotation.z = (Math.random()-0.5)*0.3;
     scene.add(mesh);
 
-    const body = new CANNON.Body({ mass:0.025, linearDamping:0.72, angularDamping:0.85 });
+    const body = new CANNON.Body({ mass:0.18, linearDamping:0.88, angularDamping:0.95 });
     // Cylinder axis = Y by default → coin lies flat on shelf
     body.addShape(new CANNON.Cylinder(CR, CR, CT, 12));
     body.position.set(x, y, z);
@@ -549,7 +549,7 @@ export default (() => {
     scene.add(mesh);
 
     // Physics — same mass/damping as coins so it behaves identically
-    const body = new CANNON.Body({ mass:0.025, linearDamping:0.72, angularDamping:0.85 });
+    const body = new CANNON.Body({ mass:0.18, linearDamping:0.88, angularDamping:0.95 });
     body.addShape(new CANNON.Box(new CANNON.Vec3(BONUS_W/2, BONUS_W/2, BONUS_D/2)));
     body.position.set(x, y, z);
     body.velocity.set(0, 0, 0);
@@ -562,58 +562,77 @@ export default (() => {
     return obj;
   }
 
-  // ── Seed shelves with initial coins ───────────────────────────
-  // Strategy:
-  //  • Layer 0 (base): grid-packed across full shelf depth including slight overhang
-  //    at front — the back rows anchor the front row so it can't fall off.
-  //  • Layers 1-2: offset half-step (honeycomb) so they nest between lower coins.
-  //  • Layer 3+ stacks on top toward the back for visual depth.
-  //  • All coins start with zero velocity and minimal tilt.
+  // ── Seed shelves with initial coins ───────────────────────────────────────
+  // SAFE ZONE GUARANTEE:
+  //   Upper pusher max front-face Z: 0.025. Coin centre must be <= 0.025 - CR = -0.235
+  //   Lower pusher max front-face Z: 1.420. Coin centre must be <= 1.420 - CR = 1.160
+  //   This means the pusher can NEVER reach these coins on its own — they only
+  //   get pushed off when player-dropped coins accumulate behind them.
+  //
+  //   All seed coins are static (mass=0). Only woken when pusher physically
+  //   reaches them — so initial physics cost is near zero.
   function seedCoins() {
-    const hw   = MW/2 - CR*1.8;
-    const step = CR * 2.05;   // tightest stable grid step (just over diameter)
-    const coinY0 = CT/2 + 0.003;
+    const hw       = MW/2 - CR*1.6;        // x half-range (clear of walls)
+    const stepX    = CR * 2.08;            // column spacing
+    const stepZ    = CR * 2.08;            // row spacing
+    const coinY    = CT/2 + 0.003;         // tiny gap above shelf
 
-    // Each shelf gets 2 flat layers only — static bodies, zero sim cost.
-    // Layer 0: base grid across full depth including slight front overhang.
-    // Layer 1: honeycomb offset across back 70% so coins look stacked.
-    function seedShelf(shelfTop, shelfZ, shelfD, shelfLabel) {
-      const backZ  = shelfZ - shelfD/2 + CR;
-      const frontZ = shelfZ + shelfD/2 - CR*0.3; // slight overhang
-      const depth  = frontZ - backZ;
+    // ── UPPER SHELF ─────────────────────────────────────────────────────────
+    // Safe Z: back-wall+CR  →  -0.235  (well behind pusher max extension)
+    const uZback  = -MD/2 + WT + CR + 0.02;
+    const uZfront = -0.235;                // pusher max front - CR - margin
+    const uDepth  = uZfront - uZback;
+    const uCols   = Math.floor((hw * 2) / stepX);
+    const uRows   = Math.max(1, Math.floor(uDepth / stepZ));
 
-      const cols = Math.floor((hw*2) / step);
-      const rows = Math.max(2, Math.floor(depth / step));
-
-      // Layer 0 — base
-      for (let col = 0; col < cols; col++) {
-        for (let row = 0; row < rows; row++) {
-          const x = -hw + CR + col*step + (Math.random()-0.5)*CR*0.15;
-          const z = backZ + row*(depth/(rows-1||1)) + (Math.random()-0.5)*CR*0.15;
-          spawnStillCoin(x, shelfTop+SHELF_THICK+coinY0, z, shelfLabel);
-        }
+    for (let col = 0; col < uCols; col++) {
+      for (let row = 0; row < uRows; row++) {
+        const x = -hw + CR + col * stepX + (Math.random()-0.5)*CR*0.12;
+        const z = uZback + row * stepZ   + (Math.random()-0.5)*CR*0.12;
+        spawnStillCoin(x, UPPER_TOP + SHELF_THICK + coinY, z, 'upper');
       }
-      // Layer 1 — honeycomb, back 70% only
-      const r1 = Math.max(1, Math.floor(rows*0.7));
-      for (let col = 0; col < cols-1; col++) {
-        for (let row = 0; row < r1; row++) {
-          const x = -hw + CR + col*step + step*0.5 + (Math.random()-0.5)*CR*0.12;
-          const z = backZ + row*(depth*0.7/(r1-1||1)) + (Math.random()-0.5)*CR*0.12;
-          spawnStillCoin(x, shelfTop+SHELF_THICK+CT*1.02+coinY0, z, shelfLabel);
-        }
+    }
+    // Second layer (honeycomb) across back 60%
+    const uRows2 = Math.max(1, Math.floor(uRows * 0.6));
+    for (let col = 0; col < uCols - 1; col++) {
+      for (let row = 0; row < uRows2; row++) {
+        const x = -hw + CR + col*stepX + stepX*0.5 + (Math.random()-0.5)*CR*0.10;
+        const z = uZback + row * stepZ + (Math.random()-0.5)*CR*0.10;
+        spawnStillCoin(x, UPPER_TOP + SHELF_THICK + CT*1.02 + coinY, z, 'upper');
       }
-      return { backZ, frontZ, depth };
     }
 
-    const uBounds = seedShelf(UPPER_TOP, UPPER_SHELF_Z, UPPER_SHELF_D, 'upper');
-    const lBounds = seedShelf(LOWER_TOP, LOWER_SHELF_Z, LOWER_SHELF_D, 'lower');
+    // ── LOWER SHELF ─────────────────────────────────────────────────────────
+    // Safe Z: back-wall+CR  →  1.160  (well behind pusher max extension)
+    const lZback  = -MD/2 + WT + CR + 0.02;
+    const lZfront = 1.160;                 // pusher max front - CR - margin
+    const lDepth  = lZfront - lZback;
+    const lCols   = Math.floor((hw * 2) / stepX);
+    const lRows   = Math.max(1, Math.floor(lDepth / stepZ));
 
-    // Bonus items — 3D tokens, placed on layer 1 toward the back
-    spawnBonus(-MW*0.28, UPPER_TOP+SHELF_THICK+CT*1.2+0.30, uBounds.backZ + uBounds.depth*0.3, 0);
-    spawnBonus( MW*0.28, UPPER_TOP+SHELF_THICK+CT*1.2+0.30, uBounds.backZ + uBounds.depth*0.5, 1);
-    spawnBonus(-MW*0.18, LOWER_TOP+SHELF_THICK+CT*1.2+0.30, lBounds.backZ + lBounds.depth*0.2, 2);
-    spawnBonus( MW*0.18, LOWER_TOP+SHELF_THICK+CT*1.2+0.30, lBounds.backZ + lBounds.depth*0.4, 3);
-    spawnBonus( 0,       LOWER_TOP+SHELF_THICK+CT*1.2+0.30, lBounds.backZ + lBounds.depth*0.6, 4);
+    for (let col = 0; col < lCols; col++) {
+      for (let row = 0; row < lRows; row++) {
+        const x = -hw + CR + col * stepX + (Math.random()-0.5)*CR*0.12;
+        const z = lZback + row * stepZ   + (Math.random()-0.5)*CR*0.12;
+        spawnStillCoin(x, LOWER_TOP + SHELF_THICK + coinY, z, 'lower');
+      }
+    }
+    // Second layer (honeycomb) across back 60%
+    const lRows2 = Math.max(1, Math.floor(lRows * 0.6));
+    for (let col = 0; col < lCols - 1; col++) {
+      for (let row = 0; row < lRows2; row++) {
+        const x = -hw + CR + col*stepX + stepX*0.5 + (Math.random()-0.5)*CR*0.10;
+        const z = lZback + row * stepZ + (Math.random()-0.5)*CR*0.10;
+        spawnStillCoin(x, LOWER_TOP + SHELF_THICK + CT*1.02 + coinY, z, 'lower');
+      }
+    }
+
+    // ── Bonus tokens — placed in safe zones ─────────────────────────────────
+    spawnBonus(-MW*0.25, UPPER_TOP+SHELF_THICK+CT*1.2+0.28, uZback + uDepth*0.4, 0);
+    spawnBonus( MW*0.25, UPPER_TOP+SHELF_THICK+CT*1.2+0.28, uZback + uDepth*0.7, 1);
+    spawnBonus(-MW*0.20, LOWER_TOP+SHELF_THICK+CT*1.2+0.28, lZback + lDepth*0.3, 2);
+    spawnBonus( MW*0.20, LOWER_TOP+SHELF_THICK+CT*1.2+0.28, lZback + lDepth*0.5, 3);
+    spawnBonus( 0,       LOWER_TOP+SHELF_THICK+CT*1.2+0.28, lZback + lDepth*0.7, 4);
   }
 
   // Spawn a seed coin as a STATIC body (mass=0) — zero physics cost until woken.
@@ -662,8 +681,8 @@ export default (() => {
     // Override velocity: fall downward fast
     obj.body.velocity.set((Math.random()-0.5)*0.3, -3.0, 0);
     obj.body.angularVelocity.set((Math.random()-0.5)*4, 0, (Math.random()-0.5)*4);
-    obj.body.linearDamping  = 0.15;
-    obj.body.angularDamping = 0.4;
+    obj.body.linearDamping  = 0.35;
+    obj.body.angularDamping = 0.55;
 
     fallingBody = obj.body;
     fallingMesh = obj.mesh;
@@ -800,34 +819,9 @@ export default (() => {
     lowerPusherMesh.position.copy(lowerPusherBody.position);
     lowerPusherMesh.position.y = LOWER_TOP + PUSH_H/2;
 
-    // Carry coins/items resting on top of a pusher along with it
-    const uTop  = UPPER_TOP + PUSH_H;   // top surface Y of upper pusher
-    const lTop  = LOWER_TOP + PUSH_H;   // top surface Y of lower pusher
-    const uMinZ = upperPusherBody.position.z - U_PUSH_HD;
-    const uMaxZ = upperPusherBody.position.z + U_PUSH_HD;
-    const lMinZ = lowerPusherBody.position.z - L_PUSH_HD;
-    const lMaxZ = lowerPusherBody.position.z + L_PUSH_HD;
-
-    coinBodies.forEach(obj => {
-      if (obj.shelf === 'falling') return;
-      const by = obj.body.position.y;
-      const bz = obj.body.position.z;
-      const bx = obj.body.position.x;
-      // Check resting on upper pusher
-      if (by >= uTop - CT && by <= uTop + CT*1.5 &&
-          bz >= uMinZ - CR && bz <= uMaxZ + CR &&
-          Math.abs(bx) <= MW/2) {
-        obj.body.position.z += uDeltaZ;
-        obj.body.velocity.z  = upperPusherDir * PUSH_SPEED * 0.92;
-      }
-      // Check resting on lower pusher
-      if (by >= lTop - CT && by <= lTop + CT*1.5 &&
-          bz >= lMinZ - CR && bz <= lMaxZ + CR &&
-          Math.abs(bx) <= MW/2) {
-        obj.body.position.z += lDeltaZ;
-        obj.body.velocity.z  = lowerPusherDir * PUSH_SPEED * 0.82 * 0.92;
-      }
-    });
+    // Coins are moved by the pusher purely through physics collision —
+    // no manual velocity injection. This prevents coins being launched off
+    // the shelf when the pusher reverses direction.
 
     // Check fallen coins
     checkFallen();
@@ -863,7 +857,7 @@ export default (() => {
   // Converts mass=0 static coins to mass=0.025 dynamic when the pusher
   // front edge is within one coin-diameter of them. This keeps simulation
   // cost near zero until coins are actually being pushed.
-  const WAKE_MARGIN = CR * 3.5;
+  const WAKE_MARGIN = CR * 1.8;  // only wake coins the pusher is about to physically contact
   function wakeSeedCoins() {
     const uFrontZ = upperPusherBody.position.z + U_PUSH_HD;
     const lFrontZ = lowerPusherBody.position.z + L_PUSH_HD;
@@ -882,7 +876,7 @@ export default (() => {
       const quat = obj.body.quaternion.clone();
       world.removeBody(obj.body);
 
-      const newBody = new CANNON.Body({ mass:0.025, linearDamping:0.72, angularDamping:0.85 });
+      const newBody = new CANNON.Body({ mass:0.18, linearDamping:0.88, angularDamping:0.95 });
       newBody.addShape(new CANNON.Cylinder(CR, CR, CT, 12));
       newBody.position.copy(pos);
       newBody.quaternion.copy(quat);
