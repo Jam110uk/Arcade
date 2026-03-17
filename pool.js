@@ -619,54 +619,20 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
   // ── Invisible felt plane at Y=0 — physics reference surface ─────
   // Balls sit at Y = ballRadius, felt is Y=0. The GLB table surface
   // must align with this plane after scaling.
-  // ── Felt base texture — plain green, no scanlines ─────────────────
   const feltCanvas = document.createElement('canvas');
-  feltCanvas.width = 512; feltCanvas.height = 256;
-  const fc = feltCanvas.getContext('2d');
-  fc.fillStyle = '#1a6e36';
-  fc.fillRect(0, 0, 512, 256);
-
-  // ── Markings canvas — UK pool table (WEPF standard) ────────────────
-  // Drawn on a separate high-res canvas so UV tiling doesn't corrupt them.
-  // This canvas is used on an overlay plane positioned using the play-area
-  // bounds computed after the GLB loads (see pool3DAddMarkings below).
-  const markCanvas = document.createElement('canvas');
-  markCanvas.width = 1024; markCanvas.height = 512;
-  const mc = markCanvas.getContext('2d');
-  const MW = 1024, MH = 512;
-
-  // Transparent background — only the lines are drawn
-  mc.clearRect(0, 0, MW, MH);
-
-  // All lines: white, semi-opaque
-  mc.strokeStyle = 'rgba(255,255,255,0.88)';
-  mc.fillStyle   = 'rgba(255,255,255,0.88)';
-  mc.lineCap = 'round';
-
-  // BAULK LINE — 29% from baulk (left) end, full height
-  const baulkX = MW * 0.29;
-  mc.lineWidth = 3;
-  mc.beginPath(); mc.moveTo(baulkX, 0); mc.lineTo(baulkX, MH); mc.stroke();
-
-  // D SEMICIRCLE — centred on baulk line at mid-height, opens toward top end
-  // Radius = 11.5% of table length (WEPF spec)
-  const dR = MW * 0.115;
-  mc.lineWidth = 3;
-  mc.beginPath();
-  mc.arc(baulkX, MH * 0.5, dR, -Math.PI / 2, Math.PI / 2);
-  mc.stroke();
-
-  // BAULK SPOT — centre of the D
-  mc.beginPath(); mc.arc(baulkX, MH * 0.5, 5, 0, Math.PI * 2); mc.fill();
-
-  // BLACK SPOT — 59% from baulk end (WEPF: midpoint of top half)
-  mc.beginPath(); mc.arc(MW * 0.59, MH * 0.5, 5, 0, Math.PI * 2); mc.fill();
-
-  // CENTRE SPOT — 50% (re-spot after foul)
-  mc.beginPath(); mc.arc(MW * 0.50, MH * 0.5, 4, 0, Math.PI * 2); mc.fill();
-
-  // Store for use in pool3DAddMarkings (called after GLB bounds are known)
-  P3._markCanvas = markCanvas;
+  feltCanvas.width=512; feltCanvas.height=256;
+  const fc=feltCanvas.getContext('2d');
+  const fg=fc.createRadialGradient(256,128,0,256,128,280);
+  fg.addColorStop(0,'#1e7a3c');fg.addColorStop(0.5,'#196832');fg.addColorStop(1,'#124d25');
+  fc.fillStyle=fg;fc.fillRect(0,0,512,256);
+  for(let i=0;i<4000;i++){
+    fc.fillStyle=Math.random()>.5?`rgba(0,200,80,${(Math.random()*.04).toFixed(3)})`:`rgba(0,0,0,${(Math.random()*.06).toFixed(3)})`;
+    fc.fillRect(Math.random()*512,Math.random()*256,1,1);
+  }
+  const bxPx=.20*512;
+  fc.strokeStyle='rgba(255,255,255,0.18)';fc.lineWidth=1.5;
+  fc.beginPath();fc.moveTo(bxPx,0);fc.lineTo(bxPx,256);fc.stroke();
+  fc.beginPath();fc.arc(bxPx,128,256*.28,-Math.PI/2,Math.PI/2);fc.stroke();
   const feltMat=new THREE.MeshStandardMaterial({map:new THREE.CanvasTexture(feltCanvas),roughness:.92,metalness:0});
   const feltMesh=new THREE.Mesh(new THREE.PlaneGeometry(tw3-POOL.POCKET_R*P3.SCALE*2,th3-POOL.POCKET_R*P3.SCALE*2),feltMat);
   feltMesh.rotation.x=-Math.PI/2;
@@ -820,9 +786,7 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
         // Pink/bright materials = felt & cushion tops. Dark = frame/legs (keep).
         // We identify "pink" as r>0.5 AND b>0.3 AND g<r (magenta-ish).
         // Anything else that's bright but not dark wood also gets greened.
-        // Plain green — no texture map so the GLB's UV mapping can't corrupt it.
-        // Table markings are drawn on a separate overlay plane (added below).
-        const _greenFelt = new THREE.MeshStandardMaterial({ color: 0x1a6e36, roughness: 0.92, metalness: 0 });
+        const _greenFelt = new THREE.MeshStandardMaterial({ map: feltMat.map, roughness: 0.92, metalness: 0 });
         model.traverse(nd => {
           if (!nd.isMesh) return;
           const applyGreen = (m, idx) => {
@@ -856,37 +820,72 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
         P3.camTarget = { x: tw3 * 0.5, y: P3.tableY, z: th3 * 0.5 };
         if (P3.pool3DUpdateCamera) P3.pool3DUpdateCamera();
 
-        // ── Add UK pool table markings overlay plane ─────────────
-        // Sized to the computed play-area bounds, floated just above the felt
-        // surface so it's always visible regardless of the GLB's UV mapping.
-        if (P3._markCanvas) {
-          const pW = P3.feltMaxX - P3.feltMinX;
-          const pD = P3.feltMaxZ - P3.feltMinZ;
-          const markGeo = new THREE.PlaneGeometry(pW, pD);
-          const markTex = new THREE.CanvasTexture(P3._markCanvas);
-          const markMat = new THREE.MeshBasicMaterial({
-            map: markTex,
-            transparent: true,
-            depthWrite: false,
-            polygonOffset: true,
-            polygonOffsetFactor: -2,
-            polygonOffsetUnits: -2,
-          });
-          const markMesh = new THREE.Mesh(markGeo, markMat);
-          markMesh.rotation.x = -Math.PI / 2;
-          markMesh.position.set(
-            (P3.feltMinX + P3.feltMaxX) * 0.5,
-            (P3.tableY !== undefined ? P3.tableY : 0) + 0.002,
-            (P3.feltMinZ + P3.feltMaxZ) * 0.5
-          );
-          scene.add(markMesh);
-          P3.markingsMesh = markMesh;
-        }
-
         // Remove the procedural felt now that we have the GLB
         scene.remove(feltMesh);
         scene.add(model);
         P3.tableModel = model;
+
+        // ── UK Pool table markings overlay ───────────────────────
+        // A transparent plane sized to the play area, floated just above the felt.
+        // Drawn fresh here using the computed bounds so proportions are exact.
+        (function() {
+          const pW  = P3.feltMaxX - P3.feltMinX;  // table length in 3D units
+          const pD  = P3.feltMaxZ - P3.feltMinZ;  // table width  in 3D units
+          const tY  = (P3.tableY !== undefined ? P3.tableY : 0);
+
+          // High-res canvas: X maps to table length, Y maps to table width
+          const mc  = document.createElement('canvas');
+          mc.width  = 1024; mc.height = 512;
+          const ctx = mc.getContext('2d');
+          const MW  = 1024, MH = 512;
+
+          ctx.clearRect(0, 0, MW, MH);
+          ctx.strokeStyle = 'rgba(255,255,255,0.90)';
+          ctx.fillStyle   = 'rgba(255,255,255,0.90)';
+          ctx.lineCap     = 'round';
+          ctx.lineWidth   = 3.5;
+
+          // WEPF standard proportions (table length = MW):
+          // Baulk line at 29% from baulk end.
+          // Cue ball starts at TW*0.25 in physics → matches ~25% of table length.
+          // Canvas X=0 = feltMinX (baulk end), X=MW = feltMaxX (rack end).
+          const bx = MW * 0.29;
+          // Baulk line — full width
+          ctx.beginPath(); ctx.moveTo(bx, 0); ctx.lineTo(bx, MH); ctx.stroke();
+
+          // D semicircle — opens toward rack end (positive X), radius = 11.5% of length
+          const dR = MW * 0.115;
+          ctx.beginPath();
+          ctx.arc(bx, MH * 0.5, dR, -Math.PI / 2, Math.PI / 2);
+          ctx.stroke();
+
+          // Spots — filled circles
+          // Baulk spot (centre of D)
+          ctx.beginPath(); ctx.arc(bx, MH * 0.5, 6, 0, Math.PI * 2); ctx.fill();
+          // Centre spot
+          ctx.beginPath(); ctx.arc(MW * 0.50, MH * 0.5, 5, 0, Math.PI * 2); ctx.fill();
+          // Black spot (59% from baulk end)
+          ctx.beginPath(); ctx.arc(MW * 0.59, MH * 0.5, 6, 0, Math.PI * 2); ctx.fill();
+
+          const geo = new THREE.PlaneGeometry(pW, pD);
+          const mat = new THREE.MeshBasicMaterial({
+            map:            new THREE.CanvasTexture(mc),
+            transparent:    true,
+            depthWrite:     false,
+            polygonOffset:  true,
+            polygonOffsetFactor: -4,
+            polygonOffsetUnits:  -4,
+          });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.rotation.x = -Math.PI / 2;
+          mesh.position.set(
+            (P3.feltMinX + P3.feltMaxX) * 0.5,
+            tY + 0.005,
+            (P3.feltMinZ + P3.feltMaxZ) * 0.5
+          );
+          scene.add(mesh);
+          P3.markingsMesh = mesh;
+        })();
 
         console.log('[pool3d] Pool Table.glb loaded — scale:', scale.toFixed(3), 'tableY:', P3.tableY.toFixed(3));
         poolDraw();
@@ -1742,6 +1741,15 @@ function poolStartGame() {
 
   showScreen('pool-screen');
 
+  // Suppress the global body::before scanline overlay for pool —
+  // the 3D renderer makes it very visible and distracting on the green felt.
+  if (!document.getElementById('pool-no-scanlines')) {
+    const s = document.createElement('style');
+    s.id = 'pool-no-scanlines';
+    s.textContent = 'body::before { display: none !important; }';
+    document.head.appendChild(s);
+  }
+
   if (POOL.playerNum === 1) {
     // Host: set up balls and push to Firebase
     poolSetupBalls();
@@ -2448,6 +2456,10 @@ window.poolBackToLobby = function() {
     document.removeEventListener('touchend', poolTouchEnd);
     POOL._docListeners = false;
   }
+  // Restore global scanline overlay
+  const noScan = document.getElementById('pool-no-scanlines');
+  if (noScan) noScan.remove();
+
   backToGameSelect();
 };
 
