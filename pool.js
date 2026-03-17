@@ -8,15 +8,15 @@ const POOL = {
   // Table dimensions (logical units)
   TW: 700, TH: 350,
   POCKET_R: 18,
-  BALL_R: 8,
+  BALL_R: 11,
   // Physics uses constant-deceleration model (like real felt):
   //   sliding decel = MU_SLIDE * G  (strong, ~0.2 in SI units)
   //   rolling decel = MU_ROLL  * G  (weak,  ~0.016 in SI units)
   // Scaled to table units where 1 unit ≈ 3.6mm, 60fps
-  MU_SLIDE: 0.018,         // sliding friction decel per sub-step
-  MU_ROLL:  0.00042,       // rolling friction — low so balls glide to a natural stop
-  MIN_SPEED: 0.012,        // small so balls coast all the way to rest
-  CUSHION_RESTITUTION: 0.82, // energy retained on cushion bounce
+  MU_SLIDE: 0.032,         // sliding friction decel per frame (px/frame²)
+  MU_ROLL:  0.0018,        // rolling friction decel per frame (px/frame²)
+  MIN_SPEED: 0.05,         // stop threshold
+  CUSHION_RESTITUTION: 0.80, // energy retained on cushion bounce
 
   canvas: null,
   ctx: null,
@@ -598,39 +598,70 @@ function pool3DBuildBalls(THREE, scene, tw3, th3) {
   const r3 = POOL.BALL_R * P3.SCALE;
   P3.ballMeshes = [];
 
-  for (let id = 0; id <= 15; id++) {
-    // Draw ball onto a canvas for texture
-    const sz = 128;
+  // UK pool colours: 0=white, 1-7=red, 8=black, 9-15=yellow
+  // Solid colour balls — no numbers, no stripes
+  function makeBallTex(id) {
+    const sz = 256, cx = 128, cy = 128, cr = 118;
     const bc = document.createElement('canvas');
     bc.width = bc.height = sz;
-    const bctx = bc.getContext('2d');
-    const color = POOL.BALL_COLORS[id];
-    const cx = sz/2, cy = sz/2, cr = sz*0.48;
+    const ctx = bc.getContext('2d');
 
-    if (id === 0) {
-      // Cue ball
-      const g = bctx.createRadialGradient(cx-cr*0.28,cy-cr*0.32,cr*0.04, cx+cr*0.05,cy,cr*1.05);
-      g.addColorStop(0,'#ffffff'); g.addColorStop(0.6,'#d8d8d8'); g.addColorStop(1,'#aaaaaa');
-      bctx.fillStyle=g; bctx.beginPath(); bctx.arc(cx,cy,cr,0,Math.PI*2); bctx.fill();
-    } else if (id >= 9) {
-      // Yellow solid (same as solids below)
-      const g = bctx.createRadialGradient(cx-cr*0.3,cy-cr*0.3,cr*0.04, cx,cy,cr*1.05);
-      g.addColorStop(0,'rgba(255,255,255,0.5)'); g.addColorStop(0.3,color); g.addColorStop(1,'rgba(0,0,0,0.35)');
-      bctx.fillStyle=g; bctx.beginPath(); bctx.arc(cx,cy,cr,0,Math.PI*2); bctx.fill();
-    } else {
-      // Solid
-      const g = bctx.createRadialGradient(cx-cr*0.3,cy-cr*0.3,cr*0.04, cx,cy,cr*1.05);
-      g.addColorStop(0,'rgba(255,255,255,0.5)'); g.addColorStop(0.3,color); g.addColorStop(1,'rgba(0,0,0,0.35)');
-      bctx.fillStyle=g; bctx.beginPath(); bctx.arc(cx,cy,cr,0,Math.PI*2); bctx.fill();
-    }
-    // Specular highlight only — no number circle, no stripe
-    bctx.beginPath(); bctx.arc(cx-cr*0.28,cy-cr*0.28,cr*0.22,0,Math.PI*2);
-    bctx.fillStyle='rgba(255,255,255,0.60)'; bctx.fill();
-    // Tiny secondary glint
-    bctx.beginPath(); bctx.arc(cx-cr*0.08,cy-cr*0.50,cr*0.09,0,Math.PI*2);
-    bctx.fillStyle='rgba(255,255,255,0.65)'; bctx.fill();
+    // Base colour
+    let hex;
+    if      (id === 0)           hex = '#ffffff';
+    else if (id >= 1 && id <= 7) hex = '#cc1111';
+    else if (id === 8)           hex = '#111111';
+    else                         hex = '#e8c010';
 
-    const tex = new THREE.CanvasTexture(bc);
+    // Parse to get a slightly lighter and darker shade of the SAME colour
+    const r = parseInt(hex.slice(1,3),16);
+    const g = parseInt(hex.slice(3,5),16);
+    const b = parseInt(hex.slice(5,7),16);
+    // Lighter (highlight side)
+    const rl = Math.min(255,r+72), gl = Math.min(255,g+72), bl = Math.min(255,b+72);
+    // Darker (shadow side) — never pure black, always tinted
+    const rd = Math.max(0,Math.floor(r*0.30)), gd = Math.max(0,Math.floor(g*0.30)), bd = Math.max(0,Math.floor(b*0.30));
+
+    // Base shading — light from top-left
+    const base = ctx.createRadialGradient(
+      cx - cr*0.28, cy - cr*0.30, cr*0.02,
+      cx + cr*0.12, cy + cr*0.12, cr*1.10
+    );
+    base.addColorStop(0,    'rgb('+rl+','+gl+','+bl+')');
+    base.addColorStop(0.30, hex);
+    base.addColorStop(0.75, hex);
+    base.addColorStop(1,    'rgb('+rd+','+gd+','+bd+')');
+    ctx.beginPath(); ctx.arc(cx,cy,cr,0,Math.PI*2);
+    ctx.fillStyle = base; ctx.fill();
+
+    // Soft shadow wash — bottom-right, no black, just darker tint
+    const shadow = ctx.createRadialGradient(cx+cr*0.25, cy+cr*0.30, cr*0.05, cx+cr*0.25, cy+cr*0.30, cr*1.05);
+    shadow.addColorStop(0,   'rgba(0,0,0,0)');
+    shadow.addColorStop(0.55,'rgba(0,0,0,0)');
+    shadow.addColorStop(1,   'rgba(0,0,0,0.18)');
+    ctx.beginPath(); ctx.arc(cx,cy,cr,0,Math.PI*2);
+    ctx.fillStyle = shadow; ctx.fill();
+
+    // Primary specular — large soft highlight top-left
+    const hi = ctx.createRadialGradient(cx-cr*0.32, cy-cr*0.34, 0, cx-cr*0.32, cy-cr*0.34, cr*0.42);
+    hi.addColorStop(0,   'rgba(255,255,255,0.90)');
+    hi.addColorStop(0.35,'rgba(255,255,255,0.40)');
+    hi.addColorStop(1,   'rgba(255,255,255,0)');
+    ctx.beginPath(); ctx.arc(cx,cy,cr,0,Math.PI*2);
+    ctx.fillStyle = hi; ctx.fill();
+
+    // Tiny sharp glint
+    const glint = ctx.createRadialGradient(cx-cr*0.10, cy-cr*0.52, 0, cx-cr*0.10, cy-cr*0.52, cr*0.09);
+    glint.addColorStop(0,  'rgba(255,255,255,0.80)');
+    glint.addColorStop(1,  'rgba(255,255,255,0)');
+    ctx.fillStyle = glint;
+    ctx.beginPath(); ctx.arc(cx-cr*0.10, cy-cr*0.52, cr*0.09, 0, Math.PI*2); ctx.fill();
+
+    return bc;
+  }
+
+  for (let id = 0; id <= 15; id++) {
+    const tex = new THREE.CanvasTexture(makeBallTex(id));
     const geo = new THREE.SphereGeometry(r3, 32, 24);
     const mat = new THREE.MeshStandardMaterial({
       map: tex, roughness: 0.08, metalness: 0.04,
@@ -646,7 +677,7 @@ function pool3DBuildBalls(THREE, scene, tw3, th3) {
 
 function pool3DBuildCue(THREE, scene) {
   const S = P3.SCALE;
-  const CUE_LEN = 320 * S;
+  const CUE_LEN = 160 * S;
   const pts = [];
   for (let i = 0; i <= 20; i++) {
     const t = i / 20;
@@ -738,18 +769,13 @@ function poolHandleMove(mx, my, screenX, screenY) {
       const mouse  = new THREE.Vector2(ndcX, ndcY);
       ray.setFromCamera(mouse, P3.camera);
       // Intersect with y=0 plane (the felt surface)
-      const feltY  = (P3.tableY !== undefined) ? P3.tableY : 0;
-      const plane  = new THREE.Plane(new THREE.Vector3(0, 1, 0), -feltY);
+      const plane  = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
       const target = new THREE.Vector3();
       if (ray.ray.intersectPlane(plane, target)) {
-        let hitX2d, hitZ2d;
-        if (P3.feltMinX !== undefined) {
-          hitX2d = (target.x - P3.feltMinX) / (P3.feltMaxX - P3.feltMinX) * POOL.TW;
-          hitZ2d = (target.z - P3.feltMinZ) / (P3.feltMaxZ - P3.feltMinZ) * POOL.TH;
-        } else {
-          hitX2d = target.x / P3.SCALE;
-          hitZ2d = target.z / P3.SCALE;
-        }
+        const S   = P3.SCALE;
+        // Convert 3D hit back to 2D physics coords
+        const hitX2d = target.x / S;
+        const hitZ2d = target.z / S;
         const dx = hitX2d - POOL.cueBall.x;
         const dy = hitZ2d - POOL.cueBall.y;
         POOL.aimAngle = Math.atan2(dy, dx);
@@ -762,14 +788,19 @@ function poolHandleMove(mx, my, screenX, screenY) {
     }
 
   } else if (POOL.shotState === 'locked') {
+    // Pull-back mode: use raw screen coords projected onto locked axis
+    // This works anywhere on screen, not just over the canvas
+    const cos = Math.cos(POOL.lockedAngle);
+    const sin = Math.sin(POOL.lockedAngle);
+    // Project screen movement onto the shot direction axis
     const sx = (screenX !== undefined ? screenX : mx);
     const sy = (screenY !== undefined ? screenY : my);
     const dx = sx - POOL.lockScreenX;
     const dy = sy - POOL.lockScreenY;
-    const axisX = POOL.lockAxisX || 0;
-    const axisY = POOL.lockAxisY || 0;
-    const proj = dx * axisX + dy * axisY;
-    POOL.pullback = Math.min(1, Math.max(0, proj) / 200);
+    const proj = dx * cos + dy * sin;
+    // Negative projection = pulled back (opposite to shot direction)
+    const pullDist = -proj;
+    POOL.pullback = Math.max(0, Math.min(1, pullDist / 250));
 
     // Update power bar UI
     const pct = Math.round(POOL.pullback * 100);
@@ -814,45 +845,13 @@ function poolHandleClick(e) {
   if (POOL.isMoving || !POOL.myTurn || !POOL.cueBall || POOL.cueBall.potted) return;
 
   if (POOL.shotState === 'aiming') {
+    // Lock the angle, switch to pull-back mode
     POOL.shotState = 'locked';
     POOL.lockedAngle = POOL.aimAngle;
+    // Store raw screen position at lock moment for pullback measurement
     POOL.lockScreenX = POOL._lastScreenX || POOL.mouseX;
     POOL.lockScreenY = POOL._lastScreenY || POOL.mouseY;
     POOL.pullback = 0;
-    // Compute screen-space pull-back axis from camera projection
-    if (P3.ready && P3.camera && P3.container) {
-      try {
-        const THREE = P3.THREE;
-        const S  = P3.SCALE;
-        const tY = P3.tableY || 0;
-        const cbx = P3.feltMinX !== undefined
-          ? P3.feltMinX + (POOL.cueBall.x / POOL.TW) * (P3.feltMaxX - P3.feltMinX)
-          : POOL.cueBall.x * S;
-        const cbz = P3.feltMinZ !== undefined
-          ? P3.feltMinZ + (POOL.cueBall.y / POOL.TH) * (P3.feltMaxZ - P3.feltMinZ)
-          : POOL.cueBall.y * S;
-        const pullX = cbx - Math.cos(POOL.aimAngle) * S * 20;
-        const pullZ = cbz - Math.sin(POOL.aimAngle) * S * 20;
-        const rect  = P3.container.getBoundingClientRect();
-        const toNDC = (wx, wy, wz) => {
-          const v = new THREE.Vector3(wx, wy, wz).project(P3.camera);
-          return { sx: (v.x * 0.5 + 0.5) * rect.width + rect.left,
-                   sy: (-v.y * 0.5 + 0.5) * rect.height + rect.top };
-        };
-        const sc = toNDC(cbx, tY, cbz);
-        const sp = toNDC(pullX, tY, pullZ);
-        const adx = sp.sx - sc.sx, ady = sp.sy - sc.sy;
-        const alen = Math.sqrt(adx*adx + ady*ady) || 1;
-        POOL.lockAxisX = adx / alen;
-        POOL.lockAxisY = ady / alen;
-      } catch(e) {
-        POOL.lockAxisX = -Math.cos(POOL.aimAngle);
-        POOL.lockAxisY = -Math.sin(POOL.aimAngle);
-      }
-    } else {
-      POOL.lockAxisX = -Math.cos(POOL.aimAngle);
-      POOL.lockAxisY = -Math.sin(POOL.aimAngle);
-    }
     // Show power bar, update hint
     const pb = document.getElementById('pool-power-bar');
     const hint = document.getElementById('pool-hint');
@@ -948,7 +947,7 @@ function poolDraw() {
         : (locked ? (POOL.oppCue?.pullback || 0) : 0);
 
       const TIP_GAP     = (POOL.BALL_R + 2) * S;
-      const CUE_LEN     = 320 * S;
+      const CUE_LEN     = 160 * S;
       const PULLBACK_MAX = 50 * S;
       const pullDist    = pullback * PULLBACK_MAX;
       const tipDist     = TIP_GAP + pullDist;
@@ -973,9 +972,8 @@ function poolDraw() {
       const _tYc    = (P3.tableY    !== undefined) ? P3.tableY    : 0;
       const _railY  = (P3.tableRailY !== undefined) ? P3.tableRailY : _tYc + r3 * 4;
       const finalTipY  = _tYc + r3 * 1.1;
-      const minLift    = (_railY - _tYc) * 0.25;
       const risePhase  = Math.min(1, pullback / 0.6);
-      const finalButtY = finalTipY + minLift + (_railY - _tYc + r3 * 0.5 - minLift) * risePhase;
+      const finalButtY = finalTipY + (_railY - _tYc + r3 * 0.5) * risePhase;
 
       const buttDir = new THREE.Vector3(
         buttX3 - tipX3,
@@ -1161,8 +1159,7 @@ function poolPhysicsStep() {
   const cushionX = pr + r;
   const midTopX  = tw / 2;
   const midBotX  = tw / 2;
-  const maxSpeed = POOL.balls.reduce((m, b) => Math.max(m, Math.sqrt(b.vx*b.vx+b.vy*b.vy)), 0);
-  const SUB = maxSpeed > 8 ? 5 : maxSpeed > 3 ? 4 : 3;
+  const SUB = 3; // sub-steps per frame
   const newlyPotted = [];
 
   for (let s = 0; s < SUB; s++) {
