@@ -8,14 +8,14 @@ const POOL = {
   // Table dimensions (logical units)
   TW: 700, TH: 350,
   POCKET_R: 18,
-  BALL_R: 11,
+  BALL_R: 8.8,
   // Physics uses constant-deceleration model (like real felt):
   //   sliding decel = MU_SLIDE * G  (strong, ~0.2 in SI units)
   //   rolling decel = MU_ROLL  * G  (weak,  ~0.016 in SI units)
   // Scaled to table units where 1 unit ≈ 3.6mm, 60fps
   MU_SLIDE: 0.032,         // sliding friction decel per frame (px/frame²)
-  MU_ROLL:  0.0018,        // rolling friction decel per frame (px/frame²)
-  MIN_SPEED: 0.05,         // stop threshold
+  MU_ROLL:  0.00045,        // rolling friction decel per frame (px/frame²)
+  MIN_SPEED: 0.018,         // stop threshold
   CUSHION_RESTITUTION: 0.80, // energy retained on cushion bounce
 
   canvas: null,
@@ -131,6 +131,248 @@ function poolInit() {
     POOL._ballSprites[id] = oc;
   }
 }
+
+// ============================================================
+// POOL SOUND ENGINE — fully synthesised via Web Audio API
+// All sounds are procedurally generated; no external files needed.
+//
+// Public API (called from physics / shot hooks):
+//   POOL_SFX.cueHit(power)          — cue strikes cue ball  (power 0-1)
+//   POOL_SFX.ballHit(imp)           — ball-ball collision    (imp = impulse magnitude)
+//   POOL_SFX.cushion(imp)           — ball hits cushion      (imp = speed component)
+//   POOL_SFX.pocket()               — ball drops into pocket
+//   POOL_SFX.roll(speed)            — called every frame for rolling rumble (poolDraw)
+// ============================================================
+const POOL_SFX = (() => {
+  let ctx = null;
+  let masterGain = null;
+  let rollNode = null, rollGain = null, rollFilter = null;
+
+  function _ctx() {
+    if (!ctx) {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      masterGain = ctx.createGain();
+      masterGain.gain.value = 0.80;
+      masterGain.connect(ctx.destination);
+    }
+    if (ctx.state === 'suspended') ctx.resume();
+    return ctx;
+  }
+
+  function envelope(gainNode, ac, attackT, decayT, peakVal, now) {
+    gainNode.gain.cancelScheduledValues(now);
+    gainNode.gain.setValueAtTime(0, now);
+    gainNode.gain.linearRampToValueAtTime(peakVal, now + attackT);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, now + attackT + decayT);
+  }
+
+  function noiseBuffer(ac, durationSec) {
+    const len = Math.ceil(ac.sampleRate * durationSec);
+    const buf = ac.createBuffer(1, len, ac.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    return buf;
+  }
+
+  // CUE HIT — woody thwack + pitched transient + low thud on hard shots
+  function cueHit(power) {
+    const ac = _ctx();
+    const now = ac.currentTime;
+    const p = Math.max(0.05, Math.min(1, power));
+
+    const nBuf = noiseBuffer(ac, 0.12);
+    const nSrc = ac.createBufferSource();
+    nSrc.buffer = nBuf;
+    const nBP = ac.createBiquadFilter();
+    nBP.type = 'bandpass';
+    nBP.frequency.value = 2200 + p * 900;
+    nBP.Q.value = 2.5;
+    const nGain = ac.createGain();
+    envelope(nGain, ac, 0.001, 0.06 + p * 0.04, 0.55 * p, now);
+    nSrc.connect(nBP); nBP.connect(nGain); nGain.connect(masterGain);
+    nSrc.start(now); nSrc.stop(now + 0.15);
+
+    const osc = ac.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(900 + p * 400, now);
+    osc.frequency.exponentialRampToValueAtTime(120, now + 0.08);
+    const oGain = ac.createGain();
+    envelope(oGain, ac, 0.001, 0.07 + p * 0.05, 0.35 * p, now);
+    osc.connect(oGain); oGain.connect(masterGain);
+    osc.start(now); osc.stop(now + 0.15);
+
+    if (p > 0.35) {
+      const thud = ac.createOscillator();
+      thud.type = 'sine';
+      thud.frequency.setValueAtTime(65 + p * 30, now);
+      thud.frequency.exponentialRampToValueAtTime(28, now + 0.12);
+      const tGain = ac.createGain();
+      envelope(tGain, ac, 0.001, 0.10 + p * 0.06, 0.50 * (p - 0.35), now);
+      thud.connect(tGain); tGain.connect(masterGain);
+      thud.start(now); thud.stop(now + 0.20);
+    }
+  }
+
+  // BALL–BALL — crisp ivory clack with harmonic resonance
+  function ballHit(imp) {
+    const ac = _ctx();
+    const now = ac.currentTime;
+    const norm = Math.max(0.05, Math.min(1, imp / 10));
+
+    const osc = ac.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1400 + norm * 600, now);
+    osc.frequency.exponentialRampToValueAtTime(300, now + 0.055);
+    const oGain = ac.createGain();
+    envelope(oGain, ac, 0.0005, 0.045 + norm * 0.035, 0.45 * norm, now);
+    osc.connect(oGain); oGain.connect(masterGain);
+    osc.start(now); osc.stop(now + 0.10);
+
+    const osc2 = ac.createOscillator();
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(2700 + norm * 800, now);
+    osc2.frequency.exponentialRampToValueAtTime(500, now + 0.04);
+    const oGain2 = ac.createGain();
+    envelope(oGain2, ac, 0.0005, 0.035, 0.22 * norm, now);
+    osc2.connect(oGain2); oGain2.connect(masterGain);
+    osc2.start(now); osc2.stop(now + 0.08);
+
+    const nBuf = noiseBuffer(ac, 0.04);
+    const nSrc = ac.createBufferSource();
+    nSrc.buffer = nBuf;
+    const nHP = ac.createBiquadFilter();
+    nHP.type = 'highpass';
+    nHP.frequency.value = 3500;
+    const nGain = ac.createGain();
+    envelope(nGain, ac, 0.0005, 0.025, 0.30 * norm, now);
+    nSrc.connect(nHP); nHP.connect(nGain); nGain.connect(masterGain);
+    nSrc.start(now); nSrc.stop(now + 0.05);
+  }
+
+  // CUSHION — rubbery thud + wooden frame knock
+  function cushion(speed) {
+    const ac = _ctx();
+    const now = ac.currentTime;
+    const norm = Math.max(0.05, Math.min(1, speed / 8));
+
+    const osc = ac.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(160 + norm * 120, now);
+    osc.frequency.exponentialRampToValueAtTime(55, now + 0.12 + norm * 0.05);
+    const oGain = ac.createGain();
+    envelope(oGain, ac, 0.001, 0.10 + norm * 0.08, 0.55 * norm, now);
+    osc.connect(oGain); oGain.connect(masterGain);
+    osc.start(now); osc.stop(now + 0.25);
+
+    const osc2 = ac.createOscillator();
+    osc2.type = 'triangle';
+    osc2.frequency.setValueAtTime(380 + norm * 200, now);
+    osc2.frequency.exponentialRampToValueAtTime(100, now + 0.08);
+    const oGain2 = ac.createGain();
+    envelope(oGain2, ac, 0.001, 0.065, 0.28 * norm, now);
+    osc2.connect(oGain2); oGain2.connect(masterGain);
+    osc2.start(now); osc2.stop(now + 0.12);
+
+    const nBuf = noiseBuffer(ac, 0.08);
+    const nSrc = ac.createBufferSource();
+    nSrc.buffer = nBuf;
+    const nLP = ac.createBiquadFilter();
+    nLP.type = 'lowpass';
+    nLP.frequency.value = 600 + norm * 400;
+    const nGain = ac.createGain();
+    envelope(nGain, ac, 0.001, 0.06, 0.20 * norm, now);
+    nSrc.connect(nLP); nLP.connect(nGain); nGain.connect(masterGain);
+    nSrc.start(now); nSrc.stop(now + 0.09);
+  }
+
+  // POCKET — hollow thunk + rattle as ball drops into leather pocket
+  function pocket() {
+    const ac = _ctx();
+    const now = ac.currentTime;
+
+    const osc = ac.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(180, now);
+    osc.frequency.exponentialRampToValueAtTime(38, now + 0.18);
+    const oGain = ac.createGain();
+    envelope(oGain, ac, 0.001, 0.16, 0.80, now);
+    osc.connect(oGain); oGain.connect(masterGain);
+    osc.start(now); osc.stop(now + 0.22);
+
+    const osc2 = ac.createOscillator();
+    osc2.type = 'triangle';
+    osc2.frequency.setValueAtTime(420, now);
+    osc2.frequency.exponentialRampToValueAtTime(85, now + 0.10);
+    const oGain2 = ac.createGain();
+    envelope(oGain2, ac, 0.001, 0.08, 0.40, now);
+    osc2.connect(oGain2); oGain2.connect(masterGain);
+    osc2.start(now); osc2.stop(now + 0.14);
+
+    const nBuf = noiseBuffer(ac, 0.18);
+    const nSrc = ac.createBufferSource();
+    nSrc.buffer = nBuf;
+    const nBP = ac.createBiquadFilter();
+    nBP.type = 'bandpass';
+    nBP.frequency.value = 320;
+    nBP.Q.value = 1.8;
+    const nGain = ac.createGain();
+    nGain.gain.setValueAtTime(0, now + 0.02);
+    nGain.gain.linearRampToValueAtTime(0.35, now + 0.04);
+    nGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+    nSrc.connect(nBP); nBP.connect(nGain); nGain.connect(masterGain);
+    nSrc.start(now); nSrc.stop(now + 0.24);
+
+    const sub = ac.createOscillator();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(55, now);
+    sub.frequency.exponentialRampToValueAtTime(22, now + 0.14);
+    const sGain = ac.createGain();
+    envelope(sGain, ac, 0.001, 0.12, 0.60, now);
+    sub.connect(sGain); sGain.connect(masterGain);
+    sub.start(now); sub.stop(now + 0.18);
+  }
+
+  // ROLLING RUMBLE — persistent looping noise, modulated by speed
+  let _rollTarget = 0;
+
+  function _ensureRollNode(ac) {
+    if (rollNode) return;
+    const buf = noiseBuffer(ac, 2.0);
+    rollNode = ac.createBufferSource();
+    rollNode.buffer = buf;
+    rollNode.loop = true;
+    rollFilter = ac.createBiquadFilter();
+    rollFilter.type = 'bandpass';
+    rollFilter.frequency.value = 180;
+    rollFilter.Q.value = 0.8;
+    rollGain = ac.createGain();
+    rollGain.gain.value = 0;
+    rollNode.connect(rollFilter);
+    rollFilter.connect(rollGain);
+    rollGain.connect(masterGain);
+    rollNode.start();
+  }
+
+  function roll(speed) {
+    if (!speed || speed < 0.05) {
+      _rollTarget = 0;
+    } else {
+      const norm = Math.min(1, speed / 10);
+      _rollTarget = norm * 0.08;
+      try {
+        const ac = _ctx();
+        _ensureRollNode(ac);
+        rollFilter.frequency.setTargetAtTime(140 + norm * 200, ac.currentTime, 0.1);
+      } catch(e) {}
+    }
+    if (rollGain) {
+      const cur = rollGain.gain.value;
+      rollGain.gain.value = cur + (_rollTarget - cur) * 0.12;
+    }
+  }
+
+  return { cueHit, ballHit, cushion, pocket, roll };
+})();
 
 function poolSetupBalls() {
   POOL.balls = [];
@@ -598,76 +840,40 @@ function pool3DBuildBalls(THREE, scene, tw3, th3) {
   const r3 = POOL.BALL_R * P3.SCALE;
   P3.ballMeshes = [];
 
-  // UK pool colours: 0=white, 1-7=red, 8=black, 9-15=yellow
-  // Solid colour balls — no numbers, no stripes
-  function makeBallTex(id) {
-    const sz = 256, cx = 128, cy = 128, cr = 118;
-    const bc = document.createElement('canvas');
-    bc.width = bc.height = sz;
-    const ctx = bc.getContext('2d');
-
-    // Base colour
-    let hex;
-    if      (id === 0)           hex = '#ffffff';
-    else if (id >= 1 && id <= 7) hex = '#cc1111';
-    else if (id === 8)           hex = '#111111';
-    else                         hex = '#e8c010';
-
-    // Parse to get a slightly lighter and darker shade of the SAME colour
-    const r = parseInt(hex.slice(1,3),16);
-    const g = parseInt(hex.slice(3,5),16);
-    const b = parseInt(hex.slice(5,7),16);
-    // Lighter (highlight side)
-    const rl = Math.min(255,r+72), gl = Math.min(255,g+72), bl = Math.min(255,b+72);
-    // Darker (shadow side) — never pure black, always tinted
-    const rd = Math.max(0,Math.floor(r*0.30)), gd = Math.max(0,Math.floor(g*0.30)), bd = Math.max(0,Math.floor(b*0.30));
-
-    // Base shading — light from top-left
-    const base = ctx.createRadialGradient(
-      cx - cr*0.28, cy - cr*0.30, cr*0.02,
-      cx + cr*0.12, cy + cr*0.12, cr*1.10
-    );
-    base.addColorStop(0,    'rgb('+rl+','+gl+','+bl+')');
-    base.addColorStop(0.30, hex);
-    base.addColorStop(0.75, hex);
-    base.addColorStop(1,    'rgb('+rd+','+gd+','+bd+')');
-    ctx.beginPath(); ctx.arc(cx,cy,cr,0,Math.PI*2);
-    ctx.fillStyle = base; ctx.fill();
-
-    // Soft shadow wash — bottom-right, no black, just darker tint
-    const shadow = ctx.createRadialGradient(cx+cr*0.25, cy+cr*0.30, cr*0.05, cx+cr*0.25, cy+cr*0.30, cr*1.05);
-    shadow.addColorStop(0,   'rgba(0,0,0,0)');
-    shadow.addColorStop(0.55,'rgba(0,0,0,0)');
-    shadow.addColorStop(1,   'rgba(0,0,0,0.18)');
-    ctx.beginPath(); ctx.arc(cx,cy,cr,0,Math.PI*2);
-    ctx.fillStyle = shadow; ctx.fill();
-
-    // Primary specular — large soft highlight top-left
-    const hi = ctx.createRadialGradient(cx-cr*0.32, cy-cr*0.34, 0, cx-cr*0.32, cy-cr*0.34, cr*0.42);
-    hi.addColorStop(0,   'rgba(255,255,255,0.90)');
-    hi.addColorStop(0.35,'rgba(255,255,255,0.40)');
-    hi.addColorStop(1,   'rgba(255,255,255,0)');
-    ctx.beginPath(); ctx.arc(cx,cy,cr,0,Math.PI*2);
-    ctx.fillStyle = hi; ctx.fill();
-
-    // Tiny sharp glint
-    const glint = ctx.createRadialGradient(cx-cr*0.10, cy-cr*0.52, 0, cx-cr*0.10, cy-cr*0.52, cr*0.09);
-    glint.addColorStop(0,  'rgba(255,255,255,0.80)');
-    glint.addColorStop(1,  'rgba(255,255,255,0)');
-    ctx.fillStyle = glint;
-    ctx.beginPath(); ctx.arc(cx-cr*0.10, cy-cr*0.52, cr*0.09, 0, Math.PI*2); ctx.fill();
-
-    return bc;
-  }
+  // UK pool colours — pure solid colours, NO canvas texture.
+  // A texture map bakes lighting into the UV and creates visible dark patches
+  // as the sphere rotates. Using plain MeshStandardMaterial with color only
+  // means Three.js scene lighting handles all shading dynamically — no artefacts.
+  const BALL_COLORS = [
+    0xf5f5f0,  // 0  cue  — off-white
+    0xcc1111,  // 1  red
+    0xcc1111,  // 2  red
+    0xcc1111,  // 3  red
+    0xcc1111,  // 4  red
+    0xcc1111,  // 5  red
+    0xcc1111,  // 6  red
+    0xcc1111,  // 7  red
+    0x111111,  // 8  black
+    0xe8c010,  // 9  yellow
+    0xe8c010,  // 10 yellow
+    0xe8c010,  // 11 yellow
+    0xe8c010,  // 12 yellow
+    0xe8c010,  // 13 yellow
+    0xe8c010,  // 14 yellow
+    0xe8c010,  // 15 yellow
+  ];
 
   for (let id = 0; id <= 15; id++) {
-    const tex = new THREE.CanvasTexture(makeBallTex(id));
-    const geo = new THREE.SphereGeometry(r3, 32, 24);
+    const geo = new THREE.SphereGeometry(r3, 48, 36);
     const mat = new THREE.MeshStandardMaterial({
-      map: tex, roughness: 0.08, metalness: 0.04,
+      color:     BALL_COLORS[id],
+      roughness: id === 0 ? 0.10 : 0.12,   // cue ball slightly glossier
+      metalness: 0.0,
+      envMapIntensity: 1.0,
     });
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.castShadow = true;
+    mesh.castShadow    = true;
+    mesh.receiveShadow = false;
     mesh.position.set(0, r3, 0);
     mesh.visible = false;
     scene.add(mesh);
@@ -677,7 +883,7 @@ function pool3DBuildBalls(THREE, scene, tw3, th3) {
 
 function pool3DBuildCue(THREE, scene) {
   const S = P3.SCALE;
-  const CUE_LEN = 160 * S;
+  const CUE_LEN = 320 * S;
   const pts = [];
   for (let i = 0; i <= 20; i++) {
     const t = i / 20;
@@ -776,14 +982,16 @@ function poolHandleMove(mx, my, screenX, screenY) {
         // Convert 3D hit back to 2D physics coords
         const hitX2d = target.x / S;
         const hitZ2d = target.z / S;
-        const dx = hitX2d - POOL.cueBall.x;
-        const dy = hitZ2d - POOL.cueBall.y;
+        // Cue sits on the OPPOSITE side of the ball from the mouse.
+        // Angle points FROM mouse TOWARD ball so cue is behind ball, tip at ball.
+        const dx = POOL.cueBall.x - hitX2d;
+        const dy = POOL.cueBall.y - hitZ2d;
         POOL.aimAngle = Math.atan2(dy, dx);
       }
     } else {
-      // Fallback: plain 2D canvas coords
-      const dx = mx - POOL.cueBall.x;
-      const dy = my - POOL.cueBall.y;
+      // Fallback: plain 2D canvas coords — angle FROM mouse TOWARD ball
+      const dx = POOL.cueBall.x - mx;
+      const dy = POOL.cueBall.y - my;
       POOL.aimAngle = Math.atan2(dy, dx);
     }
 
@@ -947,7 +1155,7 @@ function poolDraw() {
         : (locked ? (POOL.oppCue?.pullback || 0) : 0);
 
       const TIP_GAP     = (POOL.BALL_R + 2) * S;
-      const CUE_LEN     = 160 * S;
+      const CUE_LEN     = 320 * S;
       const PULLBACK_MAX = 50 * S;
       const pullDist    = pullback * PULLBACK_MAX;
       const tipDist     = TIP_GAP + pullDist;
@@ -971,9 +1179,12 @@ function poolDraw() {
       // Cue stays nearly flat on the felt, butt rises to clear rail on pullback
       const _tYc    = (P3.tableY    !== undefined) ? P3.tableY    : 0;
       const _railY  = (P3.tableRailY !== undefined) ? P3.tableRailY : _tYc + r3 * 4;
-      const finalTipY  = _tYc + r3 * 1.1;
+      // Tip sits just above the ball equator; butt always above felt even at rest
+      const finalTipY  = _tYc + r3 * 1.15;
       const risePhase  = Math.min(1, pullback / 0.6);
-      const finalButtY = finalTipY + (_railY - _tYc + r3 * 0.5) * risePhase;
+      // At rest (risePhase=0) butt is slightly raised to avoid clipping the rail/felt
+      const minButtLift = r3 * 2.5;
+      const finalButtY = finalTipY + minButtLift + (_railY - _tYc + r3 * 0.5) * risePhase;
 
       const buttDir = new THREE.Vector3(
         buttX3 - tipX3,
@@ -1040,6 +1251,20 @@ function poolDraw() {
     }
   }
 
+  // Rolling rumble — modulated by fastest moving ball
+  if (POOL.isMoving) {
+    let maxSpd = 0;
+    POOL.balls.forEach(b => {
+      if (!b.potted) {
+        const spd = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+        if (spd > maxSpd) maxSpd = spd;
+      }
+    });
+    try { POOL_SFX.roll(maxSpd); } catch(e) {}
+  } else {
+    try { POOL_SFX.roll(0); } catch(e) {}
+  }
+
   P3.renderer.render(P3.scene, P3.camera);
 }
 
@@ -1101,6 +1326,7 @@ function poolPhysicsSubStep(balls, r, tw, th, pr, gap, cushionY, cushionX, midTo
       const nearCornerTR = b.x > tw - pr - gap;
       if (!nearMidTop && !nearCornerTL && !nearCornerTR) {
         b.y = cushionY;
+        try { POOL_SFX.cushion(Math.abs(b.vy)); } catch(e) {}
         b.vy = Math.abs(b.vy) * POOL.CUSHION_RESTITUTION;
         b.vx *= POOL.CUSHION_RESTITUTION;
         b.sliding = true; b.spin = 0;
@@ -1113,6 +1339,7 @@ function poolPhysicsSubStep(balls, r, tw, th, pr, gap, cushionY, cushionX, midTo
       const nearCornerBR = b.x > tw - pr - gap;
       if (!nearMidBot && !nearCornerBL && !nearCornerBR) {
         b.y = th - cushionY;
+        try { POOL_SFX.cushion(Math.abs(b.vy)); } catch(e) {}
         b.vy = -Math.abs(b.vy) * POOL.CUSHION_RESTITUTION;
         b.vx *= POOL.CUSHION_RESTITUTION;
         b.sliding = true; b.spin = 0;
@@ -1124,6 +1351,7 @@ function poolPhysicsSubStep(balls, r, tw, th, pr, gap, cushionY, cushionX, midTo
       const nearCornerBot = b.y > th - pr - gap;
       if (!nearCornerTop && !nearCornerBot) {
         b.x = cushionX;
+        try { POOL_SFX.cushion(Math.abs(b.vx)); } catch(e) {}
         b.vx = Math.abs(b.vx) * POOL.CUSHION_RESTITUTION;
         b.vy *= POOL.CUSHION_RESTITUTION;
         b.sliding = true; b.spin = 0;
@@ -1135,6 +1363,7 @@ function poolPhysicsSubStep(balls, r, tw, th, pr, gap, cushionY, cushionX, midTo
       const nearCornerBot = b.y > th - pr - gap;
       if (!nearCornerTop && !nearCornerBot) {
         b.x = tw - cushionX;
+        try { POOL_SFX.cushion(Math.abs(b.vx)); } catch(e) {}
         b.vx = -Math.abs(b.vx) * POOL.CUSHION_RESTITUTION;
         b.vy *= POOL.CUSHION_RESTITUTION;
         b.sliding = true; b.spin = 0;
@@ -1194,6 +1423,7 @@ function poolPhysicsStep() {
           const imp = dot * restitution;
           a.vx -= imp * nx; a.vy -= imp * ny;
           b.vx += imp * nx; b.vy += imp * ny;
+          try { POOL_SFX.ballHit(imp); } catch(e) {}
 
           // Both balls enter sliding state after impact (spin disrupted)
           a.spin = 0; a.sliding = true;
@@ -1230,6 +1460,7 @@ function poolPhysicsStep() {
         if (dx2*dx2 + dy2*dy2 < pocketThreshSq) {
           ball.potted = true;
           ball.vx = 0; ball.vy = 0; ball.spin = 0;
+          try { POOL_SFX.pocket(); } catch(e) {}
           newlyPotted.push(ball.id);
         }
       });
@@ -1493,6 +1724,7 @@ async function poolFireShot() {
   // perpendicular offset of aim line to ball centre (side-spin source)
   const perpOffset = (-Math.sin(angle) * dx + Math.cos(angle) * dy);
   const sideSpin = (perpOffset / (POOL.BALL_R * 2)) * speed * 1.2; // scaled spin
+  try { POOL_SFX.cueHit(power / 100); } catch(e) {}
   cb.vx = Math.cos(angle) * speed;
   cb.vy = Math.sin(angle) * speed;
   cb.spin = 0;        // ball starts with NO spin — pure sliding skid on hit
