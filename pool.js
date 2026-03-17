@@ -891,7 +891,7 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
           // correctly occlude the markings and the markings never poke through balls.
           mesh.position.set(
             (P3.feltMinX + P3.feltMaxX) * 0.5,
-            tY + 0.02,
+            tY + 0.17,
             (P3.feltMinZ + P3.feltMaxZ) * 0.5
           );
           scene.add(mesh);
