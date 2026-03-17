@@ -826,61 +826,70 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
         P3.tableModel = model;
 
         // ── UK Pool table markings overlay ───────────────────────
-        // A transparent plane sized to the play area, floated just above the felt.
-        // Drawn fresh here using the computed bounds so proportions are exact.
+        // Transparent plane exactly covering the play area.
+        // depthTest:false ensures it is always visible regardless of camera angle.
         (function() {
-          const pW  = P3.feltMaxX - P3.feltMinX;  // table length in 3D units
-          const pD  = P3.feltMaxZ - P3.feltMinZ;  // table width  in 3D units
-          const tY  = (P3.tableY !== undefined ? P3.tableY : 0);
+          const pW = P3.feltMaxX - P3.feltMinX;
+          const pD = P3.feltMaxZ - P3.feltMinZ;
+          const tY = (P3.tableY !== undefined ? P3.tableY : 0);
 
-          // High-res canvas: X maps to table length, Y maps to table width
           const mc  = document.createElement('canvas');
-          mc.width  = 1024; mc.height = 512;
+          mc.width  = 2048; mc.height = 1024;
           const ctx = mc.getContext('2d');
-          const MW  = 1024, MH = 512;
+          const MW  = 2048, MH = 1024;
 
           ctx.clearRect(0, 0, MW, MH);
-          ctx.strokeStyle = 'rgba(255,255,255,0.90)';
-          ctx.fillStyle   = 'rgba(255,255,255,0.90)';
-          ctx.lineCap     = 'round';
-          ctx.lineWidth   = 3.5;
 
-          // WEPF standard proportions (table length = MW):
-          // Baulk line at 29% from baulk end.
-          // Cue ball starts at TW*0.25 in physics → matches ~25% of table length.
-          // Canvas X=0 = feltMinX (baulk end), X=MW = feltMaxX (rack end).
-          const bx = MW * 0.29;
-          // Baulk line — full width
+          // All markings: white
+          ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+          ctx.fillStyle   = 'rgba(255,255,255,0.92)';
+          ctx.lineCap = 'round';
+
+          // ── Proportions from WEPF / image reference ──────────────
+          // Physics: TW=700, cue ball at TW*0.25=175, rack at TW*0.65=455
+          // Baulk line: 25% from baulk end (matches cue ball start zone)
+          // D: opens toward baulk end (LEFT in canvas), radius ~20% of table half-width
+          // Spots along centre line: baulk(25%), pyramid(50%), black(62.5%), pink(75%)
+
+          const bx  = MW * 0.25;   // baulk line X
+          const cy  = MH * 0.5;    // vertical centre
+          const dR  = MH * 0.38;   // D radius — matches reference (~38% of table width)
+
+          // Baulk line — full width of table
+          ctx.lineWidth = 5;
           ctx.beginPath(); ctx.moveTo(bx, 0); ctx.lineTo(bx, MH); ctx.stroke();
 
-          // D semicircle — opens toward rack end (positive X), radius = 11.5% of length
-          const dR = MW * 0.115;
+          // D semicircle — opens toward baulk end (LEFT, negative X direction)
+          // Arc from +90° to +270° (left-opening semicircle)
+          ctx.lineWidth = 5;
           ctx.beginPath();
-          ctx.arc(bx, MH * 0.5, dR, -Math.PI / 2, Math.PI / 2);
+          ctx.arc(bx, cy, dR, Math.PI / 2, (3 * Math.PI) / 2);
           ctx.stroke();
 
-          // Spots — filled circles
-          // Baulk spot (centre of D)
-          ctx.beginPath(); ctx.arc(bx, MH * 0.5, 6, 0, Math.PI * 2); ctx.fill();
-          // Centre spot
-          ctx.beginPath(); ctx.arc(MW * 0.50, MH * 0.5, 5, 0, Math.PI * 2); ctx.fill();
-          // Black spot (59% from baulk end)
-          ctx.beginPath(); ctx.arc(MW * 0.59, MH * 0.5, 6, 0, Math.PI * 2); ctx.fill();
+          // Spots along centre line (filled circles, 10px radius in 2048-wide canvas)
+          const sp = 10;
+          // Baulk spot — centre of D (on the baulk line)
+          ctx.beginPath(); ctx.arc(bx, cy, sp, 0, Math.PI * 2); ctx.fill();
+          // Pyramid spot — 50% (centre of table)
+          ctx.beginPath(); ctx.arc(MW * 0.50, cy, sp, 0, Math.PI * 2); ctx.fill();
+          // Black spot — 62.5%
+          ctx.beginPath(); ctx.arc(MW * 0.625, cy, sp, 0, Math.PI * 2); ctx.fill();
+          // Pink spot — 75%
+          ctx.beginPath(); ctx.arc(MW * 0.75, cy, sp, 0, Math.PI * 2); ctx.fill();
 
           const geo = new THREE.PlaneGeometry(pW, pD);
           const mat = new THREE.MeshBasicMaterial({
-            map:            new THREE.CanvasTexture(mc),
-            transparent:    true,
-            depthWrite:     false,
-            polygonOffset:  true,
-            polygonOffsetFactor: -4,
-            polygonOffsetUnits:  -4,
+            map:         new THREE.CanvasTexture(mc),
+            transparent: true,
+            depthWrite:  false,
+            depthTest:   false,   // always visible regardless of camera angle
           });
           const mesh = new THREE.Mesh(geo, mat);
           mesh.rotation.x = -Math.PI / 2;
+          mesh.renderOrder = 1;   // render after opaque geometry
           mesh.position.set(
             (P3.feltMinX + P3.feltMaxX) * 0.5,
-            tY + 0.005,
+            tY + 0.01,
             (P3.feltMinZ + P3.feltMaxZ) * 0.5
           );
           scene.add(mesh);
