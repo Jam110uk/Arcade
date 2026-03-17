@@ -13,10 +13,10 @@ const POOL = {
   //   sliding decel = MU_SLIDE * G  (strong, ~0.2 in SI units)
   //   rolling decel = MU_ROLL  * G  (weak,  ~0.016 in SI units)
   // Scaled to table units where 1 unit ≈ 3.6mm, 60fps
-  MU_SLIDE: 0.032,         // sliding friction decel per frame (px/frame²)
-  MU_ROLL:  0.0018,        // rolling friction decel per frame (px/frame²)
-  MIN_SPEED: 0.05,         // stop threshold
-  CUSHION_RESTITUTION: 0.80, // energy retained on cushion bounce
+  MU_SLIDE: 0.018,         // sliding friction decel per sub-step
+  MU_ROLL:  0.00042,       // rolling friction — low so balls glide to a natural stop
+  MIN_SPEED: 0.012,        // small so balls coast all the way to rest
+  CUSHION_RESTITUTION: 0.82, // energy retained on cushion bounce
 
   canvas: null,
   ctx: null,
@@ -598,47 +598,76 @@ function pool3DBuildBalls(THREE, scene, tw3, th3) {
   const r3 = POOL.BALL_R * P3.SCALE;
   P3.ballMeshes = [];
 
-  for (let id = 0; id <= 15; id++) {
-    // Draw ball onto a canvas for texture
-    const sz = 128;
+  // UK pool: 0=white, 1-7=red, 8=black, 9-15=yellow
+  // All balls are solid colour — no numbers, no stripes
+  function makeBallTexture(id) {
+    const sz = 256;
     const bc = document.createElement('canvas');
     bc.width = bc.height = sz;
-    const bctx = bc.getContext('2d');
-    const color = POOL.BALL_COLORS[id];
-    const cx = sz/2, cy = sz/2, cr = sz*0.48;
+    const ctx = bc.getContext('2d');
+    const cx = sz/2, cy = sz/2, cr = sz * 0.47;
 
-    if (id === 0) {
-      // Cue ball
-      const g = bctx.createRadialGradient(cx-cr*0.28,cy-cr*0.32,cr*0.04, cx+cr*0.05,cy,cr*1.05);
-      g.addColorStop(0,'#ffffff'); g.addColorStop(0.6,'#d8d8d8'); g.addColorStop(1,'#aaaaaa');
-      bctx.fillStyle=g; bctx.beginPath(); bctx.arc(cx,cy,cr,0,Math.PI*2); bctx.fill();
-    } else if (id >= 9) {
-      // Stripe
-      bctx.fillStyle='#eeeeee'; bctx.beginPath(); bctx.arc(cx,cy,cr,0,Math.PI*2); bctx.fill();
-      bctx.fillStyle=color; bctx.fillRect(cx-cr,cy-cr*0.4,cr*2,cr*0.8);
-    } else {
-      // Solid
-      const g = bctx.createRadialGradient(cx-cr*0.3,cy-cr*0.3,cr*0.04, cx,cy,cr*1.05);
-      g.addColorStop(0,'rgba(255,255,255,0.5)'); g.addColorStop(0.3,color); g.addColorStop(1,'rgba(0,0,0,0.85)');
-      bctx.fillStyle=g; bctx.beginPath(); bctx.arc(cx,cy,cr,0,Math.PI*2); bctx.fill();
-    }
-    if (id > 0) {
-      // Number circle
-      bctx.fillStyle='rgba(255,255,255,0.95)';
-      bctx.beginPath(); bctx.arc(cx,cy,cr*0.38,0,Math.PI*2); bctx.fill();
-      bctx.fillStyle='#111';
-      bctx.font=`bold ${Math.round(cr*(id>=10?0.5:0.62))}px Arial`;
-      bctx.textAlign='center'; bctx.textBaseline='middle';
-      bctx.fillText(id, cx, cy+cr*0.03);
-    }
-    // Specular highlight
-    bctx.beginPath(); bctx.arc(cx-cr*0.28,cy-cr*0.28,cr*0.2,0,Math.PI*2);
-    bctx.fillStyle='rgba(255,255,255,0.55)'; bctx.fill();
+    // Base colour
+    let baseHex;
+    if      (id === 0)           baseHex = '#ffffff';
+    else if (id >= 1 && id <= 7) baseHex = '#cc1111';
+    else if (id === 8)           baseHex = '#111111';
+    else                         baseHex = '#e8c010';
 
-    const tex = new THREE.CanvasTexture(bc);
+    const br = parseInt(baseHex.slice(1,3),16);
+    const bg = parseInt(baseHex.slice(3,5),16);
+    const bb = parseInt(baseHex.slice(5,7),16);
+    const lr = Math.min(255, br+60), lg = Math.min(255, bg+60), lb = Math.min(255, bb+60);
+    const dr = Math.floor(br*0.28),  dg = Math.floor(bg*0.28),  db = Math.floor(bb*0.28);
+
+    // Base radial shading — light top-left, dark bottom-right
+    const baseGrad = ctx.createRadialGradient(
+      cx - cr*0.25, cy - cr*0.28, cr*0.02,
+      cx + cr*0.10, cy + cr*0.10, cr*1.15
+    );
+    baseGrad.addColorStop(0,    'rgb('+lr+','+lg+','+lb+')');
+    baseGrad.addColorStop(0.35, baseHex);
+    baseGrad.addColorStop(0.78, baseHex);
+    baseGrad.addColorStop(1,    'rgb('+dr+','+dg+','+db+')');
+    ctx.beginPath(); ctx.arc(cx,cy,cr,0,Math.PI*2);
+    ctx.fillStyle = baseGrad; ctx.fill();
+
+    // Soft shadow on bottom-right
+    const shadowGrad = ctx.createRadialGradient(
+      cx+cr*0.3, cy+cr*0.35, cr*0.1,
+      cx+cr*0.3, cy+cr*0.35, cr*1.1
+    );
+    shadowGrad.addColorStop(0,   'rgba(0,0,0,0)');
+    shadowGrad.addColorStop(0.5, 'rgba(0,0,0,0)');
+    shadowGrad.addColorStop(1,   'rgba(0,0,0,0.45)');
+    ctx.beginPath(); ctx.arc(cx,cy,cr,0,Math.PI*2);
+    ctx.fillStyle = shadowGrad; ctx.fill();
+
+    // Primary specular highlight — bright spot top-left
+    const hx = cx - cr*0.30, hy = cy - cr*0.32;
+    const hiGrad = ctx.createRadialGradient(hx,hy,0, hx,hy, cr*0.38);
+    hiGrad.addColorStop(0,   'rgba(255,255,255,0.92)');
+    hiGrad.addColorStop(0.3, 'rgba(255,255,255,0.45)');
+    hiGrad.addColorStop(1,   'rgba(255,255,255,0)');
+    ctx.beginPath(); ctx.arc(cx,cy,cr,0,Math.PI*2);
+    ctx.fillStyle = hiGrad; ctx.fill();
+
+    // Tiny secondary glint
+    const gx2 = cx - cr*0.08, gy2 = cy - cr*0.50;
+    const glint = ctx.createRadialGradient(gx2,gy2,0, gx2,gy2, cr*0.10);
+    glint.addColorStop(0, 'rgba(255,255,255,0.70)');
+    glint.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = glint;
+    ctx.beginPath(); ctx.arc(gx2,gy2,cr*0.10,0,Math.PI*2); ctx.fill();
+
+    return bc;
+  }
+
+  for (let id = 0; id <= 15; id++) {
+    const tex = new THREE.CanvasTexture(makeBallTexture(id));
     const geo = new THREE.SphereGeometry(r3, 32, 24);
     const mat = new THREE.MeshStandardMaterial({
-      map: tex, roughness: 0.12, metalness: 0.08,
+      map: tex, roughness: 0.08, metalness: 0.04,
     });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.castShadow = true;
@@ -946,8 +975,10 @@ function poolDraw() {
       const _tYc    = (P3.tableY    !== undefined) ? P3.tableY    : 0;
       const _railY  = (P3.tableRailY !== undefined) ? P3.tableRailY : _tYc + r3 * 4;
       const finalTipY  = _tYc + r3 * 1.1;
+      // minLift keeps the butt above the rail even at rest (no clipping)
+      const minLift    = (_railY - _tYc) * 0.25;
       const risePhase  = Math.min(1, pullback / 0.6);
-      const finalButtY = finalTipY + (_railY - _tYc + r3 * 0.5) * risePhase;
+      const finalButtY = finalTipY + minLift + (_railY - _tYc + r3 * 0.5 - minLift) * risePhase;
 
       const buttDir = new THREE.Vector3(
         buttX3 - tipX3,
@@ -1133,7 +1164,8 @@ function poolPhysicsStep() {
   const cushionX = pr + r;
   const midTopX  = tw / 2;
   const midBotX  = tw / 2;
-  const SUB = 3; // sub-steps per frame
+  const maxSpeed = POOL.balls.reduce((m, b) => Math.max(m, Math.sqrt(b.vx*b.vx+b.vy*b.vy)), 0);
+  const SUB = maxSpeed > 8 ? 5 : maxSpeed > 3 ? 4 : 3;
   const newlyPotted = [];
 
   for (let s = 0; s < SUB; s++) {
