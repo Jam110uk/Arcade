@@ -548,123 +548,131 @@ export default (() => {
     mesh.receiveShadow = true;
     scene.add(mesh);
 
-    // Start kinematic — won't fall until pusher moves them past release line
-    const body = new CANNON.Body({
-      mass: 0,
-      type: CANNON.Body.KINEMATIC,
-      linearDamping: 0.99,
-      angularDamping: 0.99
-    });
-    body.addShape(new CANNON.Box(new CANNON.Vec3(BONUS_W/2, BONUS_W/2, BONUS_D/2)));
-    body.position.set(x, y, z);
-    world.addBody(body);
-    // shelf is set by caller via obj.shelf after creation
-    const obj = { mesh, body, type:'bonus', value:b.value, label:b.label,
-                  emoji:b.emoji, col:b.col, shelf:'upper', isKinematic:true };
+    // body assigned later via attachBonusToPusher; shelf set by caller
+    const obj = { mesh, body:null, proxy:null, type:'bonus', value:b.value, label:b.label,
+                  emoji:b.emoji, col:b.col, shelf:'upper', isParented:false };
     coinBodies.push(obj);
     return obj;
   }
 
-  // ── Seed shelves with initial coins ───────────────────────────────────────
-  // Coins sit on TOP of the pusher plate and are stacked from FRONT to BACK.
-  // Row 0 is nearest the front lip — subsequent rows go back toward the wall.
-  // The whole stack rides with the pusher as one unit.
-  // Bonus tokens sit on top of the coin layer.
-  // Coins only fall when new player-dropped coins push them forward past the lip.
-  function seedCoins() {
-    const hw    = MW/2 - CR*1.7;    // x half-range (clear of side walls)
-    const stepX = CR * 2.08;         // column pitch
-    const stepZ = CR * 2.08;         // row pitch (Z)
+  // Parent a bonus to a pusher and add a proximity proxy
+  function attachBonusToPusher(obj, x, y, z) {
+    const pusherMesh = obj.shelf === 'upper' ? upperPusherMesh : lowerPusherMesh;
+    pusherMesh.updateMatrixWorld(true);
+    const localPos = pusherMesh.worldToLocal(new THREE.Vector3(x, y, z));
+    obj.mesh.position.copy(localPos);
+    pusherMesh.add(obj.mesh);
+    obj.isParented = true;
+    const proxy = new CANNON.Body({ mass: 0 });
+    proxy.addShape(new CANNON.Box(new CANNON.Vec3(BONUS_W/2, BONUS_W/2, BONUS_D/2)));
+    proxy.position.set(x, y, z);
+    world.addBody(proxy);
+    obj.proxy = proxy;
+  }
 
-    // ── UPPER PUSHER ─────────────────────────────────────────────────────────
-    // Pusher at rest: front face Z = U_PUSH_BACK + U_PUSH_HD = -0.748
-    //                back  face Z = U_PUSH_BACK - U_PUSH_HD = -2.953
-    // Back wall at Z = -1.600, so rearmost coin row = max(-1.340, pusher_back+CR)
-    const uY      = UPPER_TOP + PUSH_H + CT/2 + 0.003;
-    const uFront0 = U_PUSH_BACK + U_PUSH_HD - CR - 0.04; // front row Z (closest to lip)
-    const uZback  = Math.max(-MD/2 + WT + CR + 0.02, U_PUSH_BACK - U_PUSH_HD + CR);
+  // ── Seed shelves with initial coins ───────────────────────────────────────
+  // Coins sit ON TOP OF THE PUSHER PLATE, not on the shelf surface.
+  // The pusher slides underneath them. They can only fall off when player-added
+  // coins push them forward past the front lip of the pusher.
+  //
+  // Coin Y = pusherTop + CT/2  (resting on top face of pusher)
+  // Coin Z = within [pusherBackFace+CR, pusherFrontFace-CR] at rest position
+  // The pusher back face at rest always extends behind the back wall, so coins
+  // near the back are always supported regardless of pusher position.
+  function seedCoins() {
+    const hw   = MW/2 - CR*1.6;
+    const stepX = CR * 2.08;
+    const stepZ = CR * 2.08;
+
+    // ── UPPER PUSHER ────────────────────────────────────────────────────────
+    // Pusher at rest: back face = U_PUSH_BACK - U_PUSH_HD = -2.953
+    //                front face = U_PUSH_BACK + U_PUSH_HD = -0.748
+    // Coin Z range on pusher: [-2.953+CR .. -0.748-CR] = [-2.693 .. -1.008]
+    // But back wall is at -1.600, so actual back limit = -1.600+CR = -1.340
+    const uY      = UPPER_TOP + PUSH_H + CT/2 + 0.003; // on top of pusher
+    const uZback  = Math.max(-MD/2 + WT + CR + 0.02,   // back wall limit
+                             U_PUSH_BACK - U_PUSH_HD + CR); // pusher back face
+    const uZfront = U_PUSH_BACK + U_PUSH_HD - CR - 0.05; // pusher front face at rest minus margin
     const uCols   = Math.floor((hw*2) / stepX);
-    const uRows   = Math.max(1, Math.floor((uFront0 - uZback) / stepZ) + 1);
+    const uRows   = Math.max(1, Math.floor((uZfront - uZback) / stepZ));
 
     for (let col = 0; col < uCols; col++) {
       for (let row = 0; row < uRows; row++) {
-        // row 0 = frontmost, increasing rows go toward back wall
-        const x = -hw + CR + col*stepX + (Math.random()-0.5)*CR*0.08;
-        const z = uFront0 - row*stepZ  + (Math.random()-0.5)*CR*0.08;
-        if (z < uZback) continue;
+        const x = -hw + CR + col*stepX + (Math.random()-0.5)*CR*0.1;
+        const z = uZback + row*stepZ   + (Math.random()-0.5)*CR*0.1;
         spawnStillCoin(x, uY, z, 'upper');
       }
     }
-    // Layer 2 — honeycomb on top, same Z range
+    // Second layer across back half
+    const uRows2 = Math.max(1, Math.floor(uRows * 0.5));
     for (let col = 0; col < uCols-1; col++) {
-      for (let row = 0; row < uRows-1; row++) {
-        const x = -hw + CR + col*stepX + stepX*0.5 + (Math.random()-0.5)*CR*0.06;
-        const z = uFront0 - row*stepZ - stepZ*0.5  + (Math.random()-0.5)*CR*0.06;
-        if (z < uZback) continue;
+      for (let row = 0; row < uRows2; row++) {
+        const x = -hw + CR + col*stepX + stepX*0.5 + (Math.random()-0.5)*CR*0.08;
+        const z = uZback + row*stepZ               + (Math.random()-0.5)*CR*0.08;
         spawnStillCoin(x, uY + CT*1.02, z, 'upper');
       }
     }
-    // Bonus tokens on top of upper coin stack
-    spawnBonus(-MW*0.25, uY + CT*2.1 + 0.12, uFront0 - stepZ*(Math.floor(uRows*0.3)), 0);
-    spawnBonus( MW*0.25, uY + CT*2.1 + 0.12, uFront0 - stepZ*(Math.floor(uRows*0.6)), 1);
 
-    // ── LOWER PUSHER ─────────────────────────────────────────────────────────
-    // Pusher at rest: front face Z = L_PUSH_BACK + L_PUSH_HD = -0.050
-    //                back  face Z = L_PUSH_BACK - L_PUSH_HD = -3.650 (behind back wall)
+    // ── LOWER PUSHER ────────────────────────────────────────────────────────
+    // Pusher at rest: back face = L_PUSH_BACK - L_PUSH_HD = -3.650 (behind wall)
+    //                front face = L_PUSH_BACK + L_PUSH_HD = -0.050
+    // Back wall at -1.600, so back limit = -1.600+CR = -1.340
     const lY      = LOWER_TOP + PUSH_H + CT/2 + 0.003;
-    const lFront0 = L_PUSH_BACK + L_PUSH_HD - CR - 0.04;
-    const lZback  = Math.max(-MD/2 + WT + CR + 0.02, L_PUSH_BACK - L_PUSH_HD + CR);
+    const lZback  = Math.max(-MD/2 + WT + CR + 0.02,
+                             L_PUSH_BACK - L_PUSH_HD + CR);
+    const lZfront = L_PUSH_BACK + L_PUSH_HD - CR - 0.05;
     const lCols   = Math.floor((hw*2) / stepX);
-    const lRows   = Math.max(1, Math.floor((lFront0 - lZback) / stepZ) + 1);
+    const lRows   = Math.max(1, Math.floor((lZfront - lZback) / stepZ));
 
     for (let col = 0; col < lCols; col++) {
       for (let row = 0; row < lRows; row++) {
-        const x = -hw + CR + col*stepX + (Math.random()-0.5)*CR*0.08;
-        const z = lFront0 - row*stepZ  + (Math.random()-0.5)*CR*0.08;
-        if (z < lZback) continue;
+        const x = -hw + CR + col*stepX + (Math.random()-0.5)*CR*0.1;
+        const z = lZback + row*stepZ   + (Math.random()-0.5)*CR*0.1;
         spawnStillCoin(x, lY, z, 'lower');
       }
     }
-    // Layer 2 — honeycomb
+    // Second layer across back half
+    const lRows2 = Math.max(1, Math.floor(lRows * 0.5));
     for (let col = 0; col < lCols-1; col++) {
-      for (let row = 0; row < lRows-1; row++) {
-        const x = -hw + CR + col*stepX + stepX*0.5 + (Math.random()-0.5)*CR*0.06;
-        const z = lFront0 - row*stepZ - stepZ*0.5  + (Math.random()-0.5)*CR*0.06;
-        if (z < lZback) continue;
+      for (let row = 0; row < lRows2; row++) {
+        const x = -hw + CR + col*stepX + stepX*0.5 + (Math.random()-0.5)*CR*0.08;
+        const z = lZback + row*stepZ               + (Math.random()-0.5)*CR*0.08;
         spawnStillCoin(x, lY + CT*1.02, z, 'lower');
       }
     }
-    // Bonus tokens on top of lower coin stack
-    const lb1 = spawnBonus(-MW*0.28, lY + CT*2.1 + 0.12, lFront0 - stepZ*(Math.floor(lRows*0.2)), 2);
+
+    // ── Bonus tokens on pushers ──────────────────────────────────────────────
+    spawnBonus(-MW*0.28, uY+0.25, uZback + (uZfront-uZback)*0.35, 0);
+    spawnBonus( MW*0.28, uY+0.25, uZback + (uZfront-uZback)*0.65, 1);
+    const lb1 = spawnBonus(-MW*0.22, lY+0.25, lZback + (lZfront-lZback)*0.25, 2);
     lb1.shelf = 'lower';
-    const lb2 = spawnBonus( MW*0.28, lY + CT*2.1 + 0.12, lFront0 - stepZ*(Math.floor(lRows*0.5)), 3);
+    const lb2 = spawnBonus( MW*0.22, lY+0.25, lZback + (lZfront-lZback)*0.50, 3);
     lb2.shelf = 'lower';
-    const lb3 = spawnBonus( 0,       lY + CT*2.1 + 0.12, lFront0 - stepZ*(Math.floor(lRows*0.8)), 4);
+    const lb3 = spawnBonus( 0,       lY+0.25, lZback + (lZfront-lZback)*0.75, 4);
     lb3.shelf = 'lower';
   }
 
-  // Spawn a seed coin as a KINEMATIC body.
-  // It moves only when explicitly told to (rideWithPusher), never falls.
-  // Released to dynamic once pushed past the shelf release line.
+  // Spawn a seed coin parented to the pusher mesh — rides for free, never falls.
+  // x/y/z are world coordinates. Detaches to dynamic when a player coin strikes it.
   function spawnStillCoin(x, y, z, shelf) {
+    const pusherMesh = shelf === 'upper' ? upperPusherMesh : lowerPusherMesh;
+
     const mesh = new THREE.Mesh(new THREE.CylinderGeometry(CR, CR, CT, 16), coinMat);
     mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    scene.add(mesh);
 
-    const body = new CANNON.Body({
-      mass: 0,
-      type: CANNON.Body.KINEMATIC,
-      linearDamping: 0.99,
-      angularDamping: 0.99
-    });
-    body.addShape(new CANNON.Cylinder(CR, CR, CT, 12));
-    body.position.set(x, y, z);
-    world.addBody(body);
+    // Convert world pos → pusher local space
+    pusherMesh.updateMatrixWorld(true);
+    const localPos = pusherMesh.worldToLocal(new THREE.Vector3(x, y, z));
+    mesh.position.copy(localPos);
+    pusherMesh.add(mesh);
 
-    mesh.position.copy(body.position);
+    // Lightweight proxy body so dynamic coins can detect proximity
+    const proxy = new CANNON.Body({ mass: 0 });
+    proxy.addShape(new CANNON.Cylinder(CR, CR, CT, 8));
+    proxy.position.set(x, y, z);
+    world.addBody(proxy);
 
-    const obj = { mesh, body, type:'coin', value:2, shelf, isKinematic:true };
+    const obj = { mesh, proxy, body: null, type:'coin', value:2, shelf, isParented:true };
     coinBodies.push(obj);
     return obj;
   }
@@ -799,16 +807,14 @@ export default (() => {
     // Step physics
     world.step(1/60, dt, 3);
 
-    // Move kinematic seed coins with pusher; release to dynamic at lip
-    rideWithPusher();
+    // Detach parented seed coins when struck by a dynamic coin
+    detachNearCoins();
 
-    // Sync meshes → bodies
+    // Sync meshes → bodies (parented coins handled by Three.js automatically)
     coinBodies.forEach(obj => {
+      if (obj.isParented || !obj.body) return;
       obj.mesh.position.copy(obj.body.position);
-      if (!obj.isKinematic) {
-        obj.mesh.quaternion.copy(obj.body.quaternion);
-      }
-      // Kinematic coins keep their spawn orientation (flat on shelf)
+      obj.mesh.quaternion.copy(obj.body.quaternion);
     });
 
     // Move pusher plates — sweep back→front, stop before front lip
@@ -866,53 +872,52 @@ export default (() => {
   // cost near zero until coins are actually being pushed.
   // Release line: Z beyond which a kinematic coin becomes dynamic.
   // Slightly inside the shelf front lip so coins release just before they'd fall.
-  const U_RELEASE_Z = UPPER_SHELF_Z + UPPER_SHELF_D/2 - CR*0.8;
-  const L_RELEASE_Z = LOWER_SHELF_Z + LOWER_SHELF_D/2 - CR*0.8;
+  // Detach parented seed coins when a dynamic coin gets close enough to trigger them.
+  const DETACH_DIST_SQ = (CR * 2.6) * (CR * 2.6);
 
-  function rideWithPusher() {
-    const uFrontZ = upperPusherBody.position.z + U_PUSH_HD;
-    const lFrontZ = lowerPusherBody.position.z + L_PUSH_HD;
+  function detachNearCoins() {
+    const dynamicPositions = [];
+    coinBodies.forEach(obj => {
+      if (obj.isParented || !obj.body) return;
+      dynamicPositions.push(obj.body.position);
+    });
+    if (dynamicPositions.length === 0) return;
 
     coinBodies.forEach(obj => {
-      if (!obj.isKinematic) return;
-      const pos = obj.body.position;
-      const by  = pos.y;
-      const bz  = pos.z;
+      if (!obj.isParented) return;
 
-      // Determine which pusher governs this coin
-      // Coins on upper pusher are at UPPER_TOP+PUSH_H; lower at LOWER_TOP+PUSH_H
-      const onUpper = by >= UPPER_TOP + PUSH_H * 0.5;
-      const onLower = !onUpper;
-      const pusherFrontZ = onUpper ? uFrontZ : lFrontZ;
-      const releaseZ     = onUpper ? U_RELEASE_Z : L_RELEASE_Z;
+      // Get current world position of parented mesh
+      const worldPos = new THREE.Vector3();
+      obj.mesh.getWorldPosition(worldPos);
 
-      // Kinematic coins ride WITH the pusher — they move both forward AND back.
-      // The entire coin stack sits on top of the pusher and travels with it.
-      // Only coins that have been pushed past the release line go dynamic.
-      const pusherDz = onUpper
-        ? (upperPusherDir * PUSH_SPEED) / 60
-        : (lowerPusherDir * PUSH_SPEED * 0.82) / 60;
-      obj.body.position.z += pusherDz;
-      obj.mesh.position.z  = obj.body.position.z;
-
-      // Release to dynamic when coin reaches the front lip area
-      if (bz >= releaseZ) {
-        const p = obj.body.position.clone();
-        world.removeBody(obj.body);
-
-        const newBody = new CANNON.Body({ mass:0.18, linearDamping:0.88, angularDamping:0.95 });
-        if (obj.type === 'bonus') {
-          newBody.addShape(new CANNON.Box(new CANNON.Vec3(BONUS_W/2, BONUS_W/2, BONUS_D/2)));
-        } else {
-          newBody.addShape(new CANNON.Cylinder(CR, CR, CT, 12));
-        }
-        newBody.position.copy(p);
-        newBody.velocity.set(0, 0.2, 0.5); // small forward push over the lip
-        world.addBody(newBody);
-
-        obj.body = newBody;
-        obj.isKinematic = false;
+      // Check proximity to any dynamic coin
+      let triggered = false;
+      for (const dp of dynamicPositions) {
+        const dx = dp.x - worldPos.x, dy = dp.y - worldPos.y, dz = dp.z - worldPos.z;
+        if (dx*dx + dy*dy + dz*dz < DETACH_DIST_SQ) { triggered = true; break; }
       }
+      if (!triggered) return;
+
+      // Detach: unparent mesh, give it a dynamic physics body
+      const pusherMesh = obj.shelf === 'upper' ? upperPusherMesh : lowerPusherMesh;
+      pusherMesh.remove(obj.mesh);
+      obj.mesh.position.copy(worldPos);
+      obj.mesh.quaternion.set(0, 0, 0, 1);
+      scene.add(obj.mesh);
+
+      if (obj.proxy) { world.removeBody(obj.proxy); obj.proxy = null; }
+
+      const newBody = new CANNON.Body({ mass:0.18, linearDamping:0.88, angularDamping:0.95 });
+      if (obj.type === 'bonus') {
+        newBody.addShape(new CANNON.Box(new CANNON.Vec3(BONUS_W/2, BONUS_W/2, BONUS_D/2)));
+      } else {
+        newBody.addShape(new CANNON.Cylinder(CR, CR, CT, 12));
+      }
+      newBody.position.set(worldPos.x, worldPos.y, worldPos.z);
+      newBody.velocity.set(0, 0, 0);
+      world.addBody(newBody);
+      obj.body = newBody;
+      obj.isParented = false;
     });
   }
 
@@ -921,6 +926,7 @@ export default (() => {
     const toRemove = [];
 
     coinBodies.forEach((obj, i) => {
+      if (obj.isParented || !obj.body) return;
       const py  = obj.body.position.y;
       const vy  = obj.body.velocity.y;
 
@@ -979,9 +985,9 @@ export default (() => {
   }
 
   // ── Camera orbit state ─────────────────────────────────────────
-  let camTheta = 0;          // horizontal angle: 0 = straight front
-  let camPhi   = 0.62;       // vertical angle: ~35° above straight-on
-  let camDist  = 11.5;       // distance — shows full machine front-on
+  let camTheta = 0;          // horizontal angle (radians)
+  let camPhi   = 0.38;       // vertical angle (radians, 0=side, Pi/2=top)
+  let camDist  = MD * 3.2;   // distance from target
   let isDragging = false;
   let dragStartX = 0, dragStartY = 0;
   let dragTheta = 0, dragPhi = 0;
@@ -1151,8 +1157,13 @@ export default (() => {
     fallingBody=null; fallingMesh=null;
     // Clear all coin bodies/meshes
     coinBodies.forEach(obj => {
+      if (obj.isParented) {
+        const pm = obj.shelf === 'upper' ? upperPusherMesh : lowerPusherMesh;
+        if (pm) pm.remove(obj.mesh);
+        if (obj.proxy) world.removeBody(obj.proxy);
+      }
       scene.remove(obj.mesh);
-      world.removeBody(obj.body);
+      if (obj.body) world.removeBody(obj.body);
     });
     coinBodies.length = 0;
     upperPusherDir=1; lowerPusherDir=-1;
