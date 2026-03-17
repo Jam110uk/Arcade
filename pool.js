@@ -248,8 +248,8 @@ async function pool3DInit() {
 
   // Camera orbit state
   P3.camTheta  = 0;             // horizontal orbit angle
-  P3.camPhi    = 0.75;          // vertical tilt (0=side, PI/2=top-down)
-  P3.camDist   = tw3 * 1.2;    // distance from table centre
+  P3.camPhi    = 0.32;          // vertical tilt (0=side, PI/2=top-down)
+  P3.camDist   = tw3 * 0.85;   // distance from table centre
   P3.camTarget = null;          // set after cx3/cz3 known
   P3.isDragging = false;
   P3.dragStartX = 0; P3.dragStartY = 0;
@@ -427,9 +427,8 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
 
   // Ball mesh name patterns to strip from GLB
   const BALL_PATTERNS = [
-    /ball/i,
-    /sphere/i,
-    /^mesh\d+_group\d+_model/i,  // exact names in this GLB's ball meshes
+    /ball/i, /sphere/i, /cue.?ball/i, /^ball_?\d/i,
+    /solid/i, /stripe/i, /^[0-9]+$/,
   ];
   function looksLikeBall(name) {
     return BALL_PATTERNS.some(p => p.test(name));
@@ -458,39 +457,24 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
         const model = gltf.scene;
 
         // ── Remove ball meshes from the loaded model ──────────────
-        // Only match on the mesh's OWN name (not parent) to avoid removing
-        // table parts that happen to be inside a group named "solid" or "stripe".
-        // Also apply a size guard: skip anything larger than 20% of model width.
-        const _overallBox = new THREE.Box3().setFromObject(model);
-        const _overallSize = new THREE.Vector3();
-        _overallBox.getSize(_overallSize);
-        const _modelSpan = Math.max(_overallSize.x, _overallSize.z);
-
         const toRemove = [];
         model.traverse(node => {
           if (!node.isMesh) return;
           const name = (node.name || '').toLowerCase();
-          if (!looksLikeBall(name)) return;
-          // Size guard — balls must be small relative to the table
-          node.geometry.computeBoundingBox();
-          const bb = node.geometry.boundingBox;
-          if (bb) {
-            const s = new THREE.Vector3();
-            bb.getSize(s);
-            if (Math.max(s.x, s.y, s.z) > _modelSpan * 0.20) {
-              console.log('[pool3d] Skipping large mesh (not a ball):', node.name);
-              return;
-            }
+          const parentName = (node.parent?.name || '').toLowerCase();
+          if (looksLikeBall(name) || looksLikeBall(parentName)) {
+            toRemove.push(node);
+            console.log('[pool3d] Removing ball mesh:', node.name);
           }
-          toRemove.push(node);
-          console.log('[pool3d] Removing ball:', node.name);
         });
         toRemove.forEach(n => {
           if (n.parent) n.parent.remove(n);
           if (n.geometry) n.geometry.dispose();
-          (Array.isArray(n.material) ? n.material : [n.material]).forEach(m => m && m.dispose());
+          if (n.material) {
+            if (Array.isArray(n.material)) n.material.forEach(m=>m.dispose());
+            else n.material.dispose();
+          }
         });
-        console.log('[pool3d] Removed', toRemove.length, 'ball meshes');
 
         // ── Scale and position model to fit 2D physics coords ─────
         // Compute bounding box of the table model
@@ -514,10 +498,14 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
         const box2 = new THREE.Box3().setFromObject(model);
         const center2 = new THREE.Vector3();
         box2.getCenter(center2);
-        // box2.min is a direct Vector3 property in Three r128
+        const min2 = new THREE.Vector3();
+        box2.getMin(min2);
+
+        // Position: centre of table in XZ matches tw3/2, th3/2
+        // Bottom of playing surface aligns to Y=0
         model.position.set(
           tw3/2 - center2.x,
-          -box2.min.y,       // lift so legs sit at Y=0
+          -min2.y,           // lift so bottom of model sits at Y=0
           th3/2 - center2.z
         );
 
@@ -534,14 +522,18 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
         scene.add(model);
         P3.tableModel = model;
 
-        // Point camera at the playing surface, not the floor
-        // Surface is roughly at the top of the model (box2.max.y after positioning)
-        const _finalBox = new THREE.Box3().setFromObject(model);
-        const _surfaceY = _finalBox.max.y * 0.85; // slightly below top (cushion rails above surface)
-        P3.camTarget = { x: tw3 * 0.5, y: _surfaceY, z: th3 * 0.5 };
+        // Store the playing surface Y so poolDraw() can place balls on it.
+        // The model was lifted by -box2.min.y so legs sit at Y=0.
+        // The playing surface is the top of the model minus the cushion/rail height.
+        // Rail height is roughly 8% of total model height.
+        const _glbBox = new THREE.Box3().setFromObject(model);
+        const _glbH   = _glbBox.max.y - _glbBox.min.y;
+        P3.tableY = _glbBox.max.y - _glbH * 0.08;  // just below the rail tops = felt surface
+        // Also update camera target to look at the surface
+        P3.camTarget = { x: tw3 * 0.5, y: P3.tableY, z: th3 * 0.5 };
         if (P3.pool3DUpdateCamera) P3.pool3DUpdateCamera();
 
-        console.log('[pool3d] Pool Table.glb loaded, scale:', scale.toFixed(3), 'camTargetY:', _surfaceY.toFixed(3));
+        console.log('[pool3d] Pool Table.glb loaded, scale:', scale.toFixed(3), 'tableY:', P3.tableY.toFixed(3));
         poolDraw();
       },
       undefined,
@@ -848,7 +840,8 @@ function poolDraw() {
     if (ball.potted) { mesh.visible = false; return; }
     mesh.visible = true;
     // 2D: x→X, y→Z  (Y = ball radius off the felt)
-    mesh.position.set(ball.x * S, r3, ball.y * S);
+    const _tY = P3.tableY !== undefined ? P3.tableY : 0;
+    mesh.position.set(ball.x * S, _tY + r3, ball.y * S);
     if (ball._rollAcc) {
       const dir = Math.atan2(ball.vy || 0, ball.vx || 0);
       mesh.rotation.z =  Math.cos(dir) * ball._rollAcc;
@@ -891,7 +884,8 @@ function poolDraw() {
       // - Once past rail height: cue levels out and runs flat ABOVE the rail,
       //   with a slight downward tilt toward the ball at the tip end
       const railTop    = POOL.POCKET_R * S * 0.7;   // rail height in 3D units
-      const tipY       = r3 * 1.05;
+      const _tYc      = P3.tableY !== undefined ? P3.tableY : 0;
+      const tipY       = _tYc + r3 * 1.05;
       const clearance  = railTop + r3 * 0.5;         // butt target height above rail
 
       // Ease: rise fast 0→0.4 pullback to clear the rail, then plateau and tilt
@@ -940,7 +934,8 @@ function poolDraw() {
           const t     = (i + 0.5) * spc;
           const inRange = t <= aimLen;
           if (!inRange) { d.visible = false; return; }
-          d.position.set(cbx3 + Math.cos(angle)*t, 0.05, cbz3 + Math.sin(angle)*t);
+          const _tYd = P3.tableY !== undefined ? P3.tableY : 0;
+          d.position.set(cbx3 + Math.cos(angle)*t, _tYd + 0.05, cbz3 + Math.sin(angle)*t);
           d.rotation.y = -angle;
           // Fade toward end of line, brighter at start
           const fade  = 1 - (t / aimLen) * 0.55;
@@ -953,7 +948,8 @@ function poolDraw() {
         if (P3.aimGhost) {
           const endX = cbx3 + Math.cos(angle) * aimLen;
           const endZ = cbz3 + Math.sin(angle) * aimLen;
-          P3.aimGhost.position.set(endX, POOL.BALL_R * S, endZ);
+          const _tYg = P3.tableY !== undefined ? P3.tableY : 0;
+          P3.aimGhost.position.set(endX, _tYg + POOL.BALL_R * S, endZ);
           const ghostOpacity = locked ? 0.15 + power * 0.35 : 0.12;
           P3.aimGhost.material.opacity  = ghostOpacity;
           P3.aimGhost.material.color.setRGB(1, g3c, 0);
