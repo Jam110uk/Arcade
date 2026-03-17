@@ -483,7 +483,7 @@ export default (() => {
     mesh.rotation.z = (Math.random()-0.5)*0.3;
     scene.add(mesh);
 
-    const body = new CANNON.Body({ mass:0.005, linearDamping:0.42, angularDamping:0.65 });
+    const body = new CANNON.Body({ mass:0.025, linearDamping:0.72, angularDamping:0.85 });
     // Cylinder axis = Y by default → coin lies flat on shelf
     body.addShape(new CANNON.Cylinder(CR, CR, CT, 12));
     body.position.set(x, y, z);
@@ -495,98 +495,157 @@ export default (() => {
     return obj;
   }
 
-  // ── Spawn a bonus item (emoji sprite) ─────────────────────────
-  function spawnBonus(x, y, z) {
-    const b   = BONUSES[Math.floor(Math.random()*BONUSES.length)];
-    const tex = makeEmojiTexture(b.emoji);
-    const mat = new THREE.SpriteMaterial({ map:tex, transparent:true });
-    const spr = new THREE.Sprite(mat);
-    spr.scale.set(0.65, 0.65, 0.65);
-    spr.position.set(x, y, z);
-    scene.add(spr);
+  // ── Spawn a bonus item — 3D token with emoji face, full physics ──
+  const BONUS_W = 0.52;   // token width/height
+  const BONUS_D = 0.14;   // token depth (thin slab)
+  function spawnBonus(x, y, z, bonusIdx) {
+    const b = bonusIdx !== undefined
+      ? BONUSES[bonusIdx % BONUSES.length]
+      : BONUSES[Math.floor(Math.random()*BONUSES.length)];
 
-    const body = new CANNON.Body({ mass:0.003, linearDamping:0.55, angularDamping:0.9 });
-    body.addShape(new CANNON.Box(new CANNON.Vec3(0.22, 0.22, 0.06)));
+    // Face texture — emoji on coloured background
+    const faceSize = 256;
+    const fc = document.createElement('canvas');
+    fc.width = fc.height = faceSize;
+    const ctx = fc.getContext('2d');
+    // Rounded-rect coloured background
+    ctx.fillStyle = '#' + b.col.toString(16).padStart(6,'0');
+    ctx.beginPath();
+    ctx.roundRect(8, 8, faceSize-16, faceSize-16, 28);
+    ctx.fill();
+    // White border
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.lineWidth = 10;
+    ctx.stroke();
+    // Emoji
+    ctx.font = `${faceSize * 0.52}px serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(b.emoji, faceSize/2, faceSize/2);
+    const faceTex = new THREE.CanvasTexture(fc);
+
+    // Side texture — label text
+    const sc = document.createElement('canvas');
+    sc.width = 256; sc.height = 64;
+    const sx = sc.getContext('2d');
+    sx.fillStyle = '#' + b.col.toString(16).padStart(6,'0');
+    sx.fillRect(0,0,256,64);
+    sx.fillStyle = '#fff';
+    sx.font = 'bold 28px Arial';
+    sx.textAlign = 'center';
+    sx.textBaseline = 'middle';
+    sx.fillText(b.label, 128, 32);
+    const sideTex = new THREE.CanvasTexture(sc);
+
+    // 6-face material: front/back = emoji, sides = label colour
+    const sideMat = new THREE.MeshStandardMaterial({ map: sideTex, roughness:0.4, metalness:0.3 });
+    const faceMat = new THREE.MeshStandardMaterial({ map: faceTex, roughness:0.3, metalness:0.2 });
+    const mats = [ sideMat, sideMat, sideMat, sideMat, faceMat, faceMat ];
+
+    const geo  = new THREE.BoxGeometry(BONUS_W, BONUS_W, BONUS_D);
+    const mesh = new THREE.Mesh(geo, mats);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+
+    // Physics — same mass/damping as coins so it behaves identically
+    const body = new CANNON.Body({ mass:0.025, linearDamping:0.72, angularDamping:0.85 });
+    body.addShape(new CANNON.Box(new CANNON.Vec3(BONUS_W/2, BONUS_W/2, BONUS_D/2)));
     body.position.set(x, y, z);
+    body.velocity.set(0, 0, 0);
+    body.angularVelocity.set(0, 0, 0);
     world.addBody(body);
 
-    const obj = { mesh:spr, body, type:'bonus', value:b.value, label:b.label,
-                  emoji:b.emoji, col:b.col, shelf:'upper', bobT:Math.random()*Math.PI*2 };
+    const obj = { mesh, body, type:'bonus', value:b.value, label:b.label,
+                  emoji:b.emoji, col:b.col, shelf:'upper' };
     coinBodies.push(obj);
+    return obj;
   }
 
   // ── Seed shelves with initial coins ───────────────────────────
-  // Coins are placed only in the BACK portion of each shelf so the pusher
-  // must travel before they reach the edge. Initial velocity is zero and
-  // tilt is minimal so they settle without rolling off.
+  // Strategy:
+  //  • Layer 0 (base): grid-packed across full shelf depth including slight overhang
+  //    at front — the back rows anchor the front row so it can't fall off.
+  //  • Layers 1-2: offset half-step (honeycomb) so they nest between lower coins.
+  //  • Layer 3+ stacks on top toward the back for visual depth.
+  //  • All coins start with zero velocity and minimal tilt.
   function seedCoins() {
-    const hw = MW/2 - CR*1.8;  // x half-range (keep away from side walls)
-    const coinY0 = CT/2 + 0.005; // tiny gap above shelf surface
+    const hw   = MW/2 - CR*1.8;
+    const step = CR * 2.05;   // tightest stable grid step (just over diameter)
+    const coinY0 = CT/2 + 0.003;
 
-    // ── UPPER SHELF ───────────────────────────────────────────────
-    // Back half only: from shelf back edge to 40% of shelf depth from back.
-    // Shelf centre = UPPER_SHELF_Z, back edge = UPPER_SHELF_Z - UPPER_SHELF_D/2
-    const uBack  = UPPER_SHELF_Z - UPPER_SHELF_D/2 + CR*1.5; // back safe limit
-    const uFront = UPPER_SHELF_Z - UPPER_SHELF_D*0.10;        // only use back 60%
-    const uRange = uFront - uBack;
+    function seedShelf(shelfTop, shelfZ, shelfD, shelfLabel) {
+      const backZ  = shelfZ - shelfD/2 + CR;          // back safe limit
+      // Front row overhangs the lip slightly — supported by coins behind it
+      const frontZ = shelfZ + shelfD/2 - CR*0.4;
+      const depth  = frontZ - backZ;
 
-    // Grid-placed base layer — fills back portion densely
-    const uCols = Math.floor(MW / (CR*2.3));
-    const uRows = Math.max(1, Math.floor(uRange / (CR*2.3)));
-    for (let col = 0; col < uCols; col++) {
-      for (let row = 0; row < uRows; row++) {
-        const x = -hw + (col + 0.5) * (hw*2 / uCols) + (Math.random()-0.5)*CR*0.4;
-        const z = uBack + (row + 0.5) * (uRange / uRows) + (Math.random()-0.5)*CR*0.4;
-        spawnStillCoin(x, UPPER_TOP + SHELF_THICK + coinY0, z, 'upper');
+      const cols = Math.floor((hw*2) / step);
+      const rows = Math.max(2, Math.floor(depth / step));
+
+      // ── Layer 0: base grid ──────────────────────────────────────
+      for (let col = 0; col < cols; col++) {
+        for (let row = 0; row < rows; row++) {
+          const x = -hw + CR + col*step + (Math.random()-0.5)*CR*0.18;
+          const z = backZ + row*(depth/(rows-1 || 1)) + (Math.random()-0.5)*CR*0.18;
+          const y = shelfTop + SHELF_THICK + coinY0;
+          spawnStillCoin(x, y, z, shelfLabel);
+        }
       }
-    }
-    // A few stacks toward the very back for visual depth
-    for (let s = 0; s < 4; s++) {
-      const sx = -hw*0.7 + s * hw*0.47;
-      const sz = uBack + uRange*0.2 + (Math.random()-0.5)*CR;
-      for (let k = 1; k <= 3; k++)
-        spawnStillCoin(sx, UPPER_TOP+SHELF_THICK+CT*k*1.05+coinY0, sz, 'upper');
-    }
 
-    // ── LOWER SHELF ───────────────────────────────────────────────
-    // Lower shelf is deeper and is what the player sees most.
-    // Place coins across the full back 55% of the shelf.
-    const lBack  = LOWER_SHELF_Z - LOWER_SHELF_D/2 + CR*1.5;
-    const lFront = LOWER_SHELF_Z + LOWER_SHELF_D*0.05; // only back 55%
-    const lRange = lFront - lBack;
-
-    const lCols = Math.floor(MW / (CR*2.2));
-    const lRows = Math.max(1, Math.floor(lRange / (CR*2.2)));
-    for (let col = 0; col < lCols; col++) {
-      for (let row = 0; row < lRows; row++) {
-        const x = -hw + (col + 0.5) * (hw*2 / lCols) + (Math.random()-0.5)*CR*0.4;
-        const z = lBack + (row + 0.5) * (lRange / lRows) + (Math.random()-0.5)*CR*0.4;
-        spawnStillCoin(x, LOWER_TOP + SHELF_THICK + coinY0, z, 'lower');
+      // ── Layer 1: honeycomb offset ───────────────────────────────
+      for (let col = 0; col < cols-1; col++) {
+        for (let row = 0; row < rows-1; row++) {
+          // Sits in the gap between 4 base coins
+          const x = -hw + CR + col*step + step*0.5 + (Math.random()-0.5)*CR*0.15;
+          const z = backZ + (row+0.5)*(depth/(rows-1 || 1)) + (Math.random()-0.5)*CR*0.15;
+          const y = shelfTop + SHELF_THICK + CT*1.02 + coinY0;
+          spawnStillCoin(x, y, z, shelfLabel);
+        }
       }
-    }
-    // Stacks on lower shelf — packed toward back
-    for (let s = 0; s < 5; s++) {
-      const sx = -hw*0.8 + s * hw*0.40;
-      const sz = lBack + lRange*0.25 + (Math.random()-0.5)*CR;
-      const h  = 3 + Math.floor(Math.random()*3);
-      for (let k = 1; k <= h; k++)
-        spawnStillCoin(sx, LOWER_TOP+SHELF_THICK+CT*k*1.05+coinY0, sz, 'lower');
+
+      // ── Layer 2: second offset layer across back 70% ────────────
+      const l2rows = Math.max(1, Math.floor(rows * 0.7));
+      for (let col = 0; col < cols; col++) {
+        for (let row = 0; row < l2rows; row++) {
+          const x = -hw + CR + col*step + (Math.random()-0.5)*CR*0.15;
+          const z = backZ + row*(depth*0.7/(l2rows-1 || 1)) + (Math.random()-0.5)*CR*0.15;
+          const y = shelfTop + SHELF_THICK + CT*2.05 + coinY0;
+          spawnStillCoin(x, y, z, shelfLabel);
+        }
+      }
+
+      // ── Stacks: tall piles toward the back corners ──────────────
+      const stackXs = [-hw*0.75, -hw*0.25, hw*0.25, hw*0.75];
+      stackXs.forEach(sx => {
+        const sz = backZ + depth*0.25 + (Math.random()-0.5)*CR;
+        const h  = 4 + Math.floor(Math.random()*4);
+        for (let k = 3; k < 3+h; k++)
+          spawnStillCoin(sx+(Math.random()-0.5)*CR*0.2,
+            shelfTop+SHELF_THICK+CT*k*1.03+coinY0, sz, shelfLabel);
+      });
+
+      return { backZ, frontZ, depth };
     }
 
-    // Bonus items — placed safely in back half
-    spawnBonus(-MW*0.22, UPPER_TOP+SHELF_THICK+0.45, uBack + uRange*0.4);
-    spawnBonus( MW*0.22, UPPER_TOP+SHELF_THICK+0.45, uBack + uRange*0.6);
-    spawnBonus( 0,       LOWER_TOP+SHELF_THICK+0.45, lBack + lRange*0.3);
+    const uBounds = seedShelf(UPPER_TOP, UPPER_SHELF_Z, UPPER_SHELF_D, 'upper');
+    const lBounds = seedShelf(LOWER_TOP, LOWER_SHELF_Z, LOWER_SHELF_D, 'lower');
+
+    // Bonus items — 3D tokens, placed on layer 1 toward the back
+    spawnBonus(-MW*0.28, UPPER_TOP+SHELF_THICK+CT*1.2+0.30, uBounds.backZ + uBounds.depth*0.3, 0);
+    spawnBonus( MW*0.28, UPPER_TOP+SHELF_THICK+CT*1.2+0.30, uBounds.backZ + uBounds.depth*0.5, 1);
+    spawnBonus(-MW*0.18, LOWER_TOP+SHELF_THICK+CT*1.2+0.30, lBounds.backZ + lBounds.depth*0.2, 2);
+    spawnBonus( MW*0.18, LOWER_TOP+SHELF_THICK+CT*1.2+0.30, lBounds.backZ + lBounds.depth*0.4, 3);
+    spawnBonus( 0,       LOWER_TOP+SHELF_THICK+CT*1.2+0.30, lBounds.backZ + lBounds.depth*0.6, 4);
   }
 
-  // Spawn a coin with zero initial velocity and minimal tilt — won't roll off
+  // Spawn a coin with zero velocity and minimal tilt — stable on shelf
   function spawnStillCoin(x, y, z, shelf) {
     const obj = spawnCoin(x, y, z, shelf);
     obj.body.velocity.set(0, 0, 0);
     obj.body.angularVelocity.set(0, 0, 0);
-    // Tiny tilt only — enough to look natural, not enough to roll
-    obj.mesh.rotation.x = (Math.random()-0.5)*0.06;
-    obj.mesh.rotation.z = (Math.random()-0.5)*0.06;
+    obj.mesh.rotation.x = (Math.random()-0.5)*0.04;
+    obj.mesh.rotation.z = (Math.random()-0.5)*0.04;
     return obj;
   }
 
@@ -723,13 +782,8 @@ export default (() => {
     // Sync meshes → bodies
     coinBodies.forEach(obj => {
       obj.mesh.position.copy(obj.body.position);
-      if (obj.type === 'coin') {
-        obj.mesh.quaternion.copy(obj.body.quaternion);
-      } else {
-        // Bonus — bob gently
-        obj.bobT = (obj.bobT||0) + dt*2.8;
-        obj.mesh.position.y = obj.body.position.y + Math.sin(obj.bobT)*0.06;
-      }
+      // All items (coins and bonuses) sync position + rotation from physics
+      obj.mesh.quaternion.copy(obj.body.quaternion);
     });
 
     // Move pusher plates — sweep back→front, stop before front lip
