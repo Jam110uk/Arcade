@@ -533,52 +533,46 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
           }
         });
 
-        // ── Find the felt mesh and derive surface Y + play bounds ──
-        // The felt is the largest flat (low Y:XZ ratio) horizontal mesh.
-        // tableY  = its world-space bottom Y (balls sit ON top of it)
-        // feltMin/Max XZ = the interior playing area (inside the cushions)
-        let _feltNode = null, _feltArea = 0;
+        // ── Store table surface Y ─────────────────────────────────
+        // Legs are at Y=0 after the -box2.min.y lift.
+        // Playing surface = top of model minus rail height (~8% of total height).
+        const _fb = new THREE.Box3().setFromObject(model);
+        const _fh = _fb.max.y - _fb.min.y;
+        P3.tableY = _fb.max.y - _fh * 0.08;
+
+        // ── Recolour: replace any non-dark material with green felt ──
+        // Pink/bright materials = felt & cushion tops. Dark = frame/legs (keep).
+        // We identify "pink" as r>0.5 AND b>0.3 AND g<r (magenta-ish).
+        // Anything else that's bright but not dark wood also gets greened.
+        const _greenFelt = new THREE.MeshStandardMaterial({ map: feltMat.map, roughness: 0.92, metalness: 0 });
         model.traverse(nd => {
           if (!nd.isMesh) return;
-          const wb = new THREE.Box3().setFromObject(nd);
-          const ws = new THREE.Vector3(); wb.getSize(ws);
-          const xzSpan = Math.max(ws.x, ws.z);
-          if (xzSpan < 0.05) return;
-          if (ws.y / xzSpan > 0.18) return;   // must be flat
-          const area = ws.x * ws.z;
-          if (area > _feltArea) { _feltArea = area; _feltNode = nd; }
+          const applyGreen = (m, idx) => {
+            if (!m || !m.color) return;
+            const r = m.color.r, g = m.color.g, b = m.color.b;
+            // Dark materials (frame, legs): brightness < 0.5 — leave alone
+            if (r + g + b < 0.5) return;
+            // Pink/magenta felt: high r, high b, low g
+            if (r > 0.4 && b > 0.2 && g < r * 0.7) {
+              if (Array.isArray(nd.material)) nd.material[idx] = _greenFelt;
+              else nd.material = _greenFelt;
+            }
+          };
+          if (Array.isArray(nd.material)) nd.material.forEach(applyGreen);
+          else applyGreen(nd.material, 0);
         });
 
-        if (_feltNode) {
-          const fbb = new THREE.Box3().setFromObject(_feltNode);
-          // tableY = TOP of the felt mesh (balls rest on top of it)
-          P3.tableY = fbb.max.y;
-          // Interior play bounds — shrink slightly for cushion overlap
-          const cushionW = (fbb.max.x - fbb.min.x) * 0.04;
-          const cushionD = (fbb.max.z - fbb.min.z) * 0.04;
-          P3.feltMinX = fbb.min.x + cushionW;
-          P3.feltMaxX = fbb.max.x - cushionW;
-          P3.feltMinZ = fbb.min.z + cushionD;
-          P3.feltMaxZ = fbb.max.z - cushionD;
-          // Recolour the felt green
-          _feltNode.material = new THREE.MeshStandardMaterial({
-            map: feltMat.map, roughness: 0.92, metalness: 0,
-          });
-          console.log('[pool3d] feltNode:', _feltNode.name,
-            'tableY:', P3.tableY.toFixed(4),
-            'X:', P3.feltMinX.toFixed(3), '→', P3.feltMaxX.toFixed(3),
-            'Z:', P3.feltMinZ.toFixed(3), '→', P3.feltMaxZ.toFixed(3));
-        } else {
-          // Fallback
-          const _fb = new THREE.Box3().setFromObject(model);
-          P3.tableY = _fb.max.y * 0.88;
-          P3.feltMinX = 0; P3.feltMaxX = tw3;
-          P3.feltMinZ = 0; P3.feltMaxZ = th3;
-        }
-
-        // Rail top = absolute model top (for cue clearance)
-        const _fb2 = new THREE.Box3().setFromObject(model);
-        P3.tableRailY = _fb2.max.y;
+        // ── Store interior play-area bounds for ball XZ remapping ──
+        // Use the overall model XZ box, inset by ~9% each side for cushions.
+        const _mb = new THREE.Box3().setFromObject(model);
+        const _insetX = (_mb.max.x - _mb.min.x) * 0.09;
+        const _insetZ = (_mb.max.z - _mb.min.z) * 0.09;
+        P3.feltMinX = _mb.min.x + _insetX;
+        P3.feltMaxX = _mb.max.x - _insetX;
+        P3.feltMinZ = _mb.min.z + _insetZ;
+        P3.feltMaxZ = _mb.max.z - _insetZ;
+        P3.tableRailY = _mb.max.y;
+        console.log('[pool3d] playX:', P3.feltMinX.toFixed(3), '→', P3.feltMaxX.toFixed(3));
 
         // ── Update camera to look at the playing surface ──────────
         P3.camTarget = { x: tw3 * 0.5, y: P3.tableY, z: th3 * 0.5 };
@@ -897,7 +891,6 @@ function poolDraw() {
     mesh.visible = true;
     // 2D: x→X, y→Z  (Y = ball radius off the felt)
     const _tY = (P3.tableY !== undefined) ? P3.tableY : 0;
-    // Map physics coords (0..TW, 0..TH) onto the actual interior felt bounds
     const _bx3 = (P3.feltMinX !== undefined)
       ? P3.feltMinX + (ball.x / POOL.TW) * (P3.feltMaxX - P3.feltMinX)
       : ball.x * S;
@@ -934,11 +927,9 @@ function poolDraw() {
       const tipDist     = TIP_GAP + pullDist;
 
       const cbx3 = (P3.feltMinX !== undefined)
-        ? P3.feltMinX + (cb.x / POOL.TW) * (P3.feltMaxX - P3.feltMinX)
-        : cb.x * S;
+        ? P3.feltMinX + (cb.x / POOL.TW) * (P3.feltMaxX - P3.feltMinX) : cb.x * S;
       const cbz3 = (P3.feltMinZ !== undefined)
-        ? P3.feltMinZ + (cb.y / POOL.TH) * (P3.feltMaxZ - P3.feltMinZ)
-        : cb.y * S;
+        ? P3.feltMinZ + (cb.y / POOL.TH) * (P3.feltMaxZ - P3.feltMinZ) : cb.y * S;
       const tipX3 = cbx3 - Math.cos(angle) * tipDist;
       const tipZ3 = cbz3 - Math.sin(angle) * tipDist;
       const buttX3 = tipX3 - Math.cos(angle) * CUE_LEN;
@@ -946,15 +937,17 @@ function poolDraw() {
 
       const THREE = P3.THREE;
 
-      // Cue angle: stays nearly horizontal above the felt.
-      // Butt rises smoothly to just clear the rail as pullback increases.
-      const _tYc   = (P3.tableY    !== undefined) ? P3.tableY    : 0;
-      const _railY = (P3.tableRailY !== undefined) ? P3.tableRailY : _tYc + r3 * 4;
-      // Tip sits just above the cue ball on the felt surface
+      // Cue angle behaviour:
+      // - At 0 pullback: tip near ball, cue nearly flat with slight natural rise
+      // - As pullback grows: butt rises quickly until it clears the rail top
+      // - Once past rail height: cue levels out and runs flat ABOVE the rail,
+      //   with a slight downward tilt toward the ball at the tip end
+      // Cue stays nearly flat on the felt, butt rises to clear rail on pullback
+      const _tYc    = (P3.tableY    !== undefined) ? P3.tableY    : 0;
+      const _railY  = (P3.tableRailY !== undefined) ? P3.tableRailY : _tYc + r3 * 4;
       const finalTipY  = _tYc + r3 * 1.1;
-      // Butt: at rest is level with tip; rises to clear the rail as pullback grows
       const risePhase  = Math.min(1, pullback / 0.6);
-      const finalButtY = finalTipY + (_railY - finalTipY + r3 * 0.5) * risePhase;
+      const finalButtY = finalTipY + (_railY - _tYc + r3 * 0.5) * risePhase;
 
       const buttDir = new THREE.Vector3(
         buttX3 - tipX3,
