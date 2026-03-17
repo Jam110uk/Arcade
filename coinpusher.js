@@ -548,16 +548,19 @@ export default (() => {
     mesh.receiveShadow = true;
     scene.add(mesh);
 
-    // Physics — same mass/damping as coins so it behaves identically
-    const body = new CANNON.Body({ mass:0.18, linearDamping:0.88, angularDamping:0.95 });
+    // Start kinematic — won't fall until pusher moves them past release line
+    const body = new CANNON.Body({
+      mass: 0,
+      type: CANNON.Body.KINEMATIC,
+      linearDamping: 0.99,
+      angularDamping: 0.99
+    });
     body.addShape(new CANNON.Box(new CANNON.Vec3(BONUS_W/2, BONUS_W/2, BONUS_D/2)));
     body.position.set(x, y, z);
-    body.velocity.set(0, 0, 0);
-    body.angularVelocity.set(0, 0, 0);
     world.addBody(body);
-
+    // shelf is set by caller via obj.shelf after creation
     const obj = { mesh, body, type:'bonus', value:b.value, label:b.label,
-                  emoji:b.emoji, col:b.col, shelf:'upper' };
+                  emoji:b.emoji, col:b.col, shelf:'upper', isKinematic:true };
     coinBodies.push(obj);
     return obj;
   }
@@ -630,36 +633,36 @@ export default (() => {
     // ── Bonus tokens — placed in safe zones ─────────────────────────────────
     spawnBonus(-MW*0.25, UPPER_TOP+SHELF_THICK+CT*1.2+0.28, uZback + uDepth*0.4, 0);
     spawnBonus( MW*0.25, UPPER_TOP+SHELF_THICK+CT*1.2+0.28, uZback + uDepth*0.7, 1);
-    spawnBonus(-MW*0.20, LOWER_TOP+SHELF_THICK+CT*1.2+0.28, lZback + lDepth*0.3, 2);
-    spawnBonus( MW*0.20, LOWER_TOP+SHELF_THICK+CT*1.2+0.28, lZback + lDepth*0.5, 3);
-    spawnBonus( 0,       LOWER_TOP+SHELF_THICK+CT*1.2+0.28, lZback + lDepth*0.7, 4);
+    const lb1 = spawnBonus(-MW*0.20, LOWER_TOP+SHELF_THICK+CT*1.2+0.28, lZback + lDepth*0.3, 2);
+    lb1.shelf = 'lower';
+    const lb2 = spawnBonus( MW*0.20, LOWER_TOP+SHELF_THICK+CT*1.2+0.28, lZback + lDepth*0.5, 3);
+    lb2.shelf = 'lower';
+    const lb3 = spawnBonus( 0,       LOWER_TOP+SHELF_THICK+CT*1.2+0.28, lZback + lDepth*0.7, 4);
+    lb3.shelf = 'lower';
   }
 
-  // Spawn a seed coin as a STATIC body (mass=0) — zero physics cost until woken.
-  // The pusher wakes nearby coins each frame (see wakeSeedCoins).
+  // Spawn a seed coin as a KINEMATIC body.
+  // It moves only when explicitly told to (rideWithPusher), never falls.
+  // Released to dynamic once pushed past the shelf release line.
   function spawnStillCoin(x, y, z, shelf) {
     const mesh = new THREE.Mesh(new THREE.CylinderGeometry(CR, CR, CT, 16), coinMat);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
-    // Very slight tilt — purely visual, no physics consequence
-    mesh.rotation.x = (Math.random()-0.5)*0.04;
-    mesh.rotation.z = (Math.random()-0.5)*0.04;
     scene.add(mesh);
 
-    // Static body — no mass, no simulation cost
-    const body = new CANNON.Body({ mass: 0 });
+    const body = new CANNON.Body({
+      mass: 0,
+      type: CANNON.Body.KINEMATIC,
+      linearDamping: 0.99,
+      angularDamping: 0.99
+    });
     body.addShape(new CANNON.Cylinder(CR, CR, CT, 12));
     body.position.set(x, y, z);
-    // Tilt the physics body to match the mesh
-    const q = new CANNON.Quaternion();
-    q.setFromEuler(mesh.rotation.x, 0, mesh.rotation.z);
-    body.quaternion.copy(q);
     world.addBody(body);
 
     mesh.position.copy(body.position);
-    mesh.quaternion.copy(body.quaternion);
 
-    const obj = { mesh, body, type:'coin', value:2, shelf, isStatic:true };
+    const obj = { mesh, body, type:'coin', value:2, shelf, isKinematic:true };
     coinBodies.push(obj);
     return obj;
   }
@@ -794,14 +797,16 @@ export default (() => {
     // Step physics
     world.step(1/60, dt, 3);
 
-    // Wake static seed coins that the pusher is about to touch
-    wakeSeedCoins();
+    // Move kinematic seed coins with pusher; release to dynamic at lip
+    rideWithPusher();
 
     // Sync meshes → bodies
     coinBodies.forEach(obj => {
       obj.mesh.position.copy(obj.body.position);
-      // All items (coins and bonuses) sync position + rotation from physics
-      obj.mesh.quaternion.copy(obj.body.quaternion);
+      if (!obj.isKinematic) {
+        obj.mesh.quaternion.copy(obj.body.quaternion);
+      }
+      // Kinematic coins keep their spawn orientation (flat on shelf)
     });
 
     // Move pusher plates — sweep back→front, stop before front lip
@@ -857,34 +862,56 @@ export default (() => {
   // Converts mass=0 static coins to mass=0.025 dynamic when the pusher
   // front edge is within one coin-diameter of them. This keeps simulation
   // cost near zero until coins are actually being pushed.
-  const WAKE_MARGIN = CR * 1.8;  // only wake coins the pusher is about to physically contact
-  function wakeSeedCoins() {
+  // Release line: Z beyond which a kinematic coin becomes dynamic.
+  // Slightly inside the shelf front lip so coins release just before they'd fall.
+  const U_RELEASE_Z = UPPER_SHELF_Z + UPPER_SHELF_D/2 - CR*0.8;
+  const L_RELEASE_Z = LOWER_SHELF_Z + LOWER_SHELF_D/2 - CR*0.8;
+
+  function rideWithPusher() {
     const uFrontZ = upperPusherBody.position.z + U_PUSH_HD;
     const lFrontZ = lowerPusherBody.position.z + L_PUSH_HD;
 
     coinBodies.forEach(obj => {
-      if (!obj.isStatic) return;
-      const bz = obj.body.position.z;
-      const by = obj.body.position.y;
-      // Check if pusher front edge is close to this coin
-      const nearUpper = (by > UPPER_TOP - 0.1) && (bz >= uFrontZ - WAKE_MARGIN);
-      const nearLower = (by > LOWER_TOP - 0.1) && (by < UPPER_TOP) && (bz >= lFrontZ - WAKE_MARGIN);
-      if (!nearUpper && !nearLower) return;
+      if (!obj.isKinematic) return;
+      const pos = obj.body.position;
+      const by  = pos.y;
+      const bz  = pos.z;
 
-      // Wake: remove static body, replace with dynamic
-      const pos = obj.body.position.clone();
-      const quat = obj.body.quaternion.clone();
-      world.removeBody(obj.body);
+      // Determine which pusher governs this coin
+      const onUpper = by >= UPPER_TOP + SHELF_THICK * 0.4;
+      const onLower = !onUpper;
+      const pusherFrontZ = onUpper ? uFrontZ : lFrontZ;
+      const releaseZ     = onUpper ? U_RELEASE_Z : L_RELEASE_Z;
 
-      const newBody = new CANNON.Body({ mass:0.18, linearDamping:0.88, angularDamping:0.95 });
-      newBody.addShape(new CANNON.Cylinder(CR, CR, CT, 12));
-      newBody.position.copy(pos);
-      newBody.quaternion.copy(quat);
-      newBody.velocity.set(0, 0, 0);
-      world.addBody(newBody);
+      // Move coin forward when pusher front face reaches it (contact zone = CR)
+      if (bz <= pusherFrontZ + CR && bz >= pusherFrontZ - CR * 2) {
+        const pusherDz = onUpper
+          ? upperPusherBody.velocity.z || (upperPusherDir * PUSH_SPEED)
+          : lowerPusherBody.velocity.z || (lowerPusherDir * PUSH_SPEED * 0.82);
+        if (pusherDz > 0) {
+          // Only push forward, never pull back
+          obj.body.position.z += pusherDz / 60;
+        }
+      }
 
-      obj.body = newBody;
-      obj.isStatic = false;
+      // Release to dynamic when coin reaches the front lip area
+      if (bz >= releaseZ) {
+        const p = obj.body.position.clone();
+        world.removeBody(obj.body);
+
+        const newBody = new CANNON.Body({ mass:0.18, linearDamping:0.88, angularDamping:0.95 });
+        if (obj.type === 'bonus') {
+          newBody.addShape(new CANNON.Box(new CANNON.Vec3(BONUS_W/2, BONUS_W/2, BONUS_D/2)));
+        } else {
+          newBody.addShape(new CANNON.Cylinder(CR, CR, CT, 12));
+        }
+        newBody.position.copy(p);
+        newBody.velocity.set(0, 0.2, 0.5); // small forward push over the lip
+        world.addBody(newBody);
+
+        obj.body = newBody;
+        obj.isKinematic = false;
+      }
     });
   }
 
