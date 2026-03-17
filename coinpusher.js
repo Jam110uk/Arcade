@@ -409,12 +409,6 @@ export default (() => {
     lowerPusherMesh = new THREE.Mesh(lowerPushGeo, pusherMat);
     scene.add(lowerPusherMesh);
 
-    // ── Set pusher mesh positions before seeding so worldToLocal is correct ──
-    upperPusherMesh.position.set(0, UPPER_TOP + PUSH_H/2, U_PUSH_BACK);
-    upperPusherMesh.updateMatrixWorld(true);
-    lowerPusherMesh.position.set(0, LOWER_TOP + PUSH_H/2, L_PUSH_BACK);
-    lowerPusherMesh.updateMatrixWorld(true);
-
     // ── Seed coins ───────────────────────────────────────────────
     seedCoins();
   }
@@ -481,440 +475,193 @@ export default (() => {
   // ── Spawn a coin body + mesh (shelf coins — lying flat, axis Y) ──
   const coinGeo = () => new THREE.CylinderGeometry(CR, CR, CT, 22);
 
-  function spawnCoin(x, y, z, shelf='upper') {
+  // ══════════════════════════════════════════════════════════════
+  //  COIN SYSTEM — rebuilt from real coin-pusher mechanics
+  //  Real machine: shelf slides forward/back. Coins sit ON the shelf.
+  //  Back wall pushes coins forward as shelf advances.
+  //  Seed coins ride the pusher via direct position update (no physics cost).
+  //  Released to dynamic at the front lip.
+  // ══════════════════════════════════════════════════════════════
+
+  const U_LIP_Z     = UPPER_SHELF_Z + UPPER_SHELF_D/2;
+  const L_LIP_Z     = LOWER_SHELF_Z + LOWER_SHELF_D/2;
+  const U_RELEASE_Z = U_LIP_Z - CR*0.6;
+  const L_RELEASE_Z = L_LIP_Z - CR*0.6;
+  const BONUS_W = 0.50;
+  const BONUS_D = 0.12;
+
+  // Dynamic coin (player-dropped or released seed)
+  function spawnCoin(x, y, z, shelf) {
     const mesh = new THREE.Mesh(coinGeo(), coinMat);
     mesh.castShadow = true; mesh.receiveShadow = true;
-    // Small random tilt so shelf coins don't stack perfectly
-    mesh.rotation.x = (Math.random()-0.5)*0.3;
-    mesh.rotation.z = (Math.random()-0.5)*0.3;
     scene.add(mesh);
-
-    const body = new CANNON.Body({ mass:0.18, linearDamping:0.88, angularDamping:0.95 });
-    // Cylinder axis = Y by default → coin lies flat on shelf
+    const body = new CANNON.Body({ mass:0.12, linearDamping:0.82, angularDamping:0.90 });
     body.addShape(new CANNON.Cylinder(CR, CR, CT, 12));
     body.position.set(x, y, z);
-    body.velocity.set(0, 0, 0);  // start still — caller can set velocity if needed
+    body.velocity.set(0, 0, 0);
     world.addBody(body);
-
-    const obj = { mesh, body, type:'coin', value:2, shelf };
+    const obj = { mesh, body, type:'coin', value:2, shelf, seed:false };
     coinBodies.push(obj);
     return obj;
   }
 
-  // ── Spawn a bonus item — 3D token with emoji face, full physics ──
-  const BONUS_W = 0.52;   // token width/height
-  const BONUS_D = 0.14;   // token depth (thin slab)
-  function spawnBonus(x, y, z, bonusIdx) {
-    const b = bonusIdx !== undefined
-      ? BONUSES[bonusIdx % BONUSES.length]
-      : BONUSES[Math.floor(Math.random()*BONUSES.length)];
-
-    // Face texture — emoji on coloured background
-    const faceSize = 256;
-    const fc = document.createElement('canvas');
-    fc.width = fc.height = faceSize;
-    const ctx = fc.getContext('2d');
-    // Rounded-rect coloured background
-    ctx.fillStyle = '#' + b.col.toString(16).padStart(6,'0');
-    ctx.beginPath();
-    ctx.roundRect(8, 8, faceSize-16, faceSize-16, 28);
-    ctx.fill();
-    // White border
-    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-    ctx.lineWidth = 10;
-    ctx.stroke();
-    // Emoji
-    ctx.font = `${faceSize * 0.52}px serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(b.emoji, faceSize/2, faceSize/2);
-    const faceTex = new THREE.CanvasTexture(fc);
-
-    // Side texture — label text
-    const sc = document.createElement('canvas');
-    sc.width = 256; sc.height = 64;
-    const sx = sc.getContext('2d');
-    sx.fillStyle = '#' + b.col.toString(16).padStart(6,'0');
-    sx.fillRect(0,0,256,64);
-    sx.fillStyle = '#fff';
-    sx.font = 'bold 28px Arial';
-    sx.textAlign = 'center';
-    sx.textBaseline = 'middle';
-    sx.fillText(b.label, 128, 32);
-    const sideTex = new THREE.CanvasTexture(sc);
-
-    // 6-face material: front/back = emoji, sides = label colour
-    const sideMat = new THREE.MeshStandardMaterial({ map: sideTex, roughness:0.4, metalness:0.3 });
-    const faceMat = new THREE.MeshStandardMaterial({ map: faceTex, roughness:0.3, metalness:0.2 });
-    const mats = [ sideMat, sideMat, sideMat, sideMat, faceMat, faceMat ];
-
-    const geo  = new THREE.BoxGeometry(BONUS_W, BONUS_W, BONUS_D);
-    const mesh = new THREE.Mesh(geo, mats);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    scene.add(mesh);
-
-    // body assigned later via attachBonusToPusher; shelf set by caller
-    const obj = { mesh, body:null, proxy:null, type:'bonus', value:b.value, label:b.label,
-                  emoji:b.emoji, col:b.col, shelf:'upper', isParented:false };
-    coinBodies.push(obj);
-    return obj;
-  }
-
-  // Parent a bonus to a pusher and add a proximity proxy
-  function attachBonusToPusher(obj, x, y, z) {
-    const pusherMesh = obj.shelf === 'upper' ? upperPusherMesh : lowerPusherMesh;
-    pusherMesh.updateMatrixWorld(true);
-    const localPos = pusherMesh.worldToLocal(new THREE.Vector3(x, y, z));
-    obj.mesh.position.copy(localPos);
-    pusherMesh.add(obj.mesh);
-    obj.isParented = true;
-    obj.proxy = null; // detection uses getWorldPosition, no proxy needed
-  }
-
-  // ── Seed shelves with initial coins ───────────────────────────────────────
-  // Coins sit ON TOP OF THE PUSHER PLATE, not on the shelf surface.
-  // The pusher slides underneath them. They can only fall off when player-added
-  // coins push them forward past the front lip of the pusher.
-  //
-  // Coin Y = pusherTop + CT/2  (resting on top face of pusher)
-  // Coin Z = within [pusherBackFace+CR, pusherFrontFace-CR] at rest position
-  // The pusher back face at rest always extends behind the back wall, so coins
-  // near the back are always supported regardless of pusher position.
-  function seedCoins() {
-    const hw   = MW/2 - CR*1.6;
-    const stepX = CR * 2.08;
-    const stepZ = CR * 2.08;
-
-    // ── UPPER PUSHER ────────────────────────────────────────────────────────
-    // Pusher at rest: back face = U_PUSH_BACK - U_PUSH_HD = -2.953
-    //                front face = U_PUSH_BACK + U_PUSH_HD = -0.748
-    // Coin Z range on pusher: [-2.953+CR .. -0.748-CR] = [-2.693 .. -1.008]
-    // But back wall is at -1.600, so actual back limit = -1.600+CR = -1.340
-    const uY      = UPPER_TOP + PUSH_H + CT/2 + 0.003; // on top of pusher
-    const uZback  = Math.max(-MD/2 + WT + CR + 0.02,   // back wall limit
-                             U_PUSH_BACK - U_PUSH_HD + CR); // pusher back face
-    const uZfront = U_PUSH_BACK + U_PUSH_HD - CR - 0.05; // pusher front face at rest minus margin
-    const uCols   = Math.floor((hw*2) / stepX);
-    const uRows   = Math.max(1, Math.floor((uZfront - uZback) / stepZ));
-
-    for (let col = 0; col < uCols; col++) {
-      for (let row = 0; row < uRows; row++) {
-        const x = -hw + CR + col*stepX + (Math.random()-0.5)*CR*0.1;
-        const z = uZback + row*stepZ   + (Math.random()-0.5)*CR*0.1;
-        spawnStillCoin(x, uY, z, 'upper');
-      }
-    }
-    // Second layer across back half
-    const uRows2 = Math.max(1, Math.floor(uRows * 0.5));
-    for (let col = 0; col < uCols-1; col++) {
-      for (let row = 0; row < uRows2; row++) {
-        const x = -hw + CR + col*stepX + stepX*0.5 + (Math.random()-0.5)*CR*0.08;
-        const z = uZback + row*stepZ               + (Math.random()-0.5)*CR*0.08;
-        spawnStillCoin(x, uY + CT*1.02, z, 'upper');
-      }
-    }
-
-    // ── LOWER PUSHER ────────────────────────────────────────────────────────
-    // Pusher at rest: back face = L_PUSH_BACK - L_PUSH_HD = -3.650 (behind wall)
-    //                front face = L_PUSH_BACK + L_PUSH_HD = -0.050
-    // Back wall at -1.600, so back limit = -1.600+CR = -1.340
-    const lY      = LOWER_TOP + PUSH_H + CT/2 + 0.003;
-    const lZback  = Math.max(-MD/2 + WT + CR + 0.02,
-                             L_PUSH_BACK - L_PUSH_HD + CR);
-    const lZfront = L_PUSH_BACK + L_PUSH_HD - CR - 0.05;
-    const lCols   = Math.floor((hw*2) / stepX);
-    const lRows   = Math.max(1, Math.floor((lZfront - lZback) / stepZ));
-
-    for (let col = 0; col < lCols; col++) {
-      for (let row = 0; row < lRows; row++) {
-        const x = -hw + CR + col*stepX + (Math.random()-0.5)*CR*0.1;
-        const z = lZback + row*stepZ   + (Math.random()-0.5)*CR*0.1;
-        spawnStillCoin(x, lY, z, 'lower');
-      }
-    }
-    // Second layer across back half
-    const lRows2 = Math.max(1, Math.floor(lRows * 0.5));
-    for (let col = 0; col < lCols-1; col++) {
-      for (let row = 0; row < lRows2; row++) {
-        const x = -hw + CR + col*stepX + stepX*0.5 + (Math.random()-0.5)*CR*0.08;
-        const z = lZback + row*stepZ               + (Math.random()-0.5)*CR*0.08;
-        spawnStillCoin(x, lY + CT*1.02, z, 'lower');
-      }
-    }
-
-    // ── Bonus tokens on pushers ──────────────────────────────────────────────
-    spawnBonus(-MW*0.28, uY+0.25, uZback + (uZfront-uZback)*0.35, 0);
-    spawnBonus( MW*0.28, uY+0.25, uZback + (uZfront-uZback)*0.65, 1);
-    const lb1 = spawnBonus(-MW*0.22, lY+0.25, lZback + (lZfront-lZback)*0.25, 2);
-    lb1.shelf = 'lower';
-    const lb2 = spawnBonus( MW*0.22, lY+0.25, lZback + (lZfront-lZback)*0.50, 3);
-    lb2.shelf = 'lower';
-    const lb3 = spawnBonus( 0,       lY+0.25, lZback + (lZfront-lZback)*0.75, 4);
-    lb3.shelf = 'lower';
-  }
-
-  // Spawn a seed coin parented to the pusher mesh — rides for free, never falls.
-  // x/y/z are world coordinates. Detaches to dynamic when a player coin strikes it.
-  function spawnStillCoin(x, y, z, shelf) {
-    const pusherMesh = shelf === 'upper' ? upperPusherMesh : lowerPusherMesh;
-
+  // Seed coin — static body, rides pusher via moveSeedCoins()
+  function spawnSeedCoin(x, y, z, shelf) {
     const mesh = new THREE.Mesh(new THREE.CylinderGeometry(CR, CR, CT, 16), coinMat);
-    mesh.castShadow = true;
-
-    // Convert world pos → pusher local space
-    pusherMesh.updateMatrixWorld(true);
-    const localPos = pusherMesh.worldToLocal(new THREE.Vector3(x, y, z));
-    mesh.position.copy(localPos);
-    pusherMesh.add(mesh);
-
-    const obj = { mesh, proxy:null, body: null, type:'coin', value:2, shelf, isParented:true };
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    scene.add(mesh);
+    const body = new CANNON.Body({ mass:0 });
+    body.addShape(new CANNON.Cylinder(CR, CR, CT, 12));
+    body.position.set(x, y, z);
+    world.addBody(body);
+    mesh.position.set(x, y, z);
+    const obj = { mesh, body, type:'coin', value:2, shelf, seed:true };
     coinBodies.push(obj);
     return obj;
   }
 
-  // ── Drop a coin from the chute ─────────────────────────────────
+  // Build bonus token mesh + materials
+  function makeBonusMesh(b) {
+    const fs=256, fc=document.createElement('canvas');
+    fc.width=fc.height=fs;
+    const ctx=fc.getContext('2d');
+    ctx.fillStyle='#'+b.col.toString(16).padStart(6,'0');
+    const rr=24,rx=6,ry=6,rw=fs-12,rh=fs-12;
+    ctx.beginPath();
+    ctx.moveTo(rx+rr,ry); ctx.lineTo(rx+rw-rr,ry); ctx.arcTo(rx+rw,ry,rx+rw,ry+rr,rr);
+    ctx.lineTo(rx+rw,ry+rh-rr); ctx.arcTo(rx+rw,ry+rh,rx+rw-rr,ry+rh,rr);
+    ctx.lineTo(rx+rr,ry+rh); ctx.arcTo(rx,ry+rh,rx,ry+rh-rr,rr);
+    ctx.lineTo(rx,ry+rr); ctx.arcTo(rx,ry,rx+rr,ry,rr);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,0.85)'; ctx.lineWidth=8; ctx.stroke();
+    ctx.font=`${fs*0.50}px serif`; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillStyle='#fff'; ctx.fillText(b.emoji, fs/2, fs/2);
+    const faceTex = new THREE.CanvasTexture(fc);
+    const sc=document.createElement('canvas'); sc.width=256; sc.height=64;
+    const sx=sc.getContext('2d');
+    sx.fillStyle='#'+b.col.toString(16).padStart(6,'0'); sx.fillRect(0,0,256,64);
+    sx.fillStyle='#fff'; sx.font='bold 26px Arial';
+    sx.textAlign='center'; sx.textBaseline='middle'; sx.fillText(b.label,128,32);
+    const sideTex=new THREE.CanvasTexture(sc);
+    const sM=new THREE.MeshStandardMaterial({map:sideTex,roughness:0.4,metalness:0.3});
+    const fM=new THREE.MeshStandardMaterial({map:faceTex,roughness:0.3,metalness:0.2});
+    const mesh=new THREE.Mesh(new THREE.BoxGeometry(BONUS_W,BONUS_W,BONUS_D),[sM,sM,sM,sM,fM,fM]);
+    mesh.castShadow=true; mesh.receiveShadow=true;
+    return { mesh, _mats:[sM,fM] };
+  }
+
+  // Seed bonus — rides pusher like a seed coin
+  function spawnSeedBonus(x, y, z, shelf, bonusIdx) {
+    const b=BONUSES[bonusIdx%BONUSES.length];
+    const { mesh, _mats }=makeBonusMesh(b);
+    scene.add(mesh);
+    const body=new CANNON.Body({ mass:0 });
+    body.addShape(new CANNON.Box(new CANNON.Vec3(BONUS_W/2,BONUS_W/2,BONUS_D/2)));
+    body.position.set(x,y,z);
+    world.addBody(body);
+    mesh.position.set(x,y,z);
+    const obj={ mesh,body,type:'bonus',value:b.value,label:b.label,
+                emoji:b.emoji,col:b.col,shelf,seed:true,_mats };
+    coinBodies.push(obj);
+    return obj;
+  }
+
+  // Dynamic bonus (dropped from chute mid-game)
+  function spawnBonus(x, y, z) {
+    const b=BONUSES[Math.floor(Math.random()*BONUSES.length)];
+    const { mesh, _mats }=makeBonusMesh(b);
+    scene.add(mesh);
+    const body=new CANNON.Body({ mass:0.12, linearDamping:0.75, angularDamping:0.80 });
+    body.addShape(new CANNON.Box(new CANNON.Vec3(BONUS_W/2,BONUS_W/2,BONUS_D/2)));
+    body.position.set(x,y,z);
+    body.velocity.set((Math.random()-0.5)*0.3,-2.5,0);
+    world.addBody(body);
+    const obj={ mesh,body,type:'bonus',value:b.value,label:b.label,
+                emoji:b.emoji,col:b.col,shelf:'falling',seed:false,_mats };
+    coinBodies.push(obj);
+    return obj;
+  }
+
+  // Fill a pusher shelf with seed coins + bonus tokens
+  function seedCoins() {
+    const hw=MW/2-CR*1.7, stepX=CR*2.10, stepZ=CR*2.10, yGap=CT/2+0.004;
+
+    function fill(shelfTop, pbBack, pbFront, label) {
+      const coinY  = shelfTop + PUSH_H + yGap;
+      const coinY2 = coinY + CT*1.05;
+      const zBack  = Math.max(-MD/2+WT+CR+0.02, pbBack+CR);
+      const zFront = pbFront - CR - 0.02;
+      if (zFront <= zBack) return null;
+      const cols=Math.floor((hw*2)/stepX);
+      const rows=Math.max(1,Math.floor((zFront-zBack)/stepZ));
+      for (let c=0;c<cols;c++) for (let r=0;r<rows;r++)
+        spawnSeedCoin(-hw+CR+c*stepX+(Math.random()-0.5)*CR*0.10, coinY,
+                      zBack+r*stepZ+(Math.random()-0.5)*CR*0.10, label);
+      const rows2=Math.max(1,Math.floor(rows*0.6));
+      for (let c=0;c<cols-1;c++) for (let r=0;r<rows2;r++)
+        spawnSeedCoin(-hw+CR+c*stepX+stepX*0.5+(Math.random()-0.5)*CR*0.08, coinY2,
+                      zBack+r*stepZ+(Math.random()-0.5)*CR*0.08, label);
+      return { coinY2, zBack, zFront };
+    }
+
+    const u=fill(UPPER_TOP, U_PUSH_BACK-U_PUSH_HD, U_PUSH_BACK+U_PUSH_HD, 'upper');
+    const l=fill(LOWER_TOP, L_PUSH_BACK-L_PUSH_HD, L_PUSH_BACK+L_PUSH_HD, 'lower');
+
+    if (u) {
+      const bY=u.coinY2+BONUS_W*0.5+0.05;
+      spawnSeedBonus(-MW*0.28,bY,u.zBack+(u.zFront-u.zBack)*0.30,'upper',0);
+      spawnSeedBonus( MW*0.28,bY,u.zBack+(u.zFront-u.zBack)*0.65,'upper',1);
+    }
+    if (l) {
+      const bY=l.coinY2+BONUS_W*0.5+0.05;
+      spawnSeedBonus(-MW*0.25,bY,l.zBack+(l.zFront-l.zBack)*0.20,'lower',2);
+      spawnSeedBonus( MW*0.25,bY,l.zBack+(l.zFront-l.zBack)*0.50,'lower',3);
+      spawnSeedBonus(       0,bY,l.zBack+(l.zFront-l.zBack)*0.75,'lower',4);
+    }
+  }
+
+  // Move seed coins with pusher each frame; release to dynamic at lip
+  function moveSeedCoins(uDz, lDz) {
+    const toRelease=[];
+    coinBodies.forEach(obj => {
+      if (!obj.seed) return;
+      const dz = obj.shelf==='upper' ? uDz : (obj.shelf==='lower' ? lDz : 0);
+      obj.body.position.z += dz;
+      obj.mesh.position.z  = obj.body.position.z;
+      obj.mesh.position.x  = obj.body.position.x;
+      obj.mesh.position.y  = obj.body.position.y;
+      const lip = obj.shelf==='upper' ? U_RELEASE_Z : L_RELEASE_Z;
+      if (obj.body.position.z >= lip) toRelease.push(obj);
+    });
+    toRelease.forEach(obj => {
+      const p=obj.body.position;
+      world.removeBody(obj.body);
+      const nb=new CANNON.Body({mass:0.12,linearDamping:0.82,angularDamping:0.90});
+      if (obj.type==='bonus')
+        nb.addShape(new CANNON.Box(new CANNON.Vec3(BONUS_W/2,BONUS_W/2,BONUS_D/2)));
+      else
+        nb.addShape(new CANNON.Cylinder(CR,CR,CT,12));
+      nb.position.set(p.x,p.y,p.z);
+      nb.velocity.set(0,0,0.6);
+      world.addBody(nb);
+      obj.body=nb; obj.seed=false;
+      if (obj.shelf!=='upper') obj.shelf='lower';
+    });
+  }
+
+  // Drop a player coin from the chute
   function dropCoin() {
-    if (dropLocked || balance < 2 || !world) return;
-    try { getAC().resume(); } catch(e){}
-    balance -= 2;
-    sndDrop();
-    dropLocked = true;
-    setTimeout(() => { dropLocked = false; }, 700);
-
-    const dropX = (aimFrac - 0.5) * MW * 0.86;
-    const dropZ = -MD/2 + WT + MD * 0.18;  // inside chute, clear of pegs
-
-    // Spawn exactly like a shelf coin (lying flat) — simplest possible approach
-    const obj = spawnCoin(dropX, CHUTE_TOP, dropZ, 'falling');
-    // Override velocity: fall downward fast
-    obj.body.velocity.set((Math.random()-0.5)*0.3, -3.0, 0);
-    obj.body.angularVelocity.set((Math.random()-0.5)*4, 0, (Math.random()-0.5)*4);
-    obj.body.linearDamping  = 0.35;
-    obj.body.angularDamping = 0.55;
-
-    fallingBody = obj.body;
-    fallingMesh = obj.mesh;
-  }
-
-  // ── Collect a coin/bonus that fell into tray ───────────────────
-  function collectItem(obj) {
-    balance  += obj.value;
-    winnings += obj.value;
-    if (obj.type==='bonus') sndBonus(); else sndWin(obj.value);
-    showPopup(
-      obj.type==='bonus' ? `${obj.emoji} ${obj.label}` : `+2p`,
-      obj.type==='bonus' ? obj.col : 0x00ff88
-    );
-  }
-
-  // ── DOM popup floater ──────────────────────────────────────────
-  function showPopup(text, col) {
-    const hex = '#' + col.toString(16).padStart(6,'0');
-    const el = document.createElement('div');
-    el.textContent = text;
-    el.style.cssText = `
-      position:absolute;pointer-events:none;z-index:100;
-      font-family:'Orbitron',sans-serif;font-size:clamp(12px,2.5vw,18px);
-      font-weight:bold;color:${hex};text-shadow:0 0 8px ${hex};
-      left:50%;transform:translateX(-50%);bottom:10%;white-space:nowrap;
-      animation:cp3popup 1.6s ease-out forwards;
-    `;
-    wrap.appendChild(el);
-    setTimeout(() => el.parentNode && el.parentNode.removeChild(el), 1700);
-  }
-
-  // ── HUD ────────────────────────────────────────────────────────
-  let hudBalEl, hudCoinsEl, hudWinEl;
-
-  function buildHUD() {
-    const style = document.createElement('style');
-    style.textContent = `
-      .cp3-hud{position:absolute;top:0;left:0;right:0;display:flex;
-        justify-content:space-between;align-items:stretch;
-        padding:5px 14px;background:rgba(6,2,18,0.90);
-        border-bottom:1px solid rgba(160,90,240,0.3);
-        font-family:'Share Tech Mono',monospace;pointer-events:none;gap:10px;z-index:10;}
-      .cp3-stat{display:flex;flex-direction:column;justify-content:center;min-width:80px}
-      .cp3-lbl{font-size:clamp(0.4rem,1vw,0.58rem);letter-spacing:0.18em;
-        color:rgba(160,110,240,0.55);margin-bottom:2px}
-      .cp3-val{font-family:'Orbitron',sans-serif;font-size:clamp(0.7rem,2vw,1rem);
-        font-weight:bold;letter-spacing:0.08em}
-      @keyframes cp3popup{0%{opacity:1;transform:translateX(-50%) translateY(0)}
-        100%{opacity:0;transform:translateX(-50%) translateY(-65px)}}
-    `;
-    wrap.appendChild(style);
-
-    const hud = document.createElement('div');
-    hud.className = 'cp3-hud';
-    hud.innerHTML = `
-      <div class="cp3-stat">
-        <div class="cp3-lbl">BALANCE</div>
-        <div class="cp3-val" id="cp3-bal" style="color:#00ff88">£1.00</div>
-      </div>
-      <div class="cp3-stat" style="text-align:center">
-        <div class="cp3-lbl">COINS LEFT</div>
-        <div class="cp3-val" id="cp3-coins" style="color:#00e5ff">50 × 2p</div>
-      </div>
-      <div class="cp3-stat" style="text-align:right">
-        <div class="cp3-lbl">WINNINGS</div>
-        <div class="cp3-val" id="cp3-win" style="color:#ffdd00">£0.00</div>
-      </div>`;
-    wrap.appendChild(hud);
-
-    hudBalEl   = wrap.querySelector('#cp3-bal');
-    hudCoinsEl = wrap.querySelector('#cp3-coins');
-    hudWinEl   = wrap.querySelector('#cp3-win');
-  }
-
-  function updateHUD() {
-    if (hudBalEl) {
-      hudBalEl.textContent = `£${(balance/100).toFixed(2)}`;
-      hudBalEl.style.color = balance < 20 ? '#ff5555' : '#00ff88';
-    }
-    if (hudCoinsEl) hudCoinsEl.textContent = `${Math.floor(balance/2)} × 2p`;
-    if (hudWinEl)   hudWinEl.textContent   = `£${(winnings/100).toFixed(2)}`;
-  }
-
-  // ── Ghost coin drop indicator ──────────────────────────────────
-  function buildAimArrow() {
-    const geo = new THREE.CylinderGeometry(CR, CR, CT, 22);
-    const mat = new THREE.MeshStandardMaterial({
-      color: 0x00ffcc, emissive: 0x00ffcc, emissiveIntensity: 0.6,
-      transparent: true, opacity: 0.45, metalness: 0.3, roughness: 0.4
-    });
-    ghostCoin = new THREE.Mesh(geo, mat);
-    // Lay flat like a real coin
-    ghostCoin.rotation.x = Math.PI / 2;
-    scene.add(ghostCoin);
-    // Reuse aimArrow variable so existing code doesn't break
-    aimArrow = ghostCoin;
-  }
-
-  // ── Main loop ──────────────────────────────────────────────────
-  let gamePaused = false;
-  function animate() {
-    if (destroyed) return;
-    animId = requestAnimationFrame(animate);
-    if (document.hidden || gamePaused) return;
-
-    const dt = Math.min(clock.getDelta(), 0.05);
-
-    // Step physics
-    world.step(1/60, dt, 3);
-
-    // Detach parented seed coins when struck by a dynamic coin
-    detachNearCoins();
-
-    // Sync meshes → bodies (parented coins handled by Three.js automatically)
-    coinBodies.forEach(obj => {
-      if (obj.isParented || !obj.body) return;
-      obj.mesh.position.copy(obj.body.position);
-      obj.mesh.quaternion.copy(obj.body.quaternion);
-    });
-
-    // Move pusher plates — sweep back→front, stop before front lip
-    const uDeltaZ = PUSH_SPEED * upperPusherDir * dt;
-    upperPusherBody.position.z += uDeltaZ;
-    if (upperPusherBody.position.z > U_PUSH_FRONT) { upperPusherBody.position.z = U_PUSH_FRONT; upperPusherDir=-1; }
-    if (upperPusherBody.position.z < U_PUSH_BACK)  { upperPusherBody.position.z = U_PUSH_BACK;  upperPusherDir= 1; }
-    upperPusherMesh.position.copy(upperPusherBody.position);
-    upperPusherMesh.position.y = UPPER_TOP + PUSH_H/2;
-
-    const lDeltaZ = PUSH_SPEED * lowerPusherDir * dt * 0.82;
-    lowerPusherBody.position.z += lDeltaZ;
-    if (lowerPusherBody.position.z > L_PUSH_FRONT) { lowerPusherBody.position.z = L_PUSH_FRONT; lowerPusherDir=-1; }
-    if (lowerPusherBody.position.z < L_PUSH_BACK)  { lowerPusherBody.position.z = L_PUSH_BACK;  lowerPusherDir= 1; }
-    lowerPusherMesh.position.copy(lowerPusherBody.position);
-    lowerPusherMesh.position.y = LOWER_TOP + PUSH_H/2;
-
-    // Coins are moved by the pusher purely through physics collision —
-    // no manual velocity injection. This prevents coins being launched off
-    // the shelf when the pusher reverses direction.
-
-    // Check fallen coins
-    checkFallen();
-
-    // Bonus spawn
-    bonusTimer -= dt;
-    if (bonusTimer <= 0) {
-      bonusTimer = 8 + Math.random()*10;
-      spawnBonus(
-        (Math.random()-0.5)*(MW-1.0),
-        UPPER_TOP + SHELF_THICK + 0.55,
-        (Math.random()-0.5)*(SHELF_D-0.8)
-      );
-    }
-
-    // Ghost coin — matches exact drop position and orientation
-    if (aimArrow) {
-      const ax = (aimFrac - 0.5) * MW * 0.86;
-      const dropZ = -MD/2 + WT + MD * 0.18;
-      aimArrow.position.set(ax, CHUTE_TOP + 0.1, dropZ);
-      if (!aimArrow._offsetSet) { aimArrow.rotation.x = 0; aimArrow._offsetSet = true; }
-      aimArrow.visible = !dropLocked && balance >= 2;
-      if (aimArrow.material) {
-        aimArrow.material.opacity = 0.35 + 0.2 * Math.sin(clock.elapsedTime * 4);
-      }
-    }
-
-    updateHUD();
-    renderer.render(scene, camera);
-  }
-
-  // ── Wake static seed coins when the pusher reaches them ─────────
-  // Converts mass=0 static coins to mass=0.025 dynamic when the pusher
-  // front edge is within one coin-diameter of them. This keeps simulation
-  // cost near zero until coins are actually being pushed.
-  // Release line: Z beyond which a kinematic coin becomes dynamic.
-  // Slightly inside the shelf front lip so coins release just before they'd fall.
-  // Detach parented seed coins when a dynamic coin gets close enough to trigger them.
-  const DETACH_DIST_SQ = (CR * 2.6) * (CR * 2.6);
-
-  function detachNearCoins() {
-    const dynamicPositions = [];
-    coinBodies.forEach(obj => {
-      if (obj.isParented || !obj.body) return;
-      dynamicPositions.push(obj.body.position);
-    });
-    if (dynamicPositions.length === 0) return;
-
-    coinBodies.forEach(obj => {
-      if (!obj.isParented) return;
-
-      // Get current world position of parented mesh
-      const worldPos = new THREE.Vector3();
-      obj.mesh.getWorldPosition(worldPos);
-
-      // Check proximity to any dynamic coin
-      let triggered = false;
-      for (const dp of dynamicPositions) {
-        const dx = dp.x - worldPos.x, dy = dp.y - worldPos.y, dz = dp.z - worldPos.z;
-        if (dx*dx + dy*dy + dz*dz < DETACH_DIST_SQ) { triggered = true; break; }
-      }
-      if (!triggered) return;
-
-      // Detach: unparent mesh, give it a dynamic physics body
-      const pusherMesh = obj.shelf === 'upper' ? upperPusherMesh : lowerPusherMesh;
-      pusherMesh.remove(obj.mesh);
-      obj.mesh.position.copy(worldPos);
-      obj.mesh.quaternion.set(0, 0, 0, 1);
-      scene.add(obj.mesh);
-
-      if (obj.proxy) { world.removeBody(obj.proxy); obj.proxy = null; }
-
-      const newBody = new CANNON.Body({ mass:0.18, linearDamping:0.88, angularDamping:0.95 });
-      if (obj.type === 'bonus') {
-        newBody.addShape(new CANNON.Box(new CANNON.Vec3(BONUS_W/2, BONUS_W/2, BONUS_D/2)));
-      } else {
-        newBody.addShape(new CANNON.Cylinder(CR, CR, CT, 12));
-      }
-      newBody.position.set(worldPos.x, worldPos.y, worldPos.z);
-      newBody.velocity.set(0, 0, 0);
-      world.addBody(newBody);
-      obj.body = newBody;
-      obj.isParented = false;
-    });
+    if (dropLocked||balance<2||!world) return;
+    try{getAC().resume();}catch(e){}
+    balance-=2; sndDrop(); dropLocked=true;
+    setTimeout(()=>{dropLocked=false;},700);
+    const dropX=(aimFrac-0.5)*MW*0.86;
+    const dropZ=-MD/2+WT+MD*0.18;
+    const obj=spawnCoin(dropX,CHUTE_TOP,dropZ,'falling');
+    obj.body.velocity.set((Math.random()-0.5)*0.3,-3.5,0);
+    obj.body.angularVelocity.set((Math.random()-0.5)*4,0,(Math.random()-0.5)*4);
+    obj.body.linearDamping=0.30; obj.body.angularDamping=0.50;
+    fallingBody=obj.body; fallingMesh=obj.mesh;
   }
 
   // ── Check coins that have fallen off shelves ───────────────────
@@ -922,7 +669,7 @@ export default (() => {
     const toRemove = [];
 
     coinBodies.forEach((obj, i) => {
-      if (obj.isParented || !obj.body) return;
+      if (!obj.body || obj.seed) return;
       const py  = obj.body.position.y;
       const vy  = obj.body.velocity.y;
 
@@ -967,7 +714,7 @@ export default (() => {
     toRemove.slice().reverse().forEach(i => {
       const obj = coinBodies[i];
       scene.remove(obj.mesh);
-      world.removeBody(obj.body);
+      if (obj.body) world.removeBody(obj.body);
       // material can be a single material or an array (bonus tokens use array)
       if (obj.mesh.material && obj.mesh.material !== coinMat) {
         if (Array.isArray(obj.mesh.material)) {
@@ -981,9 +728,9 @@ export default (() => {
   }
 
   // ── Camera orbit state ─────────────────────────────────────────
-  let camTheta = 0;          // horizontal angle (radians)
-  let camPhi   = 0.38;       // vertical angle (radians, 0=side, Pi/2=top)
-  let camDist  = MD * 3.2;   // distance from target
+  let camTheta = 0;
+  let camPhi   = 0.62;
+  let camDist  = 11.5;
   let isDragging = false;
   let dragStartX = 0, dragStartY = 0;
   let dragTheta = 0, dragPhi = 0;
@@ -1146,6 +893,70 @@ export default (() => {
     if (el) el.style.display = 'none';
   }
 
+  // ── Main animate loop ──────────────────────────────────────────
+  let gamePaused = false;
+  function animate() {
+    if (destroyed) return;
+    animId = requestAnimationFrame(animate);
+    if (document.hidden || gamePaused) return;
+
+    const dt = Math.min(clock.getDelta(), 0.05);
+
+    // Advance upper pusher
+    const uDeltaZ = PUSH_SPEED * upperPusherDir * dt;
+    upperPusherBody.position.z += uDeltaZ;
+    if (upperPusherBody.position.z > U_PUSH_FRONT) { upperPusherBody.position.z = U_PUSH_FRONT; upperPusherDir=-1; }
+    if (upperPusherBody.position.z < U_PUSH_BACK)  { upperPusherBody.position.z = U_PUSH_BACK;  upperPusherDir= 1; }
+    upperPusherMesh.position.copy(upperPusherBody.position);
+    upperPusherMesh.position.y = UPPER_TOP + PUSH_H/2;
+
+    // Advance lower pusher
+    const lDeltaZ = PUSH_SPEED * lowerPusherDir * dt * 0.82;
+    lowerPusherBody.position.z += lDeltaZ;
+    if (lowerPusherBody.position.z > L_PUSH_FRONT) { lowerPusherBody.position.z = L_PUSH_FRONT; lowerPusherDir=-1; }
+    if (lowerPusherBody.position.z < L_PUSH_BACK)  { lowerPusherBody.position.z = L_PUSH_BACK;  lowerPusherDir= 1; }
+    lowerPusherMesh.position.copy(lowerPusherBody.position);
+    lowerPusherMesh.position.y = LOWER_TOP + PUSH_H/2;
+
+    // Ride seed coins with pusher; release to dynamic at front lip
+    moveSeedCoins(uDeltaZ, lDeltaZ);
+
+    // Step physics (only dynamic coins simulated)
+    world.step(1/60, dt, 3);
+
+    // Sync dynamic coin meshes to physics bodies
+    coinBodies.forEach(obj => {
+      if (obj.seed || !obj.body) return;
+      obj.mesh.position.copy(obj.body.position);
+      obj.mesh.quaternion.copy(obj.body.quaternion);
+    });
+
+    // Check for fallen / collected coins
+    checkFallen();
+
+    // Periodic bonus token drops from chute
+    bonusTimer -= dt;
+    if (bonusTimer <= 0) {
+      bonusTimer = 12 + Math.random()*10;
+      spawnBonus((Math.random()-0.5)*(MW-1.2), CHUTE_TOP-0.3, -MD/2+WT+MD*0.12);
+    }
+
+    // Ghost coin aiming indicator
+    if (aimArrow) {
+      const ax = (aimFrac - 0.5) * MW * 0.86;
+      const dropZ = -MD/2 + WT + MD * 0.18;
+      aimArrow.position.set(ax, CHUTE_TOP + 0.1, dropZ);
+      if (!aimArrow._offsetSet) { aimArrow.rotation.x = 0; aimArrow._offsetSet = true; }
+      aimArrow.visible = !dropLocked && balance >= 2;
+      if (aimArrow.material) {
+        aimArrow.material.opacity = 0.35 + 0.2 * Math.sin(clock.elapsedTime * 4);
+      }
+    }
+
+    updateHUD();
+    renderer.render(scene, camera);
+  }
+
   // ── Restart ────────────────────────────────────────────────────
   function restartGame() {
     balance=100; winnings=0; aimFrac=0.5;
@@ -1153,11 +964,6 @@ export default (() => {
     fallingBody=null; fallingMesh=null;
     // Clear all coin bodies/meshes
     coinBodies.forEach(obj => {
-      if (obj.isParented) {
-        const pm = obj.shelf === 'upper' ? upperPusherMesh : lowerPusherMesh;
-        if (pm) pm.remove(obj.mesh);
-        if (obj.proxy) world.removeBody(obj.proxy);
-      }
       scene.remove(obj.mesh);
       if (obj.body) world.removeBody(obj.body);
     });
