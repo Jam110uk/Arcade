@@ -613,42 +613,17 @@ function pool3DBuildBalls(THREE, scene, tw3, th3) {
     else if (id === 8)           hex = '#111111';
     else                         hex = '#e8c010';
 
-    // Parse to get a slightly lighter and darker shade of the SAME colour
-    const r = parseInt(hex.slice(1,3),16);
-    const g = parseInt(hex.slice(3,5),16);
-    const b = parseInt(hex.slice(5,7),16);
-    // Lighter (highlight side)
-    const rl = Math.min(255,r+72), gl = Math.min(255,g+72), bl = Math.min(255,b+72);
-    // Darker (shadow side) — never pure black, always tinted
-    const rd = Math.max(0,Math.floor(r*0.30)), gd = Math.max(0,Math.floor(g*0.30)), bd = Math.max(0,Math.floor(b*0.30));
+    // Solid base fill — pure flat colour
+    ctx.beginPath(); ctx.arc(cx, cy, cr, 0, Math.PI*2);
+    ctx.fillStyle = hex; ctx.fill();
 
-    // Base shading — light from top-left
-    const base = ctx.createRadialGradient(
-      cx - cr*0.28, cy - cr*0.30, cr*0.02,
-      cx + cr*0.12, cy + cr*0.12, cr*1.10
-    );
-    base.addColorStop(0,    'rgb('+rl+','+gl+','+bl+')');
-    base.addColorStop(0.30, hex);
-    base.addColorStop(0.75, hex);
-    base.addColorStop(1,    'rgb('+rd+','+gd+','+bd+')');
-    ctx.beginPath(); ctx.arc(cx,cy,cr,0,Math.PI*2);
+    // Centred specular highlight — kept centred so no dark patch appears when ball spins
+    const base = ctx.createRadialGradient(cx - cr*0.30, cy - cr*0.32, 0, cx - cr*0.30, cy - cr*0.32, cr*0.50);
+    base.addColorStop(0,   'rgba(255,255,255,0.85)');
+    base.addColorStop(0.45,'rgba(255,255,255,0.25)');
+    base.addColorStop(1,   'rgba(255,255,255,0)');
+    ctx.beginPath(); ctx.arc(cx, cy, cr, 0, Math.PI*2);
     ctx.fillStyle = base; ctx.fill();
-
-    // Soft shadow wash — bottom-right, no black, just darker tint
-    const shadow = ctx.createRadialGradient(cx+cr*0.25, cy+cr*0.30, cr*0.05, cx+cr*0.25, cy+cr*0.30, cr*1.05);
-    shadow.addColorStop(0,   'rgba(0,0,0,0)');
-    shadow.addColorStop(0.55,'rgba(0,0,0,0)');
-    shadow.addColorStop(1,   'rgba(0,0,0,0.18)');
-    ctx.beginPath(); ctx.arc(cx,cy,cr,0,Math.PI*2);
-    ctx.fillStyle = shadow; ctx.fill();
-
-    // Primary specular — large soft highlight top-left
-    const hi = ctx.createRadialGradient(cx-cr*0.32, cy-cr*0.34, 0, cx-cr*0.32, cy-cr*0.34, cr*0.42);
-    hi.addColorStop(0,   'rgba(255,255,255,0.90)');
-    hi.addColorStop(0.35,'rgba(255,255,255,0.40)');
-    hi.addColorStop(1,   'rgba(255,255,255,0)');
-    ctx.beginPath(); ctx.arc(cx,cy,cr,0,Math.PI*2);
-    ctx.fillStyle = hi; ctx.fill();
 
     // Tiny sharp glint
     const glint = ctx.createRadialGradient(cx-cr*0.10, cy-cr*0.52, 0, cx-cr*0.10, cy-cr*0.52, cr*0.09);
