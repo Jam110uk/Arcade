@@ -619,65 +619,54 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
   // ── Invisible felt plane at Y=0 — physics reference surface ─────
   // Balls sit at Y = ballRadius, felt is Y=0. The GLB table surface
   // must align with this plane after scaling.
-  // ── UK Pool table felt texture with correct table markings ────────
-  // Canvas is 1024x512 — 2:1 ratio matches a standard UK pool table (7ft, 6ft or 8ft)
-  // Markings (World Eightball Pool Federation / WEPF standard):
-  //   • Baulk line: across the width at 29% from the baulk (bottom) end
-  //   • D: semicircle on baulk line, radius = 11.5% of table length, opening toward top
-  //   • Black spot: single dot at 59% from baulk end (centre of top half)
-  //   • Centre spot: dot at 50% (table centre) — used for re-spotted black
-  //   • Corner spot markers: small dots at cushion-felt junction in each corner (optional)
-  // All proportions taken from WEPF official table specifications.
+  // ── Felt base texture — plain green, no scanlines ─────────────────
   const feltCanvas = document.createElement('canvas');
-  feltCanvas.width = 1024; feltCanvas.height = 512;
+  feltCanvas.width = 512; feltCanvas.height = 256;
   const fc = feltCanvas.getContext('2d');
-  const W = 1024, H = 512;
+  fc.fillStyle = '#1a6e36';
+  fc.fillRect(0, 0, 512, 256);
 
-  // Base green — smooth radial gradient, darker toward edges
-  const fg = fc.createRadialGradient(W*0.5, H*0.5, 0, W*0.5, H*0.5, W*0.58);
-  fg.addColorStop(0,   '#1f8040');
-  fg.addColorStop(0.5, '#1a6e36');
-  fg.addColorStop(1,   '#134f28');
-  fc.fillStyle = fg; fc.fillRect(0, 0, W, H);
+  // ── Markings canvas — UK pool table (WEPF standard) ────────────────
+  // Drawn on a separate high-res canvas so UV tiling doesn't corrupt them.
+  // This canvas is used on an overlay plane positioned using the play-area
+  // bounds computed after the GLB loads (see pool3DAddMarkings below).
+  const markCanvas = document.createElement('canvas');
+  markCanvas.width = 1024; markCanvas.height = 512;
+  const mc = markCanvas.getContext('2d');
+  const MW = 1024, MH = 512;
 
-  // Subtle nap / cloth grain — very fine horizontal lines, almost invisible
-  for (let y = 0; y < H; y += 2) {
-    fc.fillStyle = y % 4 === 0 ? 'rgba(255,255,255,0.012)' : 'rgba(0,0,0,0.015)';
-    fc.fillRect(0, y, W, 1);
-  }
+  // Transparent background — only the lines are drawn
+  mc.clearRect(0, 0, MW, MH);
 
-  // ── Table markings — white, semi-transparent so they read as painted lines ──
-  fc.strokeStyle = 'rgba(255,255,255,0.82)';
-  fc.fillStyle   = 'rgba(255,255,255,0.82)';
-  fc.lineCap     = 'round';
+  // All lines: white, semi-opaque
+  mc.strokeStyle = 'rgba(255,255,255,0.88)';
+  mc.fillStyle   = 'rgba(255,255,255,0.88)';
+  mc.lineCap = 'round';
 
-  // BAULK LINE — at 29% from the baulk (bottom) end
-  // In canvas coords: baulk end is LEFT (x=0), top cushion end is RIGHT (x=W)
-  // Table runs left-right in the canvas (width = table length)
-  const baulkX = W * 0.29;
-  fc.lineWidth = 2.5;
-  fc.beginPath(); fc.moveTo(baulkX, 0); fc.lineTo(baulkX, H); fc.stroke();
+  // BAULK LINE — 29% from baulk (left) end, full height
+  const baulkX = MW * 0.29;
+  mc.lineWidth = 3;
+  mc.beginPath(); mc.moveTo(baulkX, 0); mc.lineTo(baulkX, MH); mc.stroke();
 
-  // D SEMICIRCLE — centred on baulk line at mid-height, opens toward top (right)
-  // Radius = 11.5% of table length
-  const dRadius = W * 0.115;
-  const dCx = baulkX, dCy = H * 0.5;
-  fc.lineWidth = 2.5;
-  fc.beginPath();
-  // Arc from -90° to +90° (right-opening semicircle)
-  fc.arc(dCx, dCy, dRadius, -Math.PI / 2, Math.PI / 2);
-  fc.stroke();
+  // D SEMICIRCLE — centred on baulk line at mid-height, opens toward top end
+  // Radius = 11.5% of table length (WEPF spec)
+  const dR = MW * 0.115;
+  mc.lineWidth = 3;
+  mc.beginPath();
+  mc.arc(baulkX, MH * 0.5, dR, -Math.PI / 2, Math.PI / 2);
+  mc.stroke();
 
-  // BLACK SPOT — at 59% from baulk end (top-half centre)
-  const spotX = W * 0.59, spotY = H * 0.5;
-  fc.beginPath(); fc.arc(spotX, spotY, 4.5, 0, Math.PI * 2); fc.fill();
+  // BAULK SPOT — centre of the D
+  mc.beginPath(); mc.arc(baulkX, MH * 0.5, 5, 0, Math.PI * 2); mc.fill();
 
-  // CENTRE SPOT — at 50% (re-spot position)
-  const centreX = W * 0.50, centreY = H * 0.5;
-  fc.beginPath(); fc.arc(centreX, centreY, 3.5, 0, Math.PI * 2); fc.fill();
+  // BLACK SPOT — 59% from baulk end (WEPF: midpoint of top half)
+  mc.beginPath(); mc.arc(MW * 0.59, MH * 0.5, 5, 0, Math.PI * 2); mc.fill();
 
-  // BAULK SPOT — centre of the D (where cue ball is placed)
-  fc.beginPath(); fc.arc(dCx, dCy, 3.5, 0, Math.PI * 2); fc.fill();
+  // CENTRE SPOT — 50% (re-spot after foul)
+  mc.beginPath(); mc.arc(MW * 0.50, MH * 0.5, 4, 0, Math.PI * 2); mc.fill();
+
+  // Store for use in pool3DAddMarkings (called after GLB bounds are known)
+  P3._markCanvas = markCanvas;
   const feltMat=new THREE.MeshStandardMaterial({map:new THREE.CanvasTexture(feltCanvas),roughness:.92,metalness:0});
   const feltMesh=new THREE.Mesh(new THREE.PlaneGeometry(tw3-POOL.POCKET_R*P3.SCALE*2,th3-POOL.POCKET_R*P3.SCALE*2),feltMat);
   feltMesh.rotation.x=-Math.PI/2;
@@ -831,7 +820,9 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
         // Pink/bright materials = felt & cushion tops. Dark = frame/legs (keep).
         // We identify "pink" as r>0.5 AND b>0.3 AND g<r (magenta-ish).
         // Anything else that's bright but not dark wood also gets greened.
-        const _greenFelt = new THREE.MeshStandardMaterial({ map: feltMat.map, roughness: 0.92, metalness: 0 });
+        // Plain green — no texture map so the GLB's UV mapping can't corrupt it.
+        // Table markings are drawn on a separate overlay plane (added below).
+        const _greenFelt = new THREE.MeshStandardMaterial({ color: 0x1a6e36, roughness: 0.92, metalness: 0 });
         model.traverse(nd => {
           if (!nd.isMesh) return;
           const applyGreen = (m, idx) => {
@@ -864,6 +855,33 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
         // ── Update camera to look at the playing surface ──────────
         P3.camTarget = { x: tw3 * 0.5, y: P3.tableY, z: th3 * 0.5 };
         if (P3.pool3DUpdateCamera) P3.pool3DUpdateCamera();
+
+        // ── Add UK pool table markings overlay plane ─────────────
+        // Sized to the computed play-area bounds, floated just above the felt
+        // surface so it's always visible regardless of the GLB's UV mapping.
+        if (P3._markCanvas) {
+          const pW = P3.feltMaxX - P3.feltMinX;
+          const pD = P3.feltMaxZ - P3.feltMinZ;
+          const markGeo = new THREE.PlaneGeometry(pW, pD);
+          const markTex = new THREE.CanvasTexture(P3._markCanvas);
+          const markMat = new THREE.MeshBasicMaterial({
+            map: markTex,
+            transparent: true,
+            depthWrite: false,
+            polygonOffset: true,
+            polygonOffsetFactor: -2,
+            polygonOffsetUnits: -2,
+          });
+          const markMesh = new THREE.Mesh(markGeo, markMat);
+          markMesh.rotation.x = -Math.PI / 2;
+          markMesh.position.set(
+            (P3.feltMinX + P3.feltMaxX) * 0.5,
+            (P3.tableY !== undefined ? P3.tableY : 0) + 0.002,
+            (P3.feltMinZ + P3.feltMaxZ) * 0.5
+          );
+          scene.add(markMesh);
+          P3.markingsMesh = markMesh;
+        }
 
         // Remove the procedural felt now that we have the GLB
         scene.remove(feltMesh);
