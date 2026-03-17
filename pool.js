@@ -984,14 +984,14 @@ function poolHandleMove(mx, my, screenX, screenY) {
         const hitZ2d = target.z / S;
         // Cue sits on the OPPOSITE side of the ball from the mouse.
         // Angle points FROM mouse TOWARD ball so cue is behind ball, tip at ball.
-        const dx = hitX2d - POOL.cueBall.x;
-        const dy = hitZ2d - POOL.cueBall.y;
+        const dx = POOL.cueBall.x - hitX2d;
+        const dy = POOL.cueBall.y - hitZ2d;
         POOL.aimAngle = Math.atan2(dy, dx);
       }
     } else {
       // Fallback: plain 2D canvas coords — angle FROM mouse TOWARD ball
-      const dx = mx - POOL.cueBall.x;
-      const dy = my - POOL.cueBall.y;
+      const dx = POOL.cueBall.x - mx;
+      const dy = POOL.cueBall.y - my;
       POOL.aimAngle = Math.atan2(dy, dx);
     }
 
@@ -1006,7 +1006,7 @@ function poolHandleMove(mx, my, screenX, screenY) {
     const dx = sx - POOL.lockScreenX;
     const dy = sy - POOL.lockScreenY;
     const proj = dx * cos + dy * sin;
-    // angle points toward mouse; moving away = negative proj → pullDist positive ✓
+    // Negative projection = pulled back (opposite to shot direction)
     const pullDist = -proj;
     POOL.pullback = Math.max(0, Math.min(1, pullDist / 250));
 
@@ -1222,7 +1222,7 @@ function poolDraw() {
           const inRange = t <= aimLen;
           if (!inRange) { d.visible = false; return; }
           const _tYd = (P3.tableY !== undefined) ? P3.tableY : 0;
-          d.position.set(cbx3 - Math.cos(angle)*t, _tYd + 0.05, cbz3 - Math.sin(angle)*t);
+          d.position.set(cbx3 + Math.cos(angle)*t, _tYd + 0.05, cbz3 + Math.sin(angle)*t);
           d.rotation.y = -angle;
           // Fade toward end of line, brighter at start
           const fade  = 1 - (t / aimLen) * 0.55;
@@ -1233,8 +1233,8 @@ function poolDraw() {
 
         // Ghost ball at aim end point
         if (P3.aimGhost) {
-          const endX = cbx3 - Math.cos(angle) * aimLen;
-          const endZ = cbz3 - Math.sin(angle) * aimLen;
+          const endX = cbx3 + Math.cos(angle) * aimLen;
+          const endZ = cbz3 + Math.sin(angle) * aimLen;
           const _tYg = (P3.tableY !== undefined) ? P3.tableY : 0;
           P3.aimGhost.position.set(endX, _tYg + POOL.BALL_R * S, endZ);
           const ghostOpacity = locked ? 0.15 + power * 0.35 : 0.12;
@@ -1725,8 +1725,8 @@ async function poolFireShot() {
   const perpOffset = (-Math.sin(angle) * dx + Math.cos(angle) * dy);
   const sideSpin = (perpOffset / (POOL.BALL_R * 2)) * speed * 1.2; // scaled spin
   try { POOL_SFX.cueHit(power / 100); } catch(e) {}
-  cb.vx = -Math.cos(angle) * speed;
-  cb.vy = -Math.sin(angle) * speed;
+  cb.vx = Math.cos(angle) * speed;
+  cb.vy = Math.sin(angle) * speed;
   cb.spin = 0;        // ball starts with NO spin — pure sliding skid on hit
   cb.sliding = true;  // transitions to rolling once spin catches up to velocity
   POOL.firstBallHitId = null;
