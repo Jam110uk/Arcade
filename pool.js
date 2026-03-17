@@ -399,30 +399,84 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
   scene.add(feltMesh);
 
   // ── Load GLB ──────────────────────────────────────────────────────
-  // Load GLTFLoader by fetching the jsm source and rewriting the 'three'
-  // import to point at the full module URL we already use.
+  // Multi-strategy GLTFLoader bootstrap:
+  //   1. Fetch source, rewrite ALL bare/relative 'three' imports, blob-import
+  //   2. Same but from unpkg mirror
+  //   3. <script type="module"> injection (bypasses blob CSP restrictions)
   async function loadGLTFLoader() {
-    try {
-      const LOADER_SRC = 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/loaders/GLTFLoader.js';
-      let src = await fetch(LOADER_SRC).then(r => r.text());
-      // Rewrite bare 'three' specifier to the full CDN URL
-      src = src.replace(
-        /from\s+['"]three['"]/g,
-        `from 'https://unpkg.com/three@0.128.0/build/three.module.js'`
-      );
-      src = src.replace(
-        /import\s+(['"]three['"])/g,
-        `import 'https://unpkg.com/three@0.128.0/build/three.module.js'`
-      );
-      const blob = new Blob([src], { type: 'text/javascript' });
-      const url  = URL.createObjectURL(blob);
-      const mod  = await import(/* webpackIgnore: true */ url);
-      URL.revokeObjectURL(url);
-      if (mod.GLTFLoader) return mod.GLTFLoader;
-    } catch(e) {
-      console.warn('[pool3d] GLTFLoader load failed:', e.message);
+    const THREE_URL = 'https://unpkg.com/three@0.128.0/build/three.module.js';
+
+    function rewriteSrc(src) {
+      return src
+        // bare specifier: from 'three'
+        .replace(/from\s+['"]three['"]/g, `from '${THREE_URL}'`)
+        // relative three.module.js references
+        .replace(/from\s+['"][./]*three\.module\.js['"]/g, `from '${THREE_URL}'`)
+        // dynamic import('three')
+        .replace(/import\s*\(\s*['"]three['"]\s*\)/g, `import('${THREE_URL}')`)
+        // relative jsm sibling imports (e.g. ../utils/BufferGeometryUtils.js)
+        .replace(/from\s+['"]\.\.\/([\w/.]+)['"]/g,
+          (_, p) => `from 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/${p}'`);
     }
-    return null;
+
+    const LOADER_SRCS = [
+      'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/loaders/GLTFLoader.js',
+      'https://unpkg.com/three@0.128.0/examples/jsm/loaders/GLTFLoader.js',
+    ];
+
+    // Strategy A: fetch → rewrite → blob import
+    for (const loaderSrc of LOADER_SRCS) {
+      try {
+        const res = await fetch(loaderSrc);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const src = rewriteSrc(await res.text());
+        const blobURL = URL.createObjectURL(new Blob([src], { type: 'application/javascript' }));
+        try {
+          const mod = await import(/* webpackIgnore: true */ blobURL);
+          URL.revokeObjectURL(blobURL);
+          if (mod.GLTFLoader) {
+            console.log('[pool3d] GLTFLoader loaded (blob) from:', loaderSrc);
+            return mod.GLTFLoader;
+          }
+        } catch(importErr) {
+          URL.revokeObjectURL(blobURL);
+          console.warn('[pool3d] Blob import failed:', importErr.message);
+        }
+      } catch(fetchErr) {
+        console.warn('[pool3d] Fetch failed:', loaderSrc, fetchErr.message);
+      }
+    }
+
+    // Strategy B: <script type="module"> injection — sidesteps blob CSP entirely
+    console.log('[pool3d] Trying script-tag GLTFLoader injection...');
+    return new Promise((resolve) => {
+      const script = document.createElement('script');
+      script.type = 'module';
+      script.textContent = `
+        import { GLTFLoader } from 'https://unpkg.com/three@0.128.0/examples/jsm/loaders/GLTFLoader.js';
+        window._pool3dGLTFLoader = GLTFLoader;
+        window.dispatchEvent(new Event('_pool3dLoaderReady'));
+      `;
+      const onReady = () => {
+        window.removeEventListener('_pool3dLoaderReady', onReady);
+        if (window._pool3dGLTFLoader) {
+          console.log('[pool3d] GLTFLoader loaded via script tag');
+        } else {
+          console.warn('[pool3d] Script-tag strategy: loader not found on window');
+        }
+        resolve(window._pool3dGLTFLoader || null);
+      };
+      window.addEventListener('_pool3dLoaderReady', onReady);
+      // Timeout safety: if the script never fires (e.g. network error), resolve null
+      setTimeout(() => {
+        window.removeEventListener('_pool3dLoaderReady', onReady);
+        if (!window._pool3dGLTFLoader) {
+          console.warn('[pool3d] GLTFLoader script-tag timed out — using procedural table');
+          resolve(null);
+        }
+      }, 10000);
+      document.head.appendChild(script);
+    });
   }
 
   // Ball mesh name patterns to strip from GLB
@@ -526,7 +580,10 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
         poolDraw();
       },
       undefined,
-      () => tryLoad(i + 1)
+      (err) => {
+        console.warn(`[pool3d] GLB load failed (${paths[i]}):`, err);
+        tryLoad(i + 1);
+      }
       );
     }
     tryLoad(0);
