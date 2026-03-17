@@ -996,19 +996,22 @@ function poolHandleMove(mx, my, screenX, screenY) {
     }
 
   } else if (POOL.shotState === 'locked') {
-    // Pull-back mode: use raw screen coords projected onto locked axis
-    // This works anywhere on screen, not just over the canvas
-    const cos = Math.cos(POOL.lockedAngle);
-    const sin = Math.sin(POOL.lockedAngle);
-    // Project screen movement onto the shot direction axis
+    // Pull-back mode: project mouse movement onto the CUE's screen-space axis.
+    // We can't use the physics angle directly because the table is viewed in
+    // perspective — the same angle looks different on screen depending on orientation.
+    // Instead, at lock time we stored the screen-space direction of the cue
+    // (POOL.lockScreenDirX/Y). We project the mouse delta onto that vector.
     const sx = (screenX !== undefined ? screenX : mx);
     const sy = (screenY !== undefined ? screenY : my);
     const dx = sx - POOL.lockScreenX;
     const dy = sy - POOL.lockScreenY;
-    const proj = dx * cos + dy * sin;
-    // Negative projection = pulled back (opposite to shot direction)
-    const pullDist = -proj;
-    POOL.pullback = Math.max(0, Math.min(1, pullDist / 250));
+    // lockScreenDirX/Y is the unit vector pointing FROM ball TOWARD mouse in screen space
+    // Moving mouse AWAY from ball (positive proj) = pulling cue back = more power
+    const sdx = POOL.lockScreenDirX || 0;
+    const sdy = POOL.lockScreenDirY || 0;
+    const proj = dx * sdx + dy * sdy;
+    const pullDist = proj;
+    POOL.pullback = Math.max(0, Math.min(1, pullDist / 200));
 
     // Update power bar UI
     const pct = Math.round(POOL.pullback * 100);
@@ -1060,6 +1063,44 @@ function poolHandleClick(e) {
     POOL.lockScreenX = POOL._lastScreenX || POOL.mouseX;
     POOL.lockScreenY = POOL._lastScreenY || POOL.mouseY;
     POOL.pullback = 0;
+    // Compute screen-space direction of the cue at lock moment.
+    // Project the cue ball and a point along the aim axis into screen space,
+    // then take the normalised difference — this gives us the true on-screen
+    // direction regardless of camera angle/perspective.
+    (function() {
+      if (!P3.ready || !P3.camera || !P3.container) {
+        // Fallback: use raw physics angle mapped to screen axes
+        POOL.lockScreenDirX = Math.cos(POOL.lockedAngle);
+        POOL.lockScreenDirY = Math.sin(POOL.lockedAngle);
+        return;
+      }
+      const S   = P3.SCALE;
+      const cb  = POOL.cueBall;
+      const cbx3 = (P3.feltMinX !== undefined)
+        ? P3.feltMinX + (cb.x / POOL.TW) * (P3.feltMaxX - P3.feltMinX) : cb.x * S;
+      const cbz3 = (P3.feltMinZ !== undefined)
+        ? P3.feltMinZ + (cb.y / POOL.TH) * (P3.feltMaxZ - P3.feltMinZ) : cb.y * S;
+      const THREE = P3.THREE;
+      const rect  = P3.container.getBoundingClientRect();
+      // Project cue ball centre into screen pixels
+      const ballVec = new THREE.Vector3(cbx3, POOL.BALL_R * S, cbz3);
+      ballVec.project(P3.camera);
+      const ballSX = (ballVec.x * 0.5 + 0.5) * rect.width  + rect.left;
+      const ballSY = (-ballVec.y * 0.5 + 0.5) * rect.height + rect.top;
+      // Project a point 50 units along the aim direction
+      const fwdX = cbx3 + Math.cos(POOL.lockedAngle) * 50 * S;
+      const fwdZ = cbz3 + Math.sin(POOL.lockedAngle) * 50 * S;
+      const fwdVec = new THREE.Vector3(fwdX, POOL.BALL_R * S, fwdZ);
+      fwdVec.project(P3.camera);
+      const fwdSX = (fwdVec.x * 0.5 + 0.5) * rect.width  + rect.left;
+      const fwdSY = (-fwdVec.y * 0.5 + 0.5) * rect.height + rect.top;
+      // Normalise
+      const ddx = fwdSX - ballSX;
+      const ddy = fwdSY - ballSY;
+      const len = Math.sqrt(ddx*ddx + ddy*ddy) || 1;
+      POOL.lockScreenDirX = ddx / len;
+      POOL.lockScreenDirY = ddy / len;
+    })();
     // Show power bar, update hint
     const pb = document.getElementById('pool-power-bar');
     const hint = document.getElementById('pool-hint');
