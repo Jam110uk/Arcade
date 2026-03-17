@@ -409,6 +409,12 @@ export default (() => {
     lowerPusherMesh = new THREE.Mesh(lowerPushGeo, pusherMat);
     scene.add(lowerPusherMesh);
 
+    // ── Set pusher mesh positions before seeding so worldToLocal is correct ──
+    upperPusherMesh.position.set(0, UPPER_TOP + PUSH_H/2, U_PUSH_BACK);
+    upperPusherMesh.updateMatrixWorld(true);
+    lowerPusherMesh.position.set(0, LOWER_TOP + PUSH_H/2, L_PUSH_BACK);
+    lowerPusherMesh.updateMatrixWorld(true);
+
     // ── Seed coins ───────────────────────────────────────────────
     seedCoins();
   }
@@ -563,11 +569,7 @@ export default (() => {
     obj.mesh.position.copy(localPos);
     pusherMesh.add(obj.mesh);
     obj.isParented = true;
-    const proxy = new CANNON.Body({ mass: 0 });
-    proxy.addShape(new CANNON.Box(new CANNON.Vec3(BONUS_W/2, BONUS_W/2, BONUS_D/2)));
-    proxy.position.set(x, y, z);
-    world.addBody(proxy);
-    obj.proxy = proxy;
+    obj.proxy = null; // detection uses getWorldPosition, no proxy needed
   }
 
   // ── Seed shelves with initial coins ───────────────────────────────────────
@@ -666,13 +668,7 @@ export default (() => {
     mesh.position.copy(localPos);
     pusherMesh.add(mesh);
 
-    // Lightweight proxy body so dynamic coins can detect proximity
-    const proxy = new CANNON.Body({ mass: 0 });
-    proxy.addShape(new CANNON.Cylinder(CR, CR, CT, 8));
-    proxy.position.set(x, y, z);
-    world.addBody(proxy);
-
-    const obj = { mesh, proxy, body: null, type:'coin', value:2, shelf, isParented:true };
+    const obj = { mesh, proxy:null, body: null, type:'coin', value:2, shelf, isParented:true };
     coinBodies.push(obj);
     return obj;
   }
