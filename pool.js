@@ -429,8 +429,7 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
   const BALL_PATTERNS = [
     /ball/i, /sphere/i, /cue.?ball/i, /^ball_?\d/i,
     /solid/i, /stripe/i, /^[0-9]+$/,
-    // Exact pattern seen in Pool Table.glb: Mesh##_Group1_Model_...
-    /^mesh\d+_group\d+_model/i,
+    /^mesh\d+_group\d+_model/i,   // exact names in Pool Table.glb
   ];
   function looksLikeBall(name) {
     return BALL_PATTERNS.some(p => p.test(name));
@@ -458,27 +457,22 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
       loader.load(paths[i], gltf => {
         const model = gltf.scene;
 
-        // ── Remove ball meshes (name pattern + exact GLB names) ───
+        // ── Remove balls from GLB (name patterns catch Mesh##_Group1_Model_##) ─
         const toRemove = [];
         model.traverse(node => {
           if (!node.isMesh) return;
           const name       = (node.name        || '').toLowerCase();
           const parentName = (node.parent?.name || '').toLowerCase();
-          if (looksLikeBall(name) || looksLikeBall(parentName)) {
-            toRemove.push(node);
-            console.log('[pool3d] Removing ball:', node.name);
-          }
+          if (looksLikeBall(name) || looksLikeBall(parentName)) toRemove.push(node);
         });
         toRemove.forEach(n => {
           if (n.parent) n.parent.remove(n);
           if (n.geometry) n.geometry.dispose();
-          if (n.material) {
-            (Array.isArray(n.material) ? n.material : [n.material]).forEach(m => m && m.dispose());
-          }
+          (Array.isArray(n.material) ? n.material : [n.material]).forEach(m => m && m.dispose());
         });
         console.log('[pool3d] Removed', toRemove.length, 'ball meshes from GLB');
 
-        // ── Scale to fit physics table dimensions ─────────────────
+        // ── Scale to match physics table dimensions ───────────────
         const box = new THREE.Box3().setFromObject(model);
         const size = new THREE.Vector3();
         box.getSize(size);
@@ -487,64 +481,56 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
         const scale  = Math.min(tw3 / modelW, th3 / modelH);
         model.scale.setScalar(scale);
 
-        // ── Place model in scene at origin so world transforms work ─
-        model.position.set(0, 0, 0);
-        scene.add(model);
-
-        // ── Find the playing surface: highest large flat mesh ──────
-        // Traverse all meshes; the felt is the largest flat (low Y:XZ ratio)
-        // horizontal surface. Its world-space top Y tells us how far to
-        // sink the model so the felt lands exactly at Y=0.
-        let surfaceY    = null;
-        let surfaceArea = 0;
-        model.traverse(node => {
-          if (!node.isMesh) return;
-          const wb = new THREE.Box3().setFromObject(node);
-          const ws = new THREE.Vector3();
-          wb.getSize(ws);
-          const xzSpan = Math.max(ws.x, ws.z);
-          if (xzSpan < 0.05) return;              // too small
-          if (ws.y / xzSpan > 0.18) return;       // not flat
-          const area = ws.x * ws.z;
-          if (area > surfaceArea) {
-            surfaceArea = area;
-            surfaceY = wb.max.y;
-          }
-        });
-        console.log('[pool3d] surfaceY =', surfaceY, '(area', surfaceArea.toFixed(3), ')');
-
-        // XZ centre for positioning
+        // ── Position: sink model so table TOP = Y=0 ───────────────
+        // The playing surface is the TOP of the model (highest Y after scaling).
+        // Balls and cue live at Y >= 0, so we push the model down by box.max.y
+        // so the felt surface aligns to Y=0 exactly.
         const box2 = new THREE.Box3().setFromObject(model);
-        const c2   = new THREE.Vector3();
-        box2.getCenter(c2);
+        const topY    = box2.max.y;   // highest point = table playing surface
+        const centerX = (box2.min.x + box2.max.x) / 2;
+        const centerZ = (box2.min.z + box2.max.z) / 2;
 
-        // Shift so surface = Y=0; fallback to lifting by model bottom
-        const yShift = surfaceY !== null ? -surfaceY : -box2.min.y;
-        model.position.set(tw3/2 - c2.x, yShift, th3/2 - c2.z);
-        console.log('[pool3d] yShift =', yShift.toFixed(4), ' scale =', scale.toFixed(3));
+        model.position.set(
+          tw3/2 - centerX,
+          -topY,             // sink so top of model = Y=0
+          th3/2 - centerZ
+        );
+        console.log('[pool3d] scale:', scale.toFixed(3), ' topY:', topY.toFixed(4));
 
-        // ── Replace felt material with our green canvas texture ────
-        // Apply to every large flat mesh (the playing surface + cushion tops)
+        // ── Replace felt material with green canvas texture ───────
+        // Find the largest flat horizontal mesh — that's the playing surface.
+        // Apply green felt to it and anything similarly sized (cushion tops).
+        let feltMeshNode = null;
+        let feltArea = 0;
         model.traverse(node => {
           if (!node.isMesh) return;
           const wb = new THREE.Box3().setFromObject(node);
-          const ws = new THREE.Vector3();
-          wb.getSize(ws);
-          const xzSpan = Math.max(ws.x, ws.z);
-          if (xzSpan < 0.05) return;
-          if (ws.y / xzSpan > 0.18) return;
-          if ((ws.x * ws.z) < surfaceArea * 0.05) return; // skip tiny flat bits
-          node.material = new THREE.MeshStandardMaterial({
-            map: feltMat.map, roughness: 0.92, metalness: 0,
-          });
+          const ws = new THREE.Vector3(); wb.getSize(ws);
+          if (ws.y > Math.max(ws.x, ws.z) * 0.25) return; // not flat
+          const area = ws.x * ws.z;
+          if (area > feltArea) { feltArea = area; feltMeshNode = node; }
         });
+        if (feltMeshNode) {
+          const greenMat = new THREE.MeshStandardMaterial({ map: feltMat.map, roughness: 0.92, metalness: 0 });
+          // Apply to all flat meshes at least 10% as large as the main felt
+          model.traverse(node => {
+            if (!node.isMesh) return;
+            const wb = new THREE.Box3().setFromObject(node);
+            const ws = new THREE.Vector3(); wb.getSize(ws);
+            if (ws.y > Math.max(ws.x, ws.z) * 0.25) return;
+            if ((ws.x * ws.z) < feltArea * 0.10) return;
+            node.material = new THREE.MeshStandardMaterial({ map: feltMat.map, roughness: 0.92, metalness: 0 });
+          });
+          console.log('[pool3d] Applied green felt, area:', feltArea.toFixed(4));
+        }
 
         // ── Shadows ───────────────────────────────────────────────
         model.traverse(node => {
           if (node.isMesh) { node.castShadow = true; node.receiveShadow = true; }
         });
 
-        scene.remove(feltMesh); // remove procedural fallback felt plane
+        scene.remove(feltMesh);
+        scene.add(model);
         P3.tableModel = model;
         console.log('[pool3d] Pool Table.glb ready');
         poolDraw();
