@@ -664,6 +664,31 @@ export default (() => {
     fallingBody=obj.body; fallingMesh=obj.mesh;
   }
 
+  function collectItem(obj) {
+    balance  += obj.value;
+    winnings += obj.value;
+    if (obj.type==='bonus') sndBonus(); else sndWin(obj.value);
+    showPopup(
+      obj.type==='bonus' ? `${obj.emoji} ${obj.label}` : `+2p`,
+      obj.type==='bonus' ? obj.col : 0x00ff88
+    );
+  }
+
+  function showPopup(text, col) {
+    const hex = '#' + col.toString(16).padStart(6,'0');
+    const el = document.createElement('div');
+    el.textContent = text;
+    el.style.cssText = `
+      position:absolute;pointer-events:none;z-index:100;
+      font-family:'Orbitron',sans-serif;font-size:clamp(12px,2.5vw,18px);
+      font-weight:bold;color:${hex};text-shadow:0 0 8px ${hex};
+      left:50%;transform:translateX(-50%);bottom:10%;white-space:nowrap;
+      animation:cp3popup 1.6s ease-out forwards;
+    `;
+    wrap.appendChild(el);
+    setTimeout(() => el.parentNode && el.parentNode.removeChild(el), 1700);
+  }
+
   // ── Check coins that have fallen off shelves ───────────────────
   function checkFallen() {
     const toRemove = [];
@@ -812,6 +837,67 @@ export default (() => {
     camera.aspect = wrap.clientWidth / wrap.clientHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(wrap.clientWidth, wrap.clientHeight);
+  }
+
+  let hudBalEl, hudCoinsEl, hudWinEl;
+
+  function buildHUD() {
+    const style = document.createElement('style');
+    style.textContent = `
+      .cp3-hud{position:absolute;top:0;left:0;right:0;display:flex;
+        justify-content:space-between;align-items:stretch;
+        padding:5px 14px;background:rgba(6,2,18,0.90);
+        border-bottom:1px solid rgba(160,90,240,0.3);
+        font-family:'Share Tech Mono',monospace;pointer-events:none;gap:10px;z-index:10;}
+      .cp3-stat{display:flex;flex-direction:column;justify-content:center;min-width:80px}
+      .cp3-lbl{font-size:clamp(0.4rem,1vw,0.58rem);letter-spacing:0.18em;
+        color:rgba(160,110,240,0.55);margin-bottom:2px}
+      .cp3-val{font-family:'Orbitron',sans-serif;font-size:clamp(0.7rem,2vw,1rem);
+        font-weight:bold;letter-spacing:0.08em}
+      @keyframes cp3popup{0%{opacity:1;transform:translateX(-50%) translateY(0)}
+        100%{opacity:0;transform:translateX(-50%) translateY(-65px)}}
+    `;
+    wrap.appendChild(style);
+    const hud = document.createElement('div');
+    hud.className = 'cp3-hud';
+    hud.innerHTML = `
+      <div class="cp3-stat">
+        <div class="cp3-lbl">BALANCE</div>
+        <div class="cp3-val" id="cp3-bal" style="color:#00ff88">£1.00</div>
+      </div>
+      <div class="cp3-stat" style="text-align:center">
+        <div class="cp3-lbl">COINS LEFT</div>
+        <div class="cp3-val" id="cp3-coins" style="color:#00e5ff">50 × 2p</div>
+      </div>
+      <div class="cp3-stat" style="text-align:right">
+        <div class="cp3-lbl">WINNINGS</div>
+        <div class="cp3-val" id="cp3-win" style="color:#ffdd00">£0.00</div>
+      </div>`;
+    wrap.appendChild(hud);
+    hudBalEl   = wrap.querySelector('#cp3-bal');
+    hudCoinsEl = wrap.querySelector('#cp3-coins');
+    hudWinEl   = wrap.querySelector('#cp3-win');
+  }
+
+  function updateHUD() {
+    if (hudBalEl) {
+      hudBalEl.textContent = `£${(balance/100).toFixed(2)}`;
+      hudBalEl.style.color = balance < 20 ? '#ff5555' : '#00ff88';
+    }
+    if (hudCoinsEl) hudCoinsEl.textContent = `${Math.floor(balance/2)} × 2p`;
+    if (hudWinEl)   hudWinEl.textContent   = `£${(winnings/100).toFixed(2)}`;
+  }
+
+  function buildAimArrow() {
+    const geo = new THREE.CylinderGeometry(CR, CR, CT, 22);
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x00ffcc, emissive: 0x00ffcc, emissiveIntensity: 0.6,
+      transparent: true, opacity: 0.45, metalness: 0.3, roughness: 0.4
+    });
+    ghostCoin = new THREE.Mesh(geo, mat);
+    ghostCoin.rotation.x = Math.PI / 2;
+    scene.add(ghostCoin);
+    aimArrow = ghostCoin;
   }
 
   // ── Build DOM shell ────────────────────────────────────────────
