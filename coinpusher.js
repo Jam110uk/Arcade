@@ -566,78 +566,84 @@ export default (() => {
   }
 
   // ── Seed shelves with initial coins ───────────────────────────────────────
-  // SAFE ZONE GUARANTEE:
-  //   Upper pusher max front-face Z: 0.025. Coin centre must be <= 0.025 - CR = -0.235
-  //   Lower pusher max front-face Z: 1.420. Coin centre must be <= 1.420 - CR = 1.160
-  //   This means the pusher can NEVER reach these coins on its own — they only
-  //   get pushed off when player-dropped coins accumulate behind them.
+  // Coins sit ON TOP OF THE PUSHER PLATE, not on the shelf surface.
+  // The pusher slides underneath them. They can only fall off when player-added
+  // coins push them forward past the front lip of the pusher.
   //
-  //   All seed coins are static (mass=0). Only woken when pusher physically
-  //   reaches them — so initial physics cost is near zero.
+  // Coin Y = pusherTop + CT/2  (resting on top face of pusher)
+  // Coin Z = within [pusherBackFace+CR, pusherFrontFace-CR] at rest position
+  // The pusher back face at rest always extends behind the back wall, so coins
+  // near the back are always supported regardless of pusher position.
   function seedCoins() {
-    const hw       = MW/2 - CR*1.6;        // x half-range (clear of walls)
-    const stepX    = CR * 2.08;            // column spacing
-    const stepZ    = CR * 2.08;            // row spacing
-    const coinY    = CT/2 + 0.003;         // tiny gap above shelf
+    const hw   = MW/2 - CR*1.6;
+    const stepX = CR * 2.08;
+    const stepZ = CR * 2.08;
 
-    // ── UPPER SHELF ─────────────────────────────────────────────────────────
-    // Safe Z: back-wall+CR  →  -0.235  (well behind pusher max extension)
-    const uZback  = -MD/2 + WT + CR + 0.02;
-    const uZfront = -0.235;                // pusher max front - CR - margin
-    const uDepth  = uZfront - uZback;
-    const uCols   = Math.floor((hw * 2) / stepX);
-    const uRows   = Math.max(1, Math.floor(uDepth / stepZ));
+    // ── UPPER PUSHER ────────────────────────────────────────────────────────
+    // Pusher at rest: back face = U_PUSH_BACK - U_PUSH_HD = -2.953
+    //                front face = U_PUSH_BACK + U_PUSH_HD = -0.748
+    // Coin Z range on pusher: [-2.953+CR .. -0.748-CR] = [-2.693 .. -1.008]
+    // But back wall is at -1.600, so actual back limit = -1.600+CR = -1.340
+    const uY      = UPPER_TOP + PUSH_H + CT/2 + 0.003; // on top of pusher
+    const uZback  = Math.max(-MD/2 + WT + CR + 0.02,   // back wall limit
+                             U_PUSH_BACK - U_PUSH_HD + CR); // pusher back face
+    const uZfront = U_PUSH_BACK + U_PUSH_HD - CR - 0.05; // pusher front face at rest minus margin
+    const uCols   = Math.floor((hw*2) / stepX);
+    const uRows   = Math.max(1, Math.floor((uZfront - uZback) / stepZ));
 
     for (let col = 0; col < uCols; col++) {
       for (let row = 0; row < uRows; row++) {
-        const x = -hw + CR + col * stepX + (Math.random()-0.5)*CR*0.12;
-        const z = uZback + row * stepZ   + (Math.random()-0.5)*CR*0.12;
-        spawnStillCoin(x, UPPER_TOP + SHELF_THICK + coinY, z, 'upper');
+        const x = -hw + CR + col*stepX + (Math.random()-0.5)*CR*0.1;
+        const z = uZback + row*stepZ   + (Math.random()-0.5)*CR*0.1;
+        spawnStillCoin(x, uY, z, 'upper');
       }
     }
-    // Second layer (honeycomb) across back 60%
-    const uRows2 = Math.max(1, Math.floor(uRows * 0.6));
-    for (let col = 0; col < uCols - 1; col++) {
+    // Second layer across back half
+    const uRows2 = Math.max(1, Math.floor(uRows * 0.5));
+    for (let col = 0; col < uCols-1; col++) {
       for (let row = 0; row < uRows2; row++) {
-        const x = -hw + CR + col*stepX + stepX*0.5 + (Math.random()-0.5)*CR*0.10;
-        const z = uZback + row * stepZ + (Math.random()-0.5)*CR*0.10;
-        spawnStillCoin(x, UPPER_TOP + SHELF_THICK + CT*1.02 + coinY, z, 'upper');
+        const x = -hw + CR + col*stepX + stepX*0.5 + (Math.random()-0.5)*CR*0.08;
+        const z = uZback + row*stepZ               + (Math.random()-0.5)*CR*0.08;
+        spawnStillCoin(x, uY + CT*1.02, z, 'upper');
       }
     }
 
-    // ── LOWER SHELF ─────────────────────────────────────────────────────────
-    // Safe Z: back-wall+CR  →  1.160  (well behind pusher max extension)
-    const lZback  = -MD/2 + WT + CR + 0.02;
-    const lZfront = 1.160;                 // pusher max front - CR - margin
-    const lDepth  = lZfront - lZback;
-    const lCols   = Math.floor((hw * 2) / stepX);
-    const lRows   = Math.max(1, Math.floor(lDepth / stepZ));
+    // ── LOWER PUSHER ────────────────────────────────────────────────────────
+    // Pusher at rest: back face = L_PUSH_BACK - L_PUSH_HD = -3.650 (behind wall)
+    //                front face = L_PUSH_BACK + L_PUSH_HD = -0.050
+    // Back wall at -1.600, so back limit = -1.600+CR = -1.340
+    const lY      = LOWER_TOP + PUSH_H + CT/2 + 0.003;
+    const lZback  = Math.max(-MD/2 + WT + CR + 0.02,
+                             L_PUSH_BACK - L_PUSH_HD + CR);
+    const lZfront = L_PUSH_BACK + L_PUSH_HD - CR - 0.05;
+    const lCols   = Math.floor((hw*2) / stepX);
+    const lRows   = Math.max(1, Math.floor((lZfront - lZback) / stepZ));
 
     for (let col = 0; col < lCols; col++) {
       for (let row = 0; row < lRows; row++) {
-        const x = -hw + CR + col * stepX + (Math.random()-0.5)*CR*0.12;
-        const z = lZback + row * stepZ   + (Math.random()-0.5)*CR*0.12;
-        spawnStillCoin(x, LOWER_TOP + SHELF_THICK + coinY, z, 'lower');
+        const x = -hw + CR + col*stepX + (Math.random()-0.5)*CR*0.1;
+        const z = lZback + row*stepZ   + (Math.random()-0.5)*CR*0.1;
+        spawnStillCoin(x, lY, z, 'lower');
       }
     }
-    // Second layer (honeycomb) across back 60%
-    const lRows2 = Math.max(1, Math.floor(lRows * 0.6));
-    for (let col = 0; col < lCols - 1; col++) {
+    // Second layer across back half
+    const lRows2 = Math.max(1, Math.floor(lRows * 0.5));
+    for (let col = 0; col < lCols-1; col++) {
       for (let row = 0; row < lRows2; row++) {
-        const x = -hw + CR + col*stepX + stepX*0.5 + (Math.random()-0.5)*CR*0.10;
-        const z = lZback + row * stepZ + (Math.random()-0.5)*CR*0.10;
-        spawnStillCoin(x, LOWER_TOP + SHELF_THICK + CT*1.02 + coinY, z, 'lower');
+        const x = -hw + CR + col*stepX + stepX*0.5 + (Math.random()-0.5)*CR*0.08;
+        const z = lZback + row*stepZ               + (Math.random()-0.5)*CR*0.08;
+        spawnStillCoin(x, lY + CT*1.02, z, 'lower');
       }
     }
 
-    // ── Bonus tokens — placed in safe zones ─────────────────────────────────
-    spawnBonus(-MW*0.25, UPPER_TOP+SHELF_THICK+CT*1.2+0.28, uZback + uDepth*0.4, 0);
-    spawnBonus( MW*0.25, UPPER_TOP+SHELF_THICK+CT*1.2+0.28, uZback + uDepth*0.7, 1);
-    const lb1 = spawnBonus(-MW*0.20, LOWER_TOP+SHELF_THICK+CT*1.2+0.28, lZback + lDepth*0.3, 2);
+    // ── Bonus tokens on pushers ──────────────────────────────────────────────
+    spawnBonus(-MW*0.28, uY+0.25, uZback + (uZfront-uZback)*0.35, 0);
+    spawnBonus( MW*0.28, uY+0.25, uZback + (uZfront-uZback)*0.65, 1);
+    const lb1 = spawnBonus(-MW*0.22, lY+0.25, lZback + (lZfront-lZback)*0.25, 2);
     lb1.shelf = 'lower';
-    const lb2 = spawnBonus( MW*0.20, LOWER_TOP+SHELF_THICK+CT*1.2+0.28, lZback + lDepth*0.5, 3);
+    const lb2 = spawnBonus( MW*0.22, lY+0.25, lZback + (lZfront-lZback)*0.50, 3);
     lb2.shelf = 'lower';
-    const lb3 = spawnBonus( 0,       LOWER_TOP+SHELF_THICK+CT*1.2+0.28, lZback + lDepth*0.7, 4);
+    const lb3 = spawnBonus( 0,       lY+0.25, lZback + (lZfront-lZback)*0.75, 4);
     lb3.shelf = 'lower';
   }
 
@@ -878,7 +884,8 @@ export default (() => {
       const bz  = pos.z;
 
       // Determine which pusher governs this coin
-      const onUpper = by >= UPPER_TOP + SHELF_THICK * 0.4;
+      // Coins on upper pusher are at UPPER_TOP+PUSH_H; lower at LOWER_TOP+PUSH_H
+      const onUpper = by >= UPPER_TOP + PUSH_H * 0.5;
       const onLower = !onUpper;
       const pusherFrontZ = onUpper ? uFrontZ : lFrontZ;
       const releaseZ     = onUpper ? U_RELEASE_Z : L_RELEASE_Z;
@@ -924,7 +931,7 @@ export default (() => {
       const vy  = obj.body.velocity.y;
 
       // Coin landed from chute onto upper shelf
-      if (obj.shelf === 'falling' && py < UPPER_TOP + SHELF_THICK + CT + 0.3) {
+      if (obj.shelf === 'falling' && py < UPPER_TOP + PUSH_H + CT + 0.4) {
         obj.shelf = 'upper';
         if (fallingBody === obj.body) { fallingBody=null; fallingMesh=null; }
         sndLand();
