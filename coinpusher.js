@@ -574,57 +574,34 @@ export default (() => {
     const step = CR * 2.05;   // tightest stable grid step (just over diameter)
     const coinY0 = CT/2 + 0.003;
 
+    // Each shelf gets 2 flat layers only — static bodies, zero sim cost.
+    // Layer 0: base grid across full depth including slight front overhang.
+    // Layer 1: honeycomb offset across back 70% so coins look stacked.
     function seedShelf(shelfTop, shelfZ, shelfD, shelfLabel) {
-      const backZ  = shelfZ - shelfD/2 + CR;          // back safe limit
-      // Front row overhangs the lip slightly — supported by coins behind it
-      const frontZ = shelfZ + shelfD/2 - CR*0.4;
+      const backZ  = shelfZ - shelfD/2 + CR;
+      const frontZ = shelfZ + shelfD/2 - CR*0.3; // slight overhang
       const depth  = frontZ - backZ;
 
       const cols = Math.floor((hw*2) / step);
       const rows = Math.max(2, Math.floor(depth / step));
 
-      // ── Layer 0: base grid ──────────────────────────────────────
+      // Layer 0 — base
       for (let col = 0; col < cols; col++) {
         for (let row = 0; row < rows; row++) {
-          const x = -hw + CR + col*step + (Math.random()-0.5)*CR*0.18;
-          const z = backZ + row*(depth/(rows-1 || 1)) + (Math.random()-0.5)*CR*0.18;
-          const y = shelfTop + SHELF_THICK + coinY0;
-          spawnStillCoin(x, y, z, shelfLabel);
-        }
-      }
-
-      // ── Layer 1: honeycomb offset ───────────────────────────────
-      for (let col = 0; col < cols-1; col++) {
-        for (let row = 0; row < rows-1; row++) {
-          // Sits in the gap between 4 base coins
-          const x = -hw + CR + col*step + step*0.5 + (Math.random()-0.5)*CR*0.15;
-          const z = backZ + (row+0.5)*(depth/(rows-1 || 1)) + (Math.random()-0.5)*CR*0.15;
-          const y = shelfTop + SHELF_THICK + CT*1.02 + coinY0;
-          spawnStillCoin(x, y, z, shelfLabel);
-        }
-      }
-
-      // ── Layer 2: second offset layer across back 70% ────────────
-      const l2rows = Math.max(1, Math.floor(rows * 0.7));
-      for (let col = 0; col < cols; col++) {
-        for (let row = 0; row < l2rows; row++) {
           const x = -hw + CR + col*step + (Math.random()-0.5)*CR*0.15;
-          const z = backZ + row*(depth*0.7/(l2rows-1 || 1)) + (Math.random()-0.5)*CR*0.15;
-          const y = shelfTop + SHELF_THICK + CT*2.05 + coinY0;
-          spawnStillCoin(x, y, z, shelfLabel);
+          const z = backZ + row*(depth/(rows-1||1)) + (Math.random()-0.5)*CR*0.15;
+          spawnStillCoin(x, shelfTop+SHELF_THICK+coinY0, z, shelfLabel);
         }
       }
-
-      // ── Stacks: tall piles toward the back corners ──────────────
-      const stackXs = [-hw*0.75, -hw*0.25, hw*0.25, hw*0.75];
-      stackXs.forEach(sx => {
-        const sz = backZ + depth*0.25 + (Math.random()-0.5)*CR;
-        const h  = 4 + Math.floor(Math.random()*4);
-        for (let k = 3; k < 3+h; k++)
-          spawnStillCoin(sx+(Math.random()-0.5)*CR*0.2,
-            shelfTop+SHELF_THICK+CT*k*1.03+coinY0, sz, shelfLabel);
-      });
-
+      // Layer 1 — honeycomb, back 70% only
+      const r1 = Math.max(1, Math.floor(rows*0.7));
+      for (let col = 0; col < cols-1; col++) {
+        for (let row = 0; row < r1; row++) {
+          const x = -hw + CR + col*step + step*0.5 + (Math.random()-0.5)*CR*0.12;
+          const z = backZ + row*(depth*0.7/(r1-1||1)) + (Math.random()-0.5)*CR*0.12;
+          spawnStillCoin(x, shelfTop+SHELF_THICK+CT*1.02+coinY0, z, shelfLabel);
+        }
+      }
       return { backZ, frontZ, depth };
     }
 
@@ -639,13 +616,32 @@ export default (() => {
     spawnBonus( 0,       LOWER_TOP+SHELF_THICK+CT*1.2+0.30, lBounds.backZ + lBounds.depth*0.6, 4);
   }
 
-  // Spawn a coin with zero velocity and minimal tilt — stable on shelf
+  // Spawn a seed coin as a STATIC body (mass=0) — zero physics cost until woken.
+  // The pusher wakes nearby coins each frame (see wakeSeedCoins).
   function spawnStillCoin(x, y, z, shelf) {
-    const obj = spawnCoin(x, y, z, shelf);
-    obj.body.velocity.set(0, 0, 0);
-    obj.body.angularVelocity.set(0, 0, 0);
-    obj.mesh.rotation.x = (Math.random()-0.5)*0.04;
-    obj.mesh.rotation.z = (Math.random()-0.5)*0.04;
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(CR, CR, CT, 16), coinMat);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    // Very slight tilt — purely visual, no physics consequence
+    mesh.rotation.x = (Math.random()-0.5)*0.04;
+    mesh.rotation.z = (Math.random()-0.5)*0.04;
+    scene.add(mesh);
+
+    // Static body — no mass, no simulation cost
+    const body = new CANNON.Body({ mass: 0 });
+    body.addShape(new CANNON.Cylinder(CR, CR, CT, 12));
+    body.position.set(x, y, z);
+    // Tilt the physics body to match the mesh
+    const q = new CANNON.Quaternion();
+    q.setFromEuler(mesh.rotation.x, 0, mesh.rotation.z);
+    body.quaternion.copy(q);
+    world.addBody(body);
+
+    mesh.position.copy(body.position);
+    mesh.quaternion.copy(body.quaternion);
+
+    const obj = { mesh, body, type:'coin', value:2, shelf, isStatic:true };
+    coinBodies.push(obj);
     return obj;
   }
 
@@ -779,6 +775,9 @@ export default (() => {
     // Step physics
     world.step(1/60, dt, 3);
 
+    // Wake static seed coins that the pusher is about to touch
+    wakeSeedCoins();
+
     // Sync meshes → bodies
     coinBodies.forEach(obj => {
       obj.mesh.position.copy(obj.body.position);
@@ -858,6 +857,41 @@ export default (() => {
 
     updateHUD();
     renderer.render(scene, camera);
+  }
+
+  // ── Wake static seed coins when the pusher reaches them ─────────
+  // Converts mass=0 static coins to mass=0.025 dynamic when the pusher
+  // front edge is within one coin-diameter of them. This keeps simulation
+  // cost near zero until coins are actually being pushed.
+  const WAKE_MARGIN = CR * 3.5;
+  function wakeSeedCoins() {
+    const uFrontZ = upperPusherBody.position.z + U_PUSH_HD;
+    const lFrontZ = lowerPusherBody.position.z + L_PUSH_HD;
+
+    coinBodies.forEach(obj => {
+      if (!obj.isStatic) return;
+      const bz = obj.body.position.z;
+      const by = obj.body.position.y;
+      // Check if pusher front edge is close to this coin
+      const nearUpper = (by > UPPER_TOP - 0.1) && (bz >= uFrontZ - WAKE_MARGIN);
+      const nearLower = (by > LOWER_TOP - 0.1) && (by < UPPER_TOP) && (bz >= lFrontZ - WAKE_MARGIN);
+      if (!nearUpper && !nearLower) return;
+
+      // Wake: remove static body, replace with dynamic
+      const pos = obj.body.position.clone();
+      const quat = obj.body.quaternion.clone();
+      world.removeBody(obj.body);
+
+      const newBody = new CANNON.Body({ mass:0.025, linearDamping:0.72, angularDamping:0.85 });
+      newBody.addShape(new CANNON.Cylinder(CR, CR, CT, 12));
+      newBody.position.copy(pos);
+      newBody.quaternion.copy(quat);
+      newBody.velocity.set(0, 0, 0);
+      world.addBody(newBody);
+
+      obj.body = newBody;
+      obj.isStatic = false;
+    });
   }
 
   // ── Check coins that have fallen off shelves ───────────────────
