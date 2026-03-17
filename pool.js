@@ -8,15 +8,15 @@ const POOL = {
   // Table dimensions (logical units)
   TW: 700, TH: 350,
   POCKET_R: 18,
-  BALL_R: 11,
+  BALL_R: 8,
   // Physics uses constant-deceleration model (like real felt):
   //   sliding decel = MU_SLIDE * G  (strong, ~0.2 in SI units)
   //   rolling decel = MU_ROLL  * G  (weak,  ~0.016 in SI units)
   // Scaled to table units where 1 unit ≈ 3.6mm, 60fps
-  MU_SLIDE: 0.018,         // sliding friction decel per sub-step
-  MU_ROLL:  0.00042,       // rolling friction — very low so balls glide naturally
-  MIN_SPEED: 0.012,        // stop threshold — small so balls coast to a true rest
-  CUSHION_RESTITUTION: 0.82, // energy retained on cushion bounce
+  MU_SLIDE: 0.032,         // sliding friction decel per frame (px/frame²)
+  MU_ROLL:  0.0018,        // rolling friction decel per frame (px/frame²)
+  MIN_SPEED: 0.05,         // stop threshold
+  CUSHION_RESTITUTION: 0.80, // energy retained on cushion bounce
 
   canvas: null,
   ctx: null,
@@ -651,7 +651,7 @@ function pool3DBuildBalls(THREE, scene, tw3, th3) {
 
 function pool3DBuildCue(THREE, scene) {
   const S = P3.SCALE;
-  const CUE_LEN = 160 * S;
+  const CUE_LEN = 320 * S;
   const pts = [];
   for (let i = 0; i <= 20; i++) {
     const t = i / 20;
@@ -921,7 +921,7 @@ function poolDraw() {
         : (locked ? (POOL.oppCue?.pullback || 0) : 0);
 
       const TIP_GAP     = (POOL.BALL_R + 2) * S;
-      const CUE_LEN     = 160 * S;
+      const CUE_LEN     = 320 * S;
       const PULLBACK_MAX = 50 * S;
       const pullDist    = pullback * PULLBACK_MAX;
       const tipDist     = TIP_GAP + pullDist;
@@ -1133,10 +1133,7 @@ function poolPhysicsStep() {
   const cushionX = pr + r;
   const midTopX  = tw / 2;
   const midBotX  = tw / 2;
-  // Dynamic sub-steps: more at high speed to prevent tunnelling,
-  // fewer when slow so rolling decel isn't applied too many times per frame
-  const maxSpeed = POOL.balls.reduce((m, b) => Math.max(m, Math.sqrt(b.vx*b.vx+b.vy*b.vy)), 0);
-  const SUB = maxSpeed > 8 ? 5 : maxSpeed > 3 ? 4 : 3;
+  const SUB = 3; // sub-steps per frame
   const newlyPotted = [];
 
   for (let s = 0; s < SUB; s++) {
