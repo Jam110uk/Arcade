@@ -487,7 +487,7 @@ export default (() => {
     // Cylinder axis = Y by default → coin lies flat on shelf
     body.addShape(new CANNON.Cylinder(CR, CR, CT, 12));
     body.position.set(x, y, z);
-    body.velocity.set((Math.random()-0.5)*0.4, 0, (Math.random()-0.5)*0.4);
+    body.velocity.set(0, 0, 0);  // start still — caller can set velocity if needed
     world.addBody(body);
 
     const obj = { mesh, body, type:'coin', value:2, shelf };
@@ -516,41 +516,78 @@ export default (() => {
   }
 
   // ── Seed shelves with initial coins ───────────────────────────
+  // Coins are placed only in the BACK portion of each shelf so the pusher
+  // must travel before they reach the edge. Initial velocity is zero and
+  // tilt is minimal so they settle without rolling off.
   function seedCoins() {
-    const hw = MW/2 - CR*1.6;
+    const hw = MW/2 - CR*1.8;  // x half-range (keep away from side walls)
+    const coinY0 = CT/2 + 0.005; // tiny gap above shelf surface
 
-    // Scattered coins across upper shelf
-    const uhd = UPPER_SHELF_D/2 - CR*1.4;
-    for (let i = 0; i < 16; i++) {
-      const x = (Math.random()*2-1) * hw;
-      const z = UPPER_SHELF_Z + (Math.random()*2-1) * uhd;
-      spawnCoin(x, UPPER_TOP + SHELF_THICK + CT/2 + 0.01, z, 'upper');
+    // ── UPPER SHELF ───────────────────────────────────────────────
+    // Back half only: from shelf back edge to 40% of shelf depth from back.
+    // Shelf centre = UPPER_SHELF_Z, back edge = UPPER_SHELF_Z - UPPER_SHELF_D/2
+    const uBack  = UPPER_SHELF_Z - UPPER_SHELF_D/2 + CR*1.5; // back safe limit
+    const uFront = UPPER_SHELF_Z - UPPER_SHELF_D*0.10;        // only use back 60%
+    const uRange = uFront - uBack;
+
+    // Grid-placed base layer — fills back portion densely
+    const uCols = Math.floor(MW / (CR*2.3));
+    const uRows = Math.max(1, Math.floor(uRange / (CR*2.3)));
+    for (let col = 0; col < uCols; col++) {
+      for (let row = 0; row < uRows; row++) {
+        const x = -hw + (col + 0.5) * (hw*2 / uCols) + (Math.random()-0.5)*CR*0.4;
+        const z = uBack + (row + 0.5) * (uRange / uRows) + (Math.random()-0.5)*CR*0.4;
+        spawnStillCoin(x, UPPER_TOP + SHELF_THICK + coinY0, z, 'upper');
+      }
     }
-    // Stacks on upper shelf
-    [[-MW*0.28, -uhd*0.3], [0, uhd*0.1], [MW*0.28, -uhd*0.5]].forEach(([sx, dz]) => {
-      const h = 4 + Math.floor(Math.random()*3);
-      for (let k = 0; k < h; k++)
-        spawnCoin(sx+(Math.random()-.5)*.12, UPPER_TOP+SHELF_THICK+CT/2+k*CT*1.05, UPPER_SHELF_Z+dz+(Math.random()-.5)*.12, 'upper');
-    });
-
-    // Scattered coins across lower shelf
-    const lhd = LOWER_SHELF_D/2 - CR*1.4;
-    for (let i = 0; i < 28; i++) {
-      const x = (Math.random()*2-1) * hw;
-      const z = LOWER_SHELF_Z + (Math.random()*2-1) * lhd;
-      spawnCoin(x, LOWER_TOP + SHELF_THICK + CT/2 + 0.01, z, 'lower');
+    // A few stacks toward the very back for visual depth
+    for (let s = 0; s < 4; s++) {
+      const sx = -hw*0.7 + s * hw*0.47;
+      const sz = uBack + uRange*0.2 + (Math.random()-0.5)*CR;
+      for (let k = 1; k <= 3; k++)
+        spawnStillCoin(sx, UPPER_TOP+SHELF_THICK+CT*k*1.05+coinY0, sz, 'upper');
     }
-    // Stacks on lower shelf
-    [[-MW*0.35,lhd*.3],[-MW*0.12,-lhd*.4],[MW*0.15,lhd*.1],[MW*0.35,-lhd*.2]].forEach(([sx,dz]) => {
-      const h = 3 + Math.floor(Math.random()*4);
-      for (let k = 0; k < h; k++)
-        spawnCoin(sx+(Math.random()-.5)*.12, LOWER_TOP+SHELF_THICK+CT/2+k*CT*1.05, LOWER_SHELF_Z+dz+(Math.random()-.5)*.12, 'lower');
-    });
 
-    // Bonus items
-    spawnBonus(-MW*0.22, UPPER_TOP+SHELF_THICK+0.45, UPPER_SHELF_Z-uhd*0.2);
-    spawnBonus( MW*0.22, UPPER_TOP+SHELF_THICK+0.45, UPPER_SHELF_Z+uhd*0.2);
-    spawnBonus( 0,       LOWER_TOP+SHELF_THICK+0.45, LOWER_SHELF_Z);
+    // ── LOWER SHELF ───────────────────────────────────────────────
+    // Lower shelf is deeper and is what the player sees most.
+    // Place coins across the full back 55% of the shelf.
+    const lBack  = LOWER_SHELF_Z - LOWER_SHELF_D/2 + CR*1.5;
+    const lFront = LOWER_SHELF_Z + LOWER_SHELF_D*0.05; // only back 55%
+    const lRange = lFront - lBack;
+
+    const lCols = Math.floor(MW / (CR*2.2));
+    const lRows = Math.max(1, Math.floor(lRange / (CR*2.2)));
+    for (let col = 0; col < lCols; col++) {
+      for (let row = 0; row < lRows; row++) {
+        const x = -hw + (col + 0.5) * (hw*2 / lCols) + (Math.random()-0.5)*CR*0.4;
+        const z = lBack + (row + 0.5) * (lRange / lRows) + (Math.random()-0.5)*CR*0.4;
+        spawnStillCoin(x, LOWER_TOP + SHELF_THICK + coinY0, z, 'lower');
+      }
+    }
+    // Stacks on lower shelf — packed toward back
+    for (let s = 0; s < 5; s++) {
+      const sx = -hw*0.8 + s * hw*0.40;
+      const sz = lBack + lRange*0.25 + (Math.random()-0.5)*CR;
+      const h  = 3 + Math.floor(Math.random()*3);
+      for (let k = 1; k <= h; k++)
+        spawnStillCoin(sx, LOWER_TOP+SHELF_THICK+CT*k*1.05+coinY0, sz, 'lower');
+    }
+
+    // Bonus items — placed safely in back half
+    spawnBonus(-MW*0.22, UPPER_TOP+SHELF_THICK+0.45, uBack + uRange*0.4);
+    spawnBonus( MW*0.22, UPPER_TOP+SHELF_THICK+0.45, uBack + uRange*0.6);
+    spawnBonus( 0,       LOWER_TOP+SHELF_THICK+0.45, lBack + lRange*0.3);
+  }
+
+  // Spawn a coin with zero initial velocity and minimal tilt — won't roll off
+  function spawnStillCoin(x, y, z, shelf) {
+    const obj = spawnCoin(x, y, z, shelf);
+    obj.body.velocity.set(0, 0, 0);
+    obj.body.angularVelocity.set(0, 0, 0);
+    // Tiny tilt only — enough to look natural, not enough to roll
+    obj.mesh.rotation.x = (Math.random()-0.5)*0.06;
+    obj.mesh.rotation.z = (Math.random()-0.5)*0.06;
+    return obj;
   }
 
   // ── Drop a coin from the chute ─────────────────────────────────
