@@ -399,57 +399,30 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
   scene.add(feltMesh);
 
   // ── Load GLB ──────────────────────────────────────────────────────
-  // Multi-strategy GLTFLoader bootstrap — avoids the jsDelivr 404 and
-  // blob CSP issues on GitHub Pages.
+  // Load GLTFLoader by fetching the jsm source and rewriting the 'three'
+  // import to point at the full module URL we already use.
   async function loadGLTFLoader() {
-    const THREE_URL = 'https://unpkg.com/three@0.128.0/build/three.module.js';
-
-    // Strategy A: fetch GLTFLoader source, rewrite all 'three' imports → pinned unpkg URL, blob-import
-    const LOADER_SRCS = [
-      'https://unpkg.com/three@0.128.0/examples/jsm/loaders/GLTFLoader.js',
-      'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/loaders/GLTFLoader.js',
-    ];
-    for (const src_url of LOADER_SRCS) {
-      try {
-        const res = await fetch(src_url);
-        if (!res.ok) { console.warn('[pool3d] fetch', src_url, res.status); continue; }
-        let src = await res.text();
-        src = src
-          .replace(/from\s+['"]three['"]/g,                          `from '${THREE_URL}'`)
-          .replace(/from\s+['"][./]*three\.module(\.min)?\.js['"]/g, `from '${THREE_URL}'`)
-          .replace(/import\s*\(\s*['"]three['"]\s*\)/g,              `import('${THREE_URL}')`)
-          .replace(/from\s+['"]\.\.\/([\w/.]+)['"]/g,
-            (_, p) => `from 'https://unpkg.com/three@0.128.0/examples/jsm/${p}'`);
-        const blobURL = URL.createObjectURL(new Blob([src], { type: 'application/javascript' }));
-        try {
-          const mod = await import(/* webpackIgnore: true */ blobURL);
-          URL.revokeObjectURL(blobURL);
-          if (mod.GLTFLoader) { console.log('[pool3d] GLTFLoader ready (blob) from', src_url); return mod.GLTFLoader; }
-        } catch(ie) { URL.revokeObjectURL(blobURL); console.warn('[pool3d] blob import failed:', ie.message); }
-      } catch(fe) { console.warn('[pool3d] fetch error:', fe.message); }
+    try {
+      const LOADER_SRC = 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/loaders/GLTFLoader.js';
+      let src = await fetch(LOADER_SRC).then(r => r.text());
+      // Rewrite bare 'three' specifier to the full CDN URL
+      src = src.replace(
+        /from\s+['"]three['"]/g,
+        `from 'https://unpkg.com/three@0.128.0/build/three.module.js'`
+      );
+      src = src.replace(
+        /import\s+(['"]three['"])/g,
+        `import 'https://unpkg.com/three@0.128.0/build/three.module.js'`
+      );
+      const blob = new Blob([src], { type: 'text/javascript' });
+      const url  = URL.createObjectURL(blob);
+      const mod  = await import(/* webpackIgnore: true */ url);
+      URL.revokeObjectURL(url);
+      if (mod.GLTFLoader) return mod.GLTFLoader;
+    } catch(e) {
+      console.warn('[pool3d] GLTFLoader load failed:', e.message);
     }
-
-    // Strategy B: <script type="module"> injection — bypasses blob CSP entirely
-    console.log('[pool3d] Trying script-tag GLTFLoader...');
-    return new Promise(resolve => {
-      const script = document.createElement('script');
-      script.type = 'module';
-      script.textContent = `
-        import { GLTFLoader } from 'https://unpkg.com/three@0.128.0/examples/jsm/loaders/GLTFLoader.js';
-        window._pool3dGLTFLoader = GLTFLoader;
-        window.dispatchEvent(new Event('_pool3dLoaderReady'));
-      `;
-      const done = () => {
-        window.removeEventListener('_pool3dLoaderReady', done);
-        const L = window._pool3dGLTFLoader || null;
-        if (L) console.log('[pool3d] GLTFLoader ready (script tag)');
-        else   console.warn('[pool3d] GLTFLoader script tag failed');
-        resolve(L);
-      };
-      window.addEventListener('_pool3dLoaderReady', done);
-      setTimeout(() => { window.removeEventListener('_pool3dLoaderReady', done); resolve(window._pool3dGLTFLoader || null); }, 10000);
-      document.head.appendChild(script);
-    });
+    return null;
   }
 
   // Ball mesh name patterns to strip from GLB
@@ -483,15 +456,44 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
       loader.load(paths[i], gltf => {
         const model = gltf.scene;
 
+        // ── Log all mesh names so we can tune filters ─────────────
+        console.log('[pool3d] GLB mesh names:');
+        model.traverse(node => {
+          if (node.isMesh) console.log('  mesh:', node.name, '| parent:', node.parent?.name);
+        });
+
         // ── Remove ball meshes from the loaded model ──────────────
+        // Match by name patterns AND by geometry shape (near-spherical bounding box).
+        function looksLikeBallGeom(node) {
+          if (!node.geometry) return false;
+          node.geometry.computeBoundingBox();
+          const bb = node.geometry.boundingBox;
+          if (!bb) return false;
+          const s = new THREE.Vector3();
+          bb.getSize(s);
+          const maxD = Math.max(s.x, s.y, s.z);
+          const minD = Math.min(s.x, s.y, s.z);
+          if (maxD < 0.001) return false;
+          const ratio = minD / maxD;
+          // A sphere has ratio ~1.0; table parts are much flatter or longer
+          return ratio > 0.72;
+        }
+
         const toRemove = [];
         model.traverse(node => {
           if (!node.isMesh) return;
           const name = (node.name || '').toLowerCase();
           const parentName = (node.parent?.name || '').toLowerCase();
+          // Check name patterns
           if (looksLikeBall(name) || looksLikeBall(parentName)) {
             toRemove.push(node);
-            console.log('[pool3d] Removing ball mesh:', node.name);
+            console.log('[pool3d] Removing ball (name match):', node.name);
+            return;
+          }
+          // Check geometry shape — spherical objects not part of the frame
+          if (looksLikeBallGeom(node)) {
+            toRemove.push(node);
+            console.log('[pool3d] Removing ball (geom match):', node.name);
           }
         });
         toRemove.forEach(n => {
@@ -503,38 +505,84 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
           }
         });
 
-        // ── Scale and position model to fit 2D physics coords ─────
-        // Compute bounding box of the table model
+        // ── Scale model to fit 2D physics coords ──────────────────
         const box = new THREE.Box3().setFromObject(model);
         const size = new THREE.Vector3();
         box.getSize(size);
-        const center = new THREE.Vector3();
-        box.getCenter(center);
 
-        // Scale so the model's longest horizontal dimension matches tw3
-        // Most pool table GLBs have the playing surface as the XZ plane
         const modelW = Math.max(size.x, size.z);
         const modelH = Math.min(size.x, size.z);
         const scaleX = tw3 / modelW;
         const scaleZ = th3 / modelH;
-        const scale  = Math.min(scaleX, scaleZ); // uniform scale
-
+        const scale  = Math.min(scaleX, scaleZ);
         model.scale.setScalar(scale);
 
-        // After scaling, recompute center and align felt surface to Y=0
+        // ── Find the playing surface Y and sink model so it = 0 ───
+        // The playing surface is the highest large flat horizontal mesh.
+        // We find all horizontal-ish meshes, pick the one with the greatest Y max,
+        // and offset the model so that surface lands exactly at Y=0.
+        let surfaceWorldY = null;
+        model.traverse(node => {
+          if (!node.isMesh) return;
+          node.geometry.computeBoundingBox();
+          const bb = node.geometry.boundingBox;
+          if (!bb) return;
+          const s2 = new THREE.Vector3();
+          bb.getSize(s2);
+          // Must be flat (thin in Y relative to its XZ extent) and large
+          const xzExtent = Math.max(s2.x, s2.z);
+          if (xzExtent < 0.01) return;
+          const flatRatio = s2.y / xzExtent;
+          if (flatRatio > 0.25) return; // not flat enough
+          // Get world-space Y max of this mesh
+          const worldBB = new THREE.Box3().setFromObject(node);
+          const topY = worldBB.max.y;
+          if (surfaceWorldY === null || topY > surfaceWorldY) surfaceWorldY = topY;
+        });
+
+        // After scaling, recompute overall box for XZ centering
         const box2 = new THREE.Box3().setFromObject(model);
         const center2 = new THREE.Vector3();
         box2.getCenter(center2);
-        // box2.min is a direct Vector3 property in Three r128 (getMin() does not exist)
-        const minY2 = box2.min.y;
 
-        // Position: centre of table in XZ matches tw3/2, th3/2
-        // Bottom of playing surface aligns to Y=0
+        // If we found a playing surface, sink model so that surface = 0.
+        // Otherwise fall back to lifting by model bottom.
+        const yOffset = surfaceWorldY !== null ? -surfaceWorldY : -box2.min.y;
+        console.log('[pool3d] surfaceWorldY:', surfaceWorldY, '→ yOffset:', yOffset);
+
         model.position.set(
           tw3/2 - center2.x,
-          -minY2,            // lift so bottom of model sits at Y=0
+          yOffset,
           th3/2 - center2.z
         );
+
+        // ── Replace the GLB felt material with our green felt ──────
+        // The GLB felt is whatever large flat mesh sits at the surface.
+        // We recolour any mesh whose material is not dark/wood-toned —
+        // specifically anything that looks pink/bright/non-brown.
+        const greenFeltMat = new THREE.MeshStandardMaterial({
+          map: feltMat.map,   // reuse the canvas texture we already made
+          roughness: 0.92,
+          metalness: 0,
+        });
+        model.traverse(node => {
+          if (!node.isMesh) return;
+          const mats = Array.isArray(node.material) ? node.material : [node.material];
+          mats.forEach((m, mi) => {
+            if (!m || !m.color) return;
+            const r = m.color.r, g = m.color.g, b = m.color.b;
+            // Detect non-wood, non-dark materials: high saturation or bright
+            // Pink/magenta: r>0.5, b>0.3, g<0.5
+            // Or any overly bright surface that isn't the dark frame
+            const isPink = r > 0.4 && b > 0.2 && g < 0.6;
+            const isBright = (r + g + b) > 1.8 && g > r * 0.6; // bright greenish
+            if (isPink || isBright) {
+              console.log('[pool3d] Replacing felt material on:', node.name, `rgb(${r.toFixed(2)},${g.toFixed(2)},${b.toFixed(2)})`);
+              if (Array.isArray(node.material)) node.material[mi] = greenFeltMat;
+              else node.material = greenFeltMat;
+            }
+          });
+        });
 
         // Enable shadows on all meshes
         model.traverse(node => {
@@ -544,12 +592,12 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
           }
         });
 
-        // Remove the procedural felt now that we have the GLB
+        // Remove the procedural felt — GLB has its own (now recoloured green)
         scene.remove(feltMesh);
         scene.add(model);
         P3.tableModel = model;
 
-        console.log('[pool3d] Pool Table.glb loaded, scale:', scale.toFixed(3));
+        console.log('[pool3d] Pool Table.glb loaded OK — scale:', scale.toFixed(3));
         poolDraw();
       },
       undefined,
