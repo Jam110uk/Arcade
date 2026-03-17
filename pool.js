@@ -946,8 +946,11 @@ function poolDraw() {
       const _tYc    = (P3.tableY    !== undefined) ? P3.tableY    : 0;
       const _railY  = (P3.tableRailY !== undefined) ? P3.tableRailY : _tYc + r3 * 4;
       const finalTipY  = _tYc + r3 * 1.1;
+      // Butt always starts with a small upward angle (minLift) so the cue
+      // never clips through the table at rest. Rises further on pullback.
+      const minLift    = (_railY - _tYc) * 0.25;   // 25% of rail height at rest
       const risePhase  = Math.min(1, pullback / 0.6);
-      const finalButtY = finalTipY + (_railY - _tYc + r3 * 0.5) * risePhase;
+      const finalButtY = finalTipY + minLift + (_railY - _tYc + r3 * 0.5 - minLift) * risePhase;
 
       const buttDir = new THREE.Vector3(
         buttX3 - tipX3,
