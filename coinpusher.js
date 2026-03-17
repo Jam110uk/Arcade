@@ -566,84 +566,80 @@ export default (() => {
   }
 
   // ── Seed shelves with initial coins ───────────────────────────────────────
-  // Coins sit ON TOP OF THE PUSHER PLATE, not on the shelf surface.
-  // The pusher slides underneath them. They can only fall off when player-added
-  // coins push them forward past the front lip of the pusher.
-  //
-  // Coin Y = pusherTop + CT/2  (resting on top face of pusher)
-  // Coin Z = within [pusherBackFace+CR, pusherFrontFace-CR] at rest position
-  // The pusher back face at rest always extends behind the back wall, so coins
-  // near the back are always supported regardless of pusher position.
+  // Coins sit on TOP of the pusher plate and are stacked from FRONT to BACK.
+  // Row 0 is nearest the front lip — subsequent rows go back toward the wall.
+  // The whole stack rides with the pusher as one unit.
+  // Bonus tokens sit on top of the coin layer.
+  // Coins only fall when new player-dropped coins push them forward past the lip.
   function seedCoins() {
-    const hw   = MW/2 - CR*1.6;
-    const stepX = CR * 2.08;
-    const stepZ = CR * 2.08;
+    const hw    = MW/2 - CR*1.7;    // x half-range (clear of side walls)
+    const stepX = CR * 2.08;         // column pitch
+    const stepZ = CR * 2.08;         // row pitch (Z)
 
-    // ── UPPER PUSHER ────────────────────────────────────────────────────────
-    // Pusher at rest: back face = U_PUSH_BACK - U_PUSH_HD = -2.953
-    //                front face = U_PUSH_BACK + U_PUSH_HD = -0.748
-    // Coin Z range on pusher: [-2.953+CR .. -0.748-CR] = [-2.693 .. -1.008]
-    // But back wall is at -1.600, so actual back limit = -1.600+CR = -1.340
-    const uY      = UPPER_TOP + PUSH_H + CT/2 + 0.003; // on top of pusher
-    const uZback  = Math.max(-MD/2 + WT + CR + 0.02,   // back wall limit
-                             U_PUSH_BACK - U_PUSH_HD + CR); // pusher back face
-    const uZfront = U_PUSH_BACK + U_PUSH_HD - CR - 0.05; // pusher front face at rest minus margin
+    // ── UPPER PUSHER ─────────────────────────────────────────────────────────
+    // Pusher at rest: front face Z = U_PUSH_BACK + U_PUSH_HD = -0.748
+    //                back  face Z = U_PUSH_BACK - U_PUSH_HD = -2.953
+    // Back wall at Z = -1.600, so rearmost coin row = max(-1.340, pusher_back+CR)
+    const uY      = UPPER_TOP + PUSH_H + CT/2 + 0.003;
+    const uFront0 = U_PUSH_BACK + U_PUSH_HD - CR - 0.04; // front row Z (closest to lip)
+    const uZback  = Math.max(-MD/2 + WT + CR + 0.02, U_PUSH_BACK - U_PUSH_HD + CR);
     const uCols   = Math.floor((hw*2) / stepX);
-    const uRows   = Math.max(1, Math.floor((uZfront - uZback) / stepZ));
+    const uRows   = Math.max(1, Math.floor((uFront0 - uZback) / stepZ) + 1);
 
     for (let col = 0; col < uCols; col++) {
       for (let row = 0; row < uRows; row++) {
-        const x = -hw + CR + col*stepX + (Math.random()-0.5)*CR*0.1;
-        const z = uZback + row*stepZ   + (Math.random()-0.5)*CR*0.1;
+        // row 0 = frontmost, increasing rows go toward back wall
+        const x = -hw + CR + col*stepX + (Math.random()-0.5)*CR*0.08;
+        const z = uFront0 - row*stepZ  + (Math.random()-0.5)*CR*0.08;
+        if (z < uZback) continue;
         spawnStillCoin(x, uY, z, 'upper');
       }
     }
-    // Second layer across back half
-    const uRows2 = Math.max(1, Math.floor(uRows * 0.5));
+    // Layer 2 — honeycomb on top, same Z range
     for (let col = 0; col < uCols-1; col++) {
-      for (let row = 0; row < uRows2; row++) {
-        const x = -hw + CR + col*stepX + stepX*0.5 + (Math.random()-0.5)*CR*0.08;
-        const z = uZback + row*stepZ               + (Math.random()-0.5)*CR*0.08;
+      for (let row = 0; row < uRows-1; row++) {
+        const x = -hw + CR + col*stepX + stepX*0.5 + (Math.random()-0.5)*CR*0.06;
+        const z = uFront0 - row*stepZ - stepZ*0.5  + (Math.random()-0.5)*CR*0.06;
+        if (z < uZback) continue;
         spawnStillCoin(x, uY + CT*1.02, z, 'upper');
       }
     }
+    // Bonus tokens on top of upper coin stack
+    spawnBonus(-MW*0.25, uY + CT*2.1 + 0.12, uFront0 - stepZ*(Math.floor(uRows*0.3)), 0);
+    spawnBonus( MW*0.25, uY + CT*2.1 + 0.12, uFront0 - stepZ*(Math.floor(uRows*0.6)), 1);
 
-    // ── LOWER PUSHER ────────────────────────────────────────────────────────
-    // Pusher at rest: back face = L_PUSH_BACK - L_PUSH_HD = -3.650 (behind wall)
-    //                front face = L_PUSH_BACK + L_PUSH_HD = -0.050
-    // Back wall at -1.600, so back limit = -1.600+CR = -1.340
+    // ── LOWER PUSHER ─────────────────────────────────────────────────────────
+    // Pusher at rest: front face Z = L_PUSH_BACK + L_PUSH_HD = -0.050
+    //                back  face Z = L_PUSH_BACK - L_PUSH_HD = -3.650 (behind back wall)
     const lY      = LOWER_TOP + PUSH_H + CT/2 + 0.003;
-    const lZback  = Math.max(-MD/2 + WT + CR + 0.02,
-                             L_PUSH_BACK - L_PUSH_HD + CR);
-    const lZfront = L_PUSH_BACK + L_PUSH_HD - CR - 0.05;
+    const lFront0 = L_PUSH_BACK + L_PUSH_HD - CR - 0.04;
+    const lZback  = Math.max(-MD/2 + WT + CR + 0.02, L_PUSH_BACK - L_PUSH_HD + CR);
     const lCols   = Math.floor((hw*2) / stepX);
-    const lRows   = Math.max(1, Math.floor((lZfront - lZback) / stepZ));
+    const lRows   = Math.max(1, Math.floor((lFront0 - lZback) / stepZ) + 1);
 
     for (let col = 0; col < lCols; col++) {
       for (let row = 0; row < lRows; row++) {
-        const x = -hw + CR + col*stepX + (Math.random()-0.5)*CR*0.1;
-        const z = lZback + row*stepZ   + (Math.random()-0.5)*CR*0.1;
+        const x = -hw + CR + col*stepX + (Math.random()-0.5)*CR*0.08;
+        const z = lFront0 - row*stepZ  + (Math.random()-0.5)*CR*0.08;
+        if (z < lZback) continue;
         spawnStillCoin(x, lY, z, 'lower');
       }
     }
-    // Second layer across back half
-    const lRows2 = Math.max(1, Math.floor(lRows * 0.5));
+    // Layer 2 — honeycomb
     for (let col = 0; col < lCols-1; col++) {
-      for (let row = 0; row < lRows2; row++) {
-        const x = -hw + CR + col*stepX + stepX*0.5 + (Math.random()-0.5)*CR*0.08;
-        const z = lZback + row*stepZ               + (Math.random()-0.5)*CR*0.08;
+      for (let row = 0; row < lRows-1; row++) {
+        const x = -hw + CR + col*stepX + stepX*0.5 + (Math.random()-0.5)*CR*0.06;
+        const z = lFront0 - row*stepZ - stepZ*0.5  + (Math.random()-0.5)*CR*0.06;
+        if (z < lZback) continue;
         spawnStillCoin(x, lY + CT*1.02, z, 'lower');
       }
     }
-
-    // ── Bonus tokens on pushers ──────────────────────────────────────────────
-    spawnBonus(-MW*0.28, uY+0.25, uZback + (uZfront-uZback)*0.35, 0);
-    spawnBonus( MW*0.28, uY+0.25, uZback + (uZfront-uZback)*0.65, 1);
-    const lb1 = spawnBonus(-MW*0.22, lY+0.25, lZback + (lZfront-lZback)*0.25, 2);
+    // Bonus tokens on top of lower coin stack
+    const lb1 = spawnBonus(-MW*0.28, lY + CT*2.1 + 0.12, lFront0 - stepZ*(Math.floor(lRows*0.2)), 2);
     lb1.shelf = 'lower';
-    const lb2 = spawnBonus( MW*0.22, lY+0.25, lZback + (lZfront-lZback)*0.50, 3);
+    const lb2 = spawnBonus( MW*0.28, lY + CT*2.1 + 0.12, lFront0 - stepZ*(Math.floor(lRows*0.5)), 3);
     lb2.shelf = 'lower';
-    const lb3 = spawnBonus( 0,       lY+0.25, lZback + (lZfront-lZback)*0.75, 4);
+    const lb3 = spawnBonus( 0,       lY + CT*2.1 + 0.12, lFront0 - stepZ*(Math.floor(lRows*0.8)), 4);
     lb3.shelf = 'lower';
   }
 
@@ -890,16 +886,14 @@ export default (() => {
       const pusherFrontZ = onUpper ? uFrontZ : lFrontZ;
       const releaseZ     = onUpper ? U_RELEASE_Z : L_RELEASE_Z;
 
-      // Move coin forward when pusher front face reaches it (contact zone = CR)
-      if (bz <= pusherFrontZ + CR && bz >= pusherFrontZ - CR * 2) {
-        const pusherDz = onUpper
-          ? upperPusherBody.velocity.z || (upperPusherDir * PUSH_SPEED)
-          : lowerPusherBody.velocity.z || (lowerPusherDir * PUSH_SPEED * 0.82);
-        if (pusherDz > 0) {
-          // Only push forward, never pull back
-          obj.body.position.z += pusherDz / 60;
-        }
-      }
+      // Kinematic coins ride WITH the pusher — they move both forward AND back.
+      // The entire coin stack sits on top of the pusher and travels with it.
+      // Only coins that have been pushed past the release line go dynamic.
+      const pusherDz = onUpper
+        ? (upperPusherDir * PUSH_SPEED) / 60
+        : (lowerPusherDir * PUSH_SPEED * 0.82) / 60;
+      obj.body.position.z += pusherDz;
+      obj.mesh.position.z  = obj.body.position.z;
 
       // Release to dynamic when coin reaches the front lip area
       if (bz >= releaseZ) {
@@ -985,9 +979,9 @@ export default (() => {
   }
 
   // ── Camera orbit state ─────────────────────────────────────────
-  let camTheta = 0;          // horizontal angle (radians)
-  let camPhi   = 0.38;       // vertical angle (radians, 0=side, Pi/2=top)
-  let camDist  = MD * 3.2;   // distance from target
+  let camTheta = 0;          // horizontal angle: 0 = straight front
+  let camPhi   = 0.62;       // vertical angle: ~35° above straight-on
+  let camDist  = 11.5;       // distance — shows full machine front-on
   let isDragging = false;
   let dragStartX = 0, dragStartY = 0;
   let dragTheta = 0, dragPhi = 0;
