@@ -879,29 +879,26 @@ function pool3DBuildTable(THREE, scene, tw3, th3) {
 
           const geo = new THREE.PlaneGeometry(pW, pD);
           const mat = new THREE.MeshBasicMaterial({
-            map:                 new THREE.CanvasTexture(mc),
-            transparent:         true,
-            depthWrite:          false,
-            depthTest:           true,
-            polygonOffset:       true,
-            polygonOffsetFactor: -2,
-            polygonOffsetUnits:  -2,
+            map:         new THREE.CanvasTexture(mc),
+            transparent: true,
+            depthWrite:  false,
+            depthTest:   true,
           });
           const mesh = new THREE.Mesh(geo, mat);
           mesh.rotation.x = -Math.PI / 2;
-          // Position exactly at tableY so it sits flush on the felt surface.
-          // polygonOffset pushes it in front of the felt without lifting it
-          // into ball/cushion territory — so balls and rails still occlude it.
+          // Lifted 0.003 units above tableY — well above the felt (avoids z-fighting)
+          // but far below ball centres (r3 = BALL_R/50 = 0.176), so balls still
+          // correctly occlude the markings and the markings never poke through balls.
           mesh.position.set(
             (P3.feltMinX + P3.feltMaxX) * 0.5,
-            tY,
+            tY + 0.02,
             (P3.feltMinZ + P3.feltMaxZ) * 0.5
           );
           scene.add(mesh);
           P3.markingsMesh = mesh;
         })();
 
-        console.log('[pool3d] Pool Table.glb loaded — scale:', scale.toFixed(3), 'tableY:', P3.tableY.toFixed(3));
+        console.log('[pool3d] Pool Table.glb loaded — scale:', scale.toFixed(3), 'tableY:', P3.tableY.toFixed(3), 'markings at Y:', (P3.tableY + 0.02).toFixed(3), 'balls at Y:', (P3.tableY + POOL.BALL_R * P3.SCALE).toFixed(3));
         poolDraw();
       },
       undefined,
