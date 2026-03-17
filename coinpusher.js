@@ -587,7 +587,7 @@ export default (() => {
     const uY      = UPPER_TOP + PUSH_H + CT/2 + 0.003; // on top of pusher
     const uZback  = Math.max(-MD/2 + WT + CR + 0.02,   // back wall limit
                              U_PUSH_BACK - U_PUSH_HD + CR); // pusher back face
-    const uZfront = U_PUSH_BACK + U_PUSH_HD - CR - 0.05; // pusher front face at rest minus margin
+    const uZfront = U_PUSH_BACK + U_PUSH_HD - CR * 3.0; // pusher front face at rest minus margin
     const uCols   = Math.floor((hw*2) / stepX);
     const uRows   = Math.max(1, Math.floor((uZfront - uZback) / stepZ));
 
@@ -615,7 +615,7 @@ export default (() => {
     const lY      = LOWER_TOP + PUSH_H + CT/2 + 0.003;
     const lZback  = Math.max(-MD/2 + WT + CR + 0.02,
                              L_PUSH_BACK - L_PUSH_HD + CR);
-    const lZfront = L_PUSH_BACK + L_PUSH_HD - CR - 0.05;
+    const lZfront = L_PUSH_BACK + L_PUSH_HD - CR * 3.0;
     const lCols   = Math.floor((hw*2) / stepX);
     const lRows   = Math.max(1, Math.floor((lZfront - lZback) / stepZ));
 
@@ -870,78 +870,97 @@ export default (() => {
   // cost near zero until coins are actually being pushed.
   // Release line: Z beyond which a kinematic coin becomes dynamic.
   // Slightly inside the shelf front lip so coins release just before they'd fall.
-  const U_RELEASE_Z = UPPER_SHELF_Z + UPPER_SHELF_D/2 - CR*0.8;
-  const L_RELEASE_Z = LOWER_SHELF_Z + LOWER_SHELF_D/2 - CR*0.8;
+  // Release Z = physical front lip of each shelf (coin falls off here)
+  const U_LIP_Z = UPPER_SHELF_Z + UPPER_SHELF_D/2;
+  const L_LIP_Z = LOWER_SHELF_Z + LOWER_SHELF_D/2;
 
   function rideWithPusher() {
-    // Pusher front face world Z positions
     const uFrontZ = upperPusherBody.position.z + U_PUSH_HD;
     const lFrontZ = lowerPusherBody.position.z + L_PUSH_HD;
+    const uPusherDz = (upperPusherDir * PUSH_SPEED) / 60;
+    const lPusherDz = (lowerPusherDir * PUSH_SPEED * 0.82) / 60;
 
-    // Build list of dynamic coin positions for push detection
-    // (player-dropped coins and previously released seed coins)
-    const dynCoins = coinBodies.filter(o => !o.isKinematic);
+    // Collect dynamic coin positions once (player coins + released seeds)
+    const dynCoins = [];
+    coinBodies.forEach(o => {
+      if (!o.isKinematic && o.body) dynCoins.push(o.body.position);
+    });
 
+    // Pass 1: compute how much each seed coin should move this frame
+    const pushAmt = new Map();
     coinBodies.forEach(obj => {
       if (!obj.isKinematic) return;
-      const pos      = obj.body.position;
-      const bx       = pos.x;
-      const by       = pos.y;
-      const bz       = pos.z;
-      const onUpper  = by >= UPPER_TOP + PUSH_H * 0.5;
+      const bz      = obj.body.position.z;
+      const by      = obj.body.position.y;
+      const bx      = obj.body.position.x;
+      const onUpper = by >= UPPER_TOP + PUSH_H * 0.5;
       const pusherFZ = onUpper ? uFrontZ : lFrontZ;
-      const releaseZ = onUpper ? U_RELEASE_Z : L_RELEASE_Z;
-      const pusherDz = onUpper
-        ? (upperPusherDir * PUSH_SPEED) / 60
-        : (lowerPusherDir * PUSH_SPEED * 0.82) / 60;
+      const pusherDz = onUpper ? uPusherDz : lPusherDz;
 
-      let maxPush = 0;
+      let push = 0;
 
-      // ── 1. Pusher plate pushes this coin ─────────────────────────
-      // Any seed coin that the pusher front face is touching or has passed
-      if (bz <= pusherFZ + CR*0.5) {
-        if (pusherDz > 0) maxPush = Math.max(maxPush, pusherDz);
+      // Pusher front face physically contacts coin — only when moving forward
+      // Coin must be within [pusherFZ-CR .. pusherFZ+CR*0.1] to be at contact point
+      if (pusherDz > 0 && bz >= pusherFZ - CR && bz <= pusherFZ + CR * 0.15) {
+        push = Math.max(push, pusherDz);
       }
 
-      // ── 2. Dynamic coins push this seed coin ─────────────────────
-      // If any dynamic coin is close behind (or overlapping) this seed coin
-      // in Z, and roughly aligned in X and Y, push forward by the overlap.
-      for (const dyn of dynCoins) {
-        const dp = dyn.body.position;
-        const dz = dp.z;
-        const dx = Math.abs(dp.x - bx);
-        const dy = Math.abs(dp.y - by);
-        // Must be on same shelf level and close in X
-        if (dy > CT * 4 || dx > CR * 3) continue;
-        // Dynamic coin pushing from behind: dz + CR > bz - CR  (they overlap in Z)
-        const overlap = (dz + CR) - (bz - CR);
-        if (overlap > 0 && dz < bz + CR) {
-          // Push seed coin forward by the overlap (capped to avoid explosions)
-          maxPush = Math.max(maxPush, Math.min(overlap * 0.4, CR * 0.3));
+      // Dynamic coins push seed coins from behind
+      for (const dp of dynCoins) {
+        if (Math.abs(dp.y - by) > CT * 5) continue;   // different shelf level
+        if (Math.abs(dp.x - bx) > CR * 2.8) continue; // too far sideways
+        const overlap = (dp.z + CR) - (bz - CR);
+        if (overlap > 0.001 && dp.z < bz + CR * 0.5) {
+          push = Math.max(push, Math.min(overlap * 0.3, CR * 0.06));
         }
       }
 
-      if (maxPush > 0) {
-        obj.body.position.z += maxPush;
-        obj.mesh.position.z  = obj.body.position.z;
-      }
+      if (push > 0) pushAmt.set(obj, push);
+    });
 
-      // ── 3. Release to dynamic at the front lip ────────────────────
-      if (obj.body.position.z >= releaseZ) {
-        const p = obj.body.position.clone();
-        world.removeBody(obj.body);
-        const newBody = new CANNON.Body({ mass:0.18, linearDamping:0.88, angularDamping:0.95 });
-        if (obj.type === 'bonus') {
-          newBody.addShape(new CANNON.Box(new CANNON.Vec3(BONUS_W/2, BONUS_W/2, BONUS_D/2)));
-        } else {
-          newBody.addShape(new CANNON.Cylinder(CR, CR, CT, 12));
+    // Pass 2: apply pushes, then cascade to neighbouring seed coins
+    pushAmt.forEach((push, obj) => {
+      obj.body.position.z += push;
+      obj.mesh.position.z  = obj.body.position.z;
+
+      // Cascade: this coin now pushes seed coins immediately in front of it
+      const bz = obj.body.position.z;
+      const bx = obj.body.position.x;
+      const by = obj.body.position.y;
+      coinBodies.forEach(other => {
+        if (!other.isKinematic || other === obj) return;
+        if (Math.abs(other.body.position.y - by) > CT * 5) return;
+        if (Math.abs(other.body.position.x - bx) > CR * 2.8) return;
+        const overlap = (bz + CR) - (other.body.position.z - CR);
+        if (overlap > 0.001 && other.body.position.z > bz - CR * 0.5) {
+          const cascade = Math.min(overlap * 0.3, CR * 0.06);
+          other.body.position.z += cascade;
+          other.mesh.position.z  = other.body.position.z;
         }
-        newBody.position.copy(p);
-        newBody.velocity.set(0, 0, 0.8);
-        world.addBody(newBody);
-        obj.body     = newBody;
-        obj.isKinematic = false;
-      }
+      });
+    });
+
+    // Pass 3: release any coin that has reached the physical front lip
+    const toRelease = [];
+    coinBodies.forEach(obj => {
+      if (!obj.isKinematic) return;
+      const onUpper = obj.body.position.y >= UPPER_TOP + PUSH_H * 0.5;
+      const lipZ    = onUpper ? U_LIP_Z : L_LIP_Z;
+      if (obj.body.position.z >= lipZ - CR * 0.4) toRelease.push(obj);
+    });
+    toRelease.forEach(obj => {
+      const p = obj.body.position.clone();
+      world.removeBody(obj.body);
+      const nb = new CANNON.Body({ mass:0.18, linearDamping:0.88, angularDamping:0.95 });
+      if (obj.type === 'bonus')
+        nb.addShape(new CANNON.Box(new CANNON.Vec3(BONUS_W/2, BONUS_W/2, BONUS_D/2)));
+      else
+        nb.addShape(new CANNON.Cylinder(CR, CR, CT, 12));
+      nb.position.copy(p);
+      nb.velocity.set(0, 0, 0.5);
+      world.addBody(nb);
+      obj.body = nb;
+      obj.isKinematic = false;
     });
   }
 
