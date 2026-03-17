@@ -13,10 +13,10 @@ const POOL = {
   //   sliding decel = MU_SLIDE * G  (strong, ~0.2 in SI units)
   //   rolling decel = MU_ROLL  * G  (weak,  ~0.016 in SI units)
   // Scaled to table units where 1 unit ≈ 3.6mm, 60fps
-  MU_SLIDE: 0.032,         // sliding friction decel per frame (px/frame²)
-  MU_ROLL:  0.0018,        // rolling friction decel per frame (px/frame²)
-  MIN_SPEED: 0.05,         // stop threshold
-  CUSHION_RESTITUTION: 0.80, // energy retained on cushion bounce
+  MU_SLIDE: 0.018,         // sliding friction decel per sub-step
+  MU_ROLL:  0.00042,       // rolling friction — very low so balls glide naturally
+  MIN_SPEED: 0.012,        // stop threshold — small so balls coast to a true rest
+  CUSHION_RESTITUTION: 0.82, // energy retained on cushion bounce
 
   canvas: null,
   ctx: null,
@@ -1018,13 +1018,12 @@ function poolDraw() {
 }
 
 function poolPhysicsSubStep(balls, r, tw, th, pr, gap, cushionY, cushionX, midTopX, midBotX) {
-  // Constant-deceleration billiard physics model:
-  //   Sliding: strong decel (μ_slide), spin builds via friction torque
-  //   Rolling: weak decel   (μ_roll),  spin tracks velocity
-  //   Transition: when ω*r >= v (no lerp hack — real physics)
+  // Constant-deceleration model matching real billiard physics:
+  //   Sliding: strong decel (μ_slide * g), spin BUILDS from 0 toward v/r
+  //   Rolling: weak decel  (μ_roll  * g), smooth glide to stop
+  //   Transition: when spin reaches v/r naturally (no lerp hack)
   const MU_S = POOL.MU_SLIDE;
   const MU_R = POOL.MU_ROLL;
-  const CR    = POOL.CUSHION_RESTITUTION;
 
   balls.forEach(b => {
     const speed = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
@@ -1033,94 +1032,93 @@ function poolPhysicsSubStep(balls, r, tw, th, pr, gap, cushionY, cushionX, midTo
       return;
     }
 
-    const ux = b.vx / speed;
+    const ux = b.vx / speed; // unit vector of motion
     const uy = b.vy / speed;
 
     if (b.sliding) {
-      // ── SLIDING ────────────────────────────────────────────────
-      const newSpeed = Math.max(0, speed - MU_S);
+      // ── SLIDING: constant decel, spin builds via friction torque ──────
+      // Decelerate linearly (subtract fixed amount, not multiply)
+      const decel = MU_S;
+      const newSpeed = Math.max(0, speed - decel);
       b.vx = ux * newSpeed;
       b.vy = uy * newSpeed;
-      // Spin builds via friction torque: Δω = (5/2) * μ_s / r per frame
+
+      // Spin builds: torque = μ_s * m * g * R → α = 5/2 * μ_s * g / R
+      // In scaled units: Δspin = 5/2 * MU_S / r each frame
       const spinAccel = (5 / 2) * MU_S / r;
       b.spin = (b.spin || 0) + spinAccel;
+
+      // Transition to rolling when ω * r >= v  (spin caught up)
       if (b.spin * r >= newSpeed) {
         b.sliding = false;
         b.spin = newSpeed / r;
       }
     } else {
-      // ── ROLLING ────────────────────────────────────────────────
+      // ── ROLLING: slow constant decel, spin tracks velocity ────────────
       const newSpeed = Math.max(0, speed - MU_R);
       b.vx = ux * newSpeed;
       b.vy = uy * newSpeed;
       b.spin = newSpeed / r;
     }
 
+    // Accumulate roll angle for visual stripe rotation
     b._rollAcc = ((b._rollAcc || 0) + speed / r) % (Math.PI * 2);
+
     b.x += b.vx;
     b.y += b.vy;
 
-    // ── CUSHION COLLISIONS ─────────────────────────────────────
-    // Each cushion: reflect normal component, apply restitution to both
-    // components, and add a small throw on the parallel component to
-    // simulate the angled rubber face (makes cut shots feel more natural).
-    const THROW = 0.015;  // parallel velocity boost from cushion face angle
-
-    // TOP cushion
+    // ── CUSHION COLLISIONS ─────────────────────────────────────────────
+    // TOP
     if (b.y < cushionY) {
-      const nearMid = Math.abs(b.x - midTopX) < gap;
-      const nearL   = b.x < pr + gap;
-      const nearR   = b.x > tw - pr - gap;
-      if (!nearMid && !nearL && !nearR) {
-        b.y  = cushionY;
-        const absVy = Math.abs(b.vy);
-        b.vy = absVy * CR;
-        b.vx = b.vx * CR + Math.sign(b.vx) * absVy * THROW;
+      const nearMidTop = Math.abs(b.x - midTopX) < gap;
+      const nearCornerTL = b.x < pr + gap;
+      const nearCornerTR = b.x > tw - pr - gap;
+      if (!nearMidTop && !nearCornerTL && !nearCornerTR) {
+        b.y = cushionY;
+        b.vy = Math.abs(b.vy) * POOL.CUSHION_RESTITUTION;
+        b.vx *= POOL.CUSHION_RESTITUTION;
         b.sliding = true; b.spin = 0;
       }
     }
-    // BOTTOM cushion
+    // BOTTOM
     if (b.y > th - cushionY) {
-      const nearMid = Math.abs(b.x - midTopX) < gap;
-      const nearL   = b.x < pr + gap;
-      const nearR   = b.x > tw - pr - gap;
-      if (!nearMid && !nearL && !nearR) {
-        b.y  = th - cushionY;
-        const absVy = Math.abs(b.vy);
-        b.vy = -absVy * CR;
-        b.vx = b.vx * CR + Math.sign(b.vx) * absVy * THROW;
+      const nearMidBot = Math.abs(b.x - midTopX) < gap;
+      const nearCornerBL = b.x < pr + gap;
+      const nearCornerBR = b.x > tw - pr - gap;
+      if (!nearMidBot && !nearCornerBL && !nearCornerBR) {
+        b.y = th - cushionY;
+        b.vy = -Math.abs(b.vy) * POOL.CUSHION_RESTITUTION;
+        b.vx *= POOL.CUSHION_RESTITUTION;
         b.sliding = true; b.spin = 0;
       }
     }
-    // LEFT cushion
+    // LEFT
     if (b.x < cushionX) {
-      const nearT = b.y < pr + gap;
-      const nearB = b.y > th - pr - gap;
-      if (!nearT && !nearB) {
-        b.x  = cushionX;
-        const absVx = Math.abs(b.vx);
-        b.vx = absVx * CR;
-        b.vy = b.vy * CR + Math.sign(b.vy) * absVx * THROW;
+      const nearCornerTop = b.y < pr + gap;
+      const nearCornerBot = b.y > th - pr - gap;
+      if (!nearCornerTop && !nearCornerBot) {
+        b.x = cushionX;
+        b.vx = Math.abs(b.vx) * POOL.CUSHION_RESTITUTION;
+        b.vy *= POOL.CUSHION_RESTITUTION;
         b.sliding = true; b.spin = 0;
       }
     }
-    // RIGHT cushion
+    // RIGHT
     if (b.x > tw - cushionX) {
-      const nearT = b.y < pr + gap;
-      const nearB = b.y > th - pr - gap;
-      if (!nearT && !nearB) {
-        b.x  = tw - cushionX;
-        const absVx = Math.abs(b.vx);
-        b.vx = -absVx * CR;
-        b.vy = b.vy * CR + Math.sign(b.vy) * absVx * THROW;
+      const nearCornerTop = b.y < pr + gap;
+      const nearCornerBot = b.y > th - pr - gap;
+      if (!nearCornerTop && !nearCornerBot) {
+        b.x = tw - cushionX;
+        b.vx = -Math.abs(b.vx) * POOL.CUSHION_RESTITUTION;
+        b.vy *= POOL.CUSHION_RESTITUTION;
         b.sliding = true; b.spin = 0;
       }
     }
 
     // Hard boundary clamp
-    if (b.x < 0)  { b.x = 0;  b.vx =  Math.abs(b.vx); }
+    if (b.x < 0) { b.x = 0; b.vx = Math.abs(b.vx); }
     if (b.x > tw) { b.x = tw; b.vx = -Math.abs(b.vx); }
-    if (b.y < 0)  { b.y = 0;  b.vy =  Math.abs(b.vy); }
+    if (b.y < 0) { b.y = 0; b.vy = Math.abs(b.vy); }
     if (b.y > th) { b.y = th; b.vy = -Math.abs(b.vy); }
   });
 }
@@ -1128,129 +1126,88 @@ function poolPhysicsSubStep(balls, r, tw, th, pr, gap, cushionY, cushionX, midTo
 // Main physics step — runs sub-steps for accuracy at high speeds
 function poolPhysicsStep() {
   const pr = POOL.POCKET_R;
-  const r  = POOL.BALL_R;
+  const r = POOL.BALL_R;
   const tw = POOL.TW, th = POOL.TH;
   const gap = POOL.MID_GAP;
   const cushionY = pr + r;
   const cushionX = pr + r;
   const midTopX  = tw / 2;
   const midBotX  = tw / 2;
-
-  // More sub-steps = fewer tunnelling issues at high speeds
+  // Dynamic sub-steps: more at high speed to prevent tunnelling,
+  // fewer when slow so rolling decel isn't applied too many times per frame
   const maxSpeed = POOL.balls.reduce((m, b) => Math.max(m, Math.sqrt(b.vx*b.vx+b.vy*b.vy)), 0);
-  const SUB = maxSpeed > 8 ? 6 : maxSpeed > 4 ? 5 : 4;
-
+  const SUB = maxSpeed > 8 ? 5 : maxSpeed > 3 ? 4 : 3;
   const newlyPotted = [];
 
   for (let s = 0; s < SUB; s++) {
     const balls = POOL.balls.filter(b => !b.potted);
     poolPhysicsSubStep(balls, r, tw, th, pr, gap, cushionY, cushionX, midTopX, midBotX);
 
-    // ── BALL–BALL COLLISIONS ─────────────────────────────────────
-    const minDist   = r * 2;
+    // Ball-ball collisions inside sub-step
+    const minDist = r * 2;
     const minDistSq = minDist * minDist;
-
     for (let i = 0; i < balls.length; i++) {
-      for (let j = i + 1; j < balls.length; j++) {
+      for (let j = i+1; j < balls.length; j++) {
         const a = balls[i], b = balls[j];
         const dx = b.x - a.x, dy = b.y - a.y;
         const distSq = dx*dx + dy*dy;
         if (distSq >= minDistSq || distSq < 0.000001) continue;
-
         const dist = Math.sqrt(distSq);
-        const nx = dx / dist, ny = dy / dist;
-
-        // Track first ball hit by cue ball
         if (POOL.firstBallHitId === null) {
           if (a.id === 0 && b.id !== 0) POOL.firstBallHitId = b.id;
           else if (b.id === 0 && a.id !== 0) POOL.firstBallHitId = a.id;
         }
-
-        // ── Positional correction — push apart so they don't overlap ──
         const overlap = (minDist - dist) / 2;
+        const nx = dx/dist, ny = dy/dist;
         a.x -= nx * overlap; a.y -= ny * overlap;
         b.x += nx * overlap; b.y += ny * overlap;
 
-        // ── Velocity: real billiard collision ──────────────────────
-        // For equal-mass balls the normal velocity components are simply
-        // exchanged (elastic). The tangential components are unchanged.
-        // This gives: cue ball stuns (stops) on a centre hit, deflects
-        // on cut shots — exactly right for pool.
-        const avn = a.vx * nx + a.vy * ny;  // a's normal speed
-        const bvn = b.vx * nx + b.vy * ny;  // b's normal speed
-        const dvn = avn - bvn;
-        if (dvn <= 0) continue;  // already separating
+        const dvx = a.vx - b.vx, dvy = a.vy - b.vy;
+        const dot = dvx*nx + dvy*ny;
+        if (dot > 0) {
+          // Fully elastic equal-mass collision: exchange velocity components along normal
+          // This is the billiard "stun" effect — cue ball transfers momentum cleanly
+          const restitution = 0.97;
+          const imp = dot * restitution;
+          a.vx -= imp * nx; a.vy -= imp * ny;
+          b.vx += imp * nx; b.vy += imp * ny;
 
-        const REST = 0.97;       // ball-ball restitution (near-elastic)
-        const imp  = dvn * REST;
+          // Both balls enter sliding state after impact (spin disrupted)
+          a.spin = 0; a.sliding = true;
+          b.spin = 0; b.sliding = true;
 
-        // Exchange normal components
-        a.vx -= imp * nx;  a.vy -= imp * ny;
-        b.vx += imp * nx;  b.vy += imp * ny;
-
-        // ── Spin/follow/draw influence ─────────────────────────────
-        // Pre-existing spin on the cue ball (set by draw/follow shots)
-        // adds a small velocity kick along the normal AFTER contact.
-        // Follow (positive spin): cue ball continues forward slightly.
-        // Draw  (negative spin):  cue ball comes back slightly.
-        if (a.id === 0 || b.id === 0) {
-          const cueBall = a.id === 0 ? a : b;
-          const objBall = a.id === 0 ? b : a;
-          const spinDir = a.id === 0 ? 1 : -1;  // direction of normal
-          const spinEffect = (cueBall.spin || 0) * r * 0.18;
-          cueBall.vx += spinDir * nx * spinEffect;
-          cueBall.vy += spinDir * ny * spinEffect;
-        }
-
-        // Both balls enter sliding after impact
-        a.spin = 0; a.sliding = true;
-        b.spin = 0; b.sliding = true;
-
-        // ── Collision sparks ───────────────────────────────────────
-        if (imp > 1.2) {
-          const sx = a.x + nx * r, sy = a.y + ny * r;
-          const numSparks = Math.min(8, Math.floor(imp * 2));
-          for (let _k = 0; _k < numSparks; _k++) {
-            const sa = Math.random() * Math.PI * 2;
-            const ss = 0.6 + Math.random() * 2.0;
-            POOL._sparks.push({
-              x: sx, y: sy,
-              vx: Math.cos(sa) * ss, vy: Math.sin(sa) * ss,
-              life: 1.0, r: 1 + Math.random() * 1.5,
-              isCue: (a.id === 0 || b.id === 0),
-            });
+          // Collision sparks on hard impacts
+          if (imp > 1.2) {
+            const sx = a.x + nx * r;
+            const sy = a.y + ny * r;
+            const numSparks = Math.min(8, Math.floor(imp * 2));
+            for (let _s2 = 0; _s2 < numSparks; _s2++) {
+              const sparkAngle = Math.random() * Math.PI * 2;
+              const sparkSpeed = 0.6 + Math.random() * 2.0;
+              POOL._sparks.push({
+                x: sx, y: sy,
+                vx: Math.cos(sparkAngle) * sparkSpeed,
+                vy: Math.sin(sparkAngle) * sparkSpeed,
+                life: 1.0,
+                r: 1 + Math.random() * 1.5,
+                isCue: (a.id === 0 || b.id === 0),
+              });
+            }
           }
         }
       }
     }
 
-    // ── POCKET DETECTION WITH SUCTION ───────────────────────────
-    // Balls near a pocket are gently pulled in (suction zone outside
-    // the hard pocket radius), then potted once inside the threshold.
-    const pocketR       = pr * 1.1;
-    const pocketRSq     = pocketR * pocketR;
-    const suctionR      = pr * 1.8;   // outer suction zone
-    const suctionRSq    = suctionR * suctionR;
-    const suctionStr    = 0.012;      // acceleration toward pocket centre
-
+    // Pocket detection
+    const pocketThreshSq = (pr * 1.1) * (pr * 1.1);
     POOL.balls.forEach(ball => {
       if (ball.potted) return;
       POOL.POCKETS.forEach(p => {
-        const pdx = ball.x - p.x, pdy = ball.y - p.y;
-        const pdSq = pdx*pdx + pdy*pdy;
-
-        if (pdSq < pocketRSq) {
-          // Inside pocket — sink it
+        const dx2 = ball.x - p.x, dy2 = ball.y - p.y;
+        if (dx2*dx2 + dy2*dy2 < pocketThreshSq) {
           ball.potted = true;
           ball.vx = 0; ball.vy = 0; ball.spin = 0;
           newlyPotted.push(ball.id);
-        } else if (pdSq < suctionRSq) {
-          // Suction zone — accelerate toward pocket
-          const pd = Math.sqrt(pdSq);
-          const pull = suctionStr * (1 - pd / suctionR);
-          ball.vx -= (pdx / pd) * pull;
-          ball.vy -= (pdy / pd) * pull;
-          ball.sliding = true;
         }
       });
     });
