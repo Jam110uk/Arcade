@@ -1262,7 +1262,7 @@ function poolDraw() {
           const inRange = t <= aimLen;
           if (!inRange) { d.visible = false; return; }
           const _tYd = (P3.tableY !== undefined) ? P3.tableY : 0;
-          d.position.set(cbx3 - Math.cos(angle)*t, _tYd + 0.05, cbz3 - Math.sin(angle)*t);
+          d.position.set(cbx3 + Math.cos(angle)*t, _tYd + 0.05, cbz3 + Math.sin(angle)*t);
           d.rotation.y = -angle;
           // Fade toward end of line, brighter at start
           const fade  = 1 - (t / aimLen) * 0.55;
@@ -1273,8 +1273,8 @@ function poolDraw() {
 
         // Ghost ball at aim end point
         if (P3.aimGhost) {
-          const endX = cbx3 - Math.cos(angle) * aimLen;
-          const endZ = cbz3 - Math.sin(angle) * aimLen;
+          const endX = cbx3 + Math.cos(angle) * aimLen;
+          const endZ = cbz3 + Math.sin(angle) * aimLen;
           const _tYg = (P3.tableY !== undefined) ? P3.tableY : 0;
           P3.aimGhost.position.set(endX, _tYg + POOL.BALL_R * S, endZ);
           const ghostOpacity = locked ? 0.15 + power * 0.35 : 0.12;
@@ -1765,8 +1765,8 @@ async function poolFireShot() {
   const perpOffset = (-Math.sin(angle) * dx + Math.cos(angle) * dy);
   const sideSpin = (perpOffset / (POOL.BALL_R * 2)) * speed * 1.2; // scaled spin
   try { POOL_SFX.cueHit(power / 100); } catch(e) {}
-  cb.vx = -Math.cos(angle) * speed;
-  cb.vy = -Math.sin(angle) * speed;
+  cb.vx = Math.cos(angle) * speed;
+  cb.vy = Math.sin(angle) * speed;
   cb.spin = 0;        // ball starts with NO spin — pure sliding skid on hit
   cb.sliding = true;  // transitions to rolling once spin catches up to velocity
   POOL.firstBallHitId = null;
