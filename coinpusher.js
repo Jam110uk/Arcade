@@ -196,8 +196,8 @@ export default (() => {
   // ── Build physics world ────────────────────────────────────────
   function buildPhysics() {
     world = new CANNON.World({ gravity: new CANNON.Vec3(0, -14, 0) });
-    world.broadphase = new CANNON.NaiveBroadphase();
-    world.solver.iterations = 10;
+    world.broadphase = new CANNON.SAPBroadphase(world);  // O(n log n) vs O(n²)
+    world.solver.iterations = 6;
     world.allowSleep = true;
     const defaultMat = new CANNON.Material('default');
     const contact = new CANNON.ContactMaterial(defaultMat, defaultMat, {
@@ -269,10 +269,9 @@ export default (() => {
 
     // Renderer
     renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.setSize(wrap.clientWidth, wrap.clientHeight);
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.enabled = false;   // shadows too expensive with 200+ coin bodies
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.15;
     wrap.appendChild(renderer.domElement);
@@ -467,22 +466,31 @@ export default (() => {
     return sp;
   }
 
-  // ── Spawn a coin body + mesh (shelf coins — lying flat, axis Y) ──
-  const coinGeo = () => new THREE.CylinderGeometry(CR, CR, CT, 22);
+  // ── Shared coin geometry (created once, reused for all coins) ────
+  // Visual: cylinder for appearance. Physics: Box for performance (Cylinder SAT is ~3x slower).
+  let _coinGeoVisual = null;
+  let _coinShapePhys = null;
+  function getCoinGeoVisual() {
+    if (!_coinGeoVisual) _coinGeoVisual = new THREE.CylinderGeometry(CR, CR, CT, 16);
+    return _coinGeoVisual;
+  }
+  function getCoinShapePhys() {
+    if (!_coinShapePhys) _coinShapePhys = new CANNON.Box(new CANNON.Vec3(CR, CT/2, CR));
+    return _coinShapePhys;
+  }
 
+  // ── Spawn a dropped player coin ───────────────────────────────────
   function spawnCoin(x, y, z, shelf='upper') {
-    const mesh = new THREE.Mesh(coinGeo(), coinMat);
+    const mesh = new THREE.Mesh(getCoinGeoVisual(), coinMat);
     mesh.castShadow = true; mesh.receiveShadow = true;
-    // Small random tilt so shelf coins don't stack perfectly
     mesh.rotation.x = (Math.random()-0.5)*0.3;
     mesh.rotation.z = (Math.random()-0.5)*0.3;
     scene.add(mesh);
 
-    const body = new CANNON.Body({ mass:0.18, linearDamping:0.55, angularDamping:0.72 });
-    // Cylinder axis = Y by default → coin lies flat on shelf
-    body.addShape(new CANNON.Cylinder(CR, CR, CT, 12));
+    const body = new CANNON.Body({ mass:0.18, linearDamping:0.50, angularDamping:0.70 });
+    body.addShape(getCoinShapePhys());
     body.position.set(x, y, z);
-    body.velocity.set(0, 0, 0);  // start still — caller can set velocity if needed
+    body.velocity.set(0, 0, 0);
     world.addBody(body);
 
     const obj = { mesh, body, type:'coin', value:2, shelf };
@@ -577,25 +585,21 @@ export default (() => {
     const uRows = Math.max(1, Math.floor((uZ1-uZ0) / stepZ));
     const lRows = Math.max(1, Math.floor((lZ1-lZ0) / stepZ));
 
-    // Upper — 4 layers
+    // Upper — 2 layers (layer 1 full, layer 2 offset at 60% depth)
     for (let c=0;c<uCols;c++) for (let r=0;r<uRows;r++)
-      spawnShelfCoin(-hw+CR+c*stepX+(Math.random()-.5)*CR*.12, uSurfY,           uZ0+r*stepZ+(Math.random()-.5)*CR*.12,'upper');
-    for (let c=0;c<uCols-1;c++) for (let r=0;r<uRows;r++)
-      spawnShelfCoin(-hw+CR+c*stepX+stepX*.5+(Math.random()-.5)*CR*.10, uSurfY+CT*1.05, uZ0+r*stepZ+(Math.random()-.5)*CR*.10,'upper');
-    for (let c=0;c<uCols;c++) for (let r=0;r<Math.floor(uRows*.65);r++)
-      spawnShelfCoin(-hw+CR+c*stepX+(Math.random()-.5)*CR*.10, uSurfY+CT*2.10,   uZ0+r*stepZ+(Math.random()-.5)*CR*.10,'upper');
-    for (let c=0;c<uCols-1;c++) for (let r=0;r<Math.floor(uRows*.35);r++)
-      spawnShelfCoin(-hw+CR+c*stepX+stepX*.5+(Math.random()-.5)*CR*.08, uSurfY+CT*3.15, uZ0+r*stepZ+(Math.random()-.5)*CR*.08,'upper');
+      spawnShelfCoin(-hw+CR+c*stepX+(Math.random()-.5)*CR*.12, uSurfY,
+                     uZ0+r*stepZ+(Math.random()-.5)*CR*.12, 'upper');
+    for (let c=0;c<uCols-1;c++) for (let r=0;r<Math.floor(uRows*.60);r++)
+      spawnShelfCoin(-hw+CR+c*stepX+stepX*.5+(Math.random()-.5)*CR*.10, uSurfY+CT*1.05,
+                     uZ0+r*stepZ+(Math.random()-.5)*CR*.10, 'upper');
 
-    // Lower — 4 layers
+    // Lower — 2 layers
     for (let c=0;c<lCols;c++) for (let r=0;r<lRows;r++)
-      spawnShelfCoin(-hw+CR+c*stepX+(Math.random()-.5)*CR*.12, lSurfY,           lZ0+r*stepZ+(Math.random()-.5)*CR*.12,'lower');
-    for (let c=0;c<lCols-1;c++) for (let r=0;r<lRows;r++)
-      spawnShelfCoin(-hw+CR+c*stepX+stepX*.5+(Math.random()-.5)*CR*.10, lSurfY+CT*1.05, lZ0+r*stepZ+(Math.random()-.5)*CR*.10,'lower');
-    for (let c=0;c<lCols;c++) for (let r=0;r<Math.floor(lRows*.65);r++)
-      spawnShelfCoin(-hw+CR+c*stepX+(Math.random()-.5)*CR*.10, lSurfY+CT*2.10,   lZ0+r*stepZ+(Math.random()-.5)*CR*.10,'lower');
-    for (let c=0;c<lCols-1;c++) for (let r=0;r<Math.floor(lRows*.35);r++)
-      spawnShelfCoin(-hw+CR+c*stepX+stepX*.5+(Math.random()-.5)*CR*.08, lSurfY+CT*3.15, lZ0+r*stepZ+(Math.random()-.5)*CR*.08,'lower');
+      spawnShelfCoin(-hw+CR+c*stepX+(Math.random()-.5)*CR*.12, lSurfY,
+                     lZ0+r*stepZ+(Math.random()-.5)*CR*.12, 'lower');
+    for (let c=0;c<lCols-1;c++) for (let r=0;r<Math.floor(lRows*.60);r++)
+      spawnShelfCoin(-hw+CR+c*stepX+stepX*.5+(Math.random()-.5)*CR*.10, lSurfY+CT*1.05,
+                     lZ0+r*stepZ+(Math.random()-.5)*CR*.10, 'lower');
 
     // Bonus tokens — sitting on top of coin pile in front third of field
     const uBY = uSurfY + CT*4.5 + BONUS_W*0.5 + 0.02;
@@ -611,18 +615,22 @@ export default (() => {
   }
 
   function spawnShelfCoin(x, y, z, shelf) {
-    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(CR,CR,CT,16), coinMat);
-    mesh.castShadow = true; mesh.receiveShadow = true;
+    const mesh = new THREE.Mesh(getCoinGeoVisual(), coinMat);
+    mesh.castShadow = false; mesh.receiveShadow = false; // shadows too expensive for 200+ coins
     mesh.position.set(x, y, z);
     scene.add(mesh);
-    const body = new CANNON.Body({ mass:0.18, linearDamping:0.55, angularDamping:0.75 });
-    body.addShape(new CANNON.Cylinder(CR,CR,CT,12));
+    const body = new CANNON.Body({ mass:0.18, linearDamping:0.60, angularDamping:0.80 });
+    body.addShape(getCoinShapePhys());
     body.position.set(x, y, z);
-    body.allowSleep = true; body.sleepSpeedLimit=0.15; body.sleepTimeLimit=0.25;
+    body.allowSleep = true;
+    body.sleepSpeedLimit = 0.25;  // sleep faster
+    body.sleepTimeLimit  = 0.15;
     body.sleep();
     world.addBody(body);
     const obj = { mesh, body, type:'coin', value:2, shelf };
     coinBodies.push(obj);
+    return obj;
+  }
     return obj;
   }
 
@@ -772,7 +780,7 @@ export default (() => {
     rideWithPusher(uDeltaZ, lDeltaZ);
 
     // Step physics
-    world.step(1/60, dt, 3);
+    world.step(1/60, dt, 2);
 
     // Sync meshes
     coinBodies.forEach(obj => {
@@ -808,24 +816,73 @@ export default (() => {
     renderer.render(scene, camera);
   }
 
-  // ── Manual pusher collision ────────────────────────────────────
-  function applyPusherToCoin(obj, pusherFrontZ, topY, botY, deltaZ) {
-    if (deltaZ <= 0) return;
-    const p = obj.body.position;
-    if (p.y > topY + CR || p.y < botY - CR) return;
-    const pen = pusherFrontZ - (p.z - CR);
-    if (pen <= 0) return;
-    obj.body.position.z += pen + 0.001;
-    if (obj.body.velocity.z < deltaZ * 55) obj.body.velocity.z = deltaZ * 55;
-    if (obj.body.sleepState === CANNON.Body.SLEEPING) obj.body.wakeUp();
-  }
-
+  // ── Pusher collision with cascade propagation ─────────────────
+  // The pusher directly moves any coin it overlaps. Those coins then push
+  // coins in front of them (higher Z), propagating through the whole pile
+  // in a single frame. Each coin can only move at most the pusher's step,
+  // preventing runaway launches.
   function rideWithPusher(uDz, lDz) {
+    if (uDz <= 0 && lDz <= 0) return;
+
     const uFront = upperPusherBody.position.z + U_PUSH_HD;
     const lFront = lowerPusherBody.position.z + L_PUSH_HD;
+    const uTop = UPPER_TOP + PUSH_H, uBot = UPPER_TOP;
+    const lTop = LOWER_TOP + PUSH_H, lBot = LOWER_TOP;
+
+    // Collect per-coin push amounts — Map from body to {dz, shelfTop, shelfBot}
+    const pushMap = new Map();
+
+    // Pass 1: direct pusher contact
     coinBodies.forEach(obj => {
-      applyPusherToCoin(obj, uFront, UPPER_TOP + PUSH_H, UPPER_TOP, uDz);
-      applyPusherToCoin(obj, lFront, LOWER_TOP + PUSH_H, LOWER_TOP, lDz);
+      const p = obj.body.position;
+      let dz = 0;
+      if (uDz > 0 && p.y <= uTop + CR && p.y >= uBot - CR) {
+        const pen = uFront - (p.z - CR);
+        if (pen > 0) dz = Math.max(dz, Math.min(pen + 0.001, uDz + 0.02));
+      }
+      if (lDz > 0 && p.y <= lTop + CR && p.y >= lBot - CR) {
+        const pen = lFront - (p.z - CR);
+        if (pen > 0) dz = Math.max(dz, Math.min(pen + 0.001, lDz + 0.02));
+      }
+      if (dz > 0) pushMap.set(obj, dz);
+    });
+
+    if (pushMap.size === 0) return;
+
+    // Pass 2: cascade — sort pushed coins back-to-front (ascending Z),
+    // then each pushed coin can transfer its push to the coin immediately
+    // in front of it (within 2 diameters, same shelf height).
+    // Repeat for up to 3 hops so a full column gets pushed in one frame.
+    for (let hop = 0; hop < 8; hop++) {
+      let anyNew = false;
+      // Snapshot current entries so we can iterate safely
+      const entries = [...pushMap.entries()];
+      // Sort front-to-back (highest Z first) so we assign to forward coins first
+      entries.sort((a, b) => b[0].body.position.z - a[0].body.position.z);
+
+      for (const [obj, dz] of entries) {
+        const pa = obj.body.position;
+        coinBodies.forEach(other => {
+          if (other === obj) return;
+          const pb = other.body.position;
+          if (Math.abs(pb.y - pa.y) > PUSH_H) return;        // different shelf
+          if (Math.abs(pb.x - pa.x) > CR * 2.8) return;      // too far sideways
+          // 'other' is directly in front of 'obj' (higher Z, touching)
+          const gap = (pb.z - CR) - (pa.z + CR);
+          if (gap >= 0 && gap < CR * 0.8) {
+            const existing = pushMap.get(other) || 0;
+            if (dz > existing) { pushMap.set(other, dz); anyNew = true; }
+          }
+        });
+      }
+      if (!anyNew) break;
+    }
+
+    // Pass 3: apply all pushes
+    pushMap.forEach((dz, obj) => {
+      obj.body.position.z += dz;
+      if (obj.body.velocity.z < dz * 50) obj.body.velocity.z = dz * 50;
+      if (obj.body.sleepState === CANNON.Body.SLEEPING) obj.body.wakeUp();
     });
   }
 
