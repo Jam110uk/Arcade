@@ -195,7 +195,7 @@ export default (() => {
 
     const defaultMat = new CANNON.Material('default');
     const contact = new CANNON.ContactMaterial(defaultMat, defaultMat, {
-      friction: 0.30, restitution: 0.10
+      friction: 0.30, restitution: 0.08
     });
     world.addContactMaterial(contact);
     world.defaultContactMaterial = contact;
@@ -236,19 +236,11 @@ export default (() => {
       });
     });
 
-    // Upper pusher — covers upper shelf (short)
-    const upperPShape = new CANNON.Box(new CANNON.Vec3(MW/2, PUSH_H/2, U_PUSH_HD));
-    upperPusherBody = new CANNON.Body({ mass:0, type:CANNON.Body.KINEMATIC });
-    upperPusherBody.addShape(upperPShape);
-    upperPusherBody.position.set(0, UPPER_TOP + PUSH_H/2, U_PUSH_BACK);
-    world.addBody(upperPusherBody);
-
-    // Lower pusher — covers full lower shelf depth
-    const lowerPShape = new CANNON.Box(new CANNON.Vec3(MW/2, PUSH_H/2, L_PUSH_HD));
-    lowerPusherBody = new CANNON.Body({ mass:0, type:CANNON.Body.KINEMATIC });
-    lowerPusherBody.addShape(lowerPShape);
-    lowerPusherBody.position.set(0, LOWER_TOP + PUSH_H/2, L_PUSH_BACK);
-    world.addBody(lowerPusherBody);
+    // Pusher positions tracked in JS — no Cannon body needed (kinematic bodies
+    // don't generate collision responses with dynamic bodies in Cannon-ES).
+    // We track front-face Z directly and push coins manually each frame.
+    upperPusherBody = { position: { z: U_PUSH_BACK } };
+    lowerPusherBody = { position: { z: L_PUSH_BACK } };
   }
 
   function addStaticBox(w,h,d,x,y,z) {
@@ -484,7 +476,7 @@ export default (() => {
     mesh.rotation.z = (Math.random()-0.5)*0.3;
     scene.add(mesh);
 
-    const body = new CANNON.Body({ mass:0.18, linearDamping:0.50, angularDamping:0.70 });
+    const body = new CANNON.Body({ mass:0.18, linearDamping:0.55, angularDamping:0.72 });
     // Cylinder axis = Y by default → coin lies flat on shelf
     body.addShape(new CANNON.Cylinder(CR, CR, CT, 12));
     body.position.set(x, y, z);
@@ -549,97 +541,94 @@ export default (() => {
     mesh.receiveShadow = true;
     scene.add(mesh);
 
-    // Dynamic body — sits on shelf surface, moves when hit
-    const body = new CANNON.Body({
-      mass: 0.25,
-      linearDamping: 0.65,
-      angularDamping: 0.85
-    });
+    // Dynamic sleeping body — wakes when hit
+    const body = new CANNON.Body({ mass: 0.25, linearDamping: 0.60, angularDamping: 0.80 });
     body.addShape(new CANNON.Box(new CANNON.Vec3(BONUS_W/2, BONUS_W/2, BONUS_D/2)));
     body.position.set(x, y, z);
-    body.sleepSpeedLimit = 0.1;
-    body.sleepTimeLimit  = 0.3;
+    body.allowSleep = true;
+    body.sleepSpeedLimit = 0.15;
+    body.sleepTimeLimit  = 0.25;
     body.sleep();
     world.addBody(body);
     const obj = { mesh, body, type:'bonus', value:b.value, label:b.label,
-                  emoji:b.emoji, col:b.col, shelf:'upper', isKinematic:false };
+                  emoji:b.emoji, col:b.col, shelf:'upper' };
     coinBodies.push(obj);
     return obj;
   }
 
-  // ── Seed shelves with initial coins ───────────────────────────────────────
-  // Coins sit ON THE SHELF SURFACE near the front.
-  // The pusher starts at the back and only reaches them once enough player
-  // coins have piled up on the pusher and pushed the stack forward.
-  // Y = shelf surface top + CT/2  (resting flat on shelf, not on pusher)
+  // ── Seed shelves ───────────────────────────────────────────────
+  // Coins sit on the shelf surface near the FRONT of each shelf.
+  // The pusher starts at the BACK and only reaches them once enough
+  // player coins have piled up and been pushed forward into them.
   function seedCoins() {
     const hw    = MW/2 - CR * 1.8;
-    const stepX = CR * 2.20;
-    const stepZ = CR * 2.20;
+    const stepX = CR * 2.25;
+    const stepZ = CR * 2.25;
 
-    // Shelf surface Y for each shelf
-    const uShelfY = UPPER_TOP + SHELF_THICK + CT/2 + 0.002;
-    const lShelfY = LOWER_TOP + SHELF_THICK + CT/2 + 0.002;
+    // Shelf surface Y (top of shelf slab)
+    const uSurfY = UPPER_TOP + SHELF_THICK + CT/2 + 0.003;
+    const lSurfY = LOWER_TOP + SHELF_THICK + CT/2 + 0.003;
 
-    // Upper shelf lip Z and back Z
-    const uLipZ  = UPPER_SHELF_Z + UPPER_SHELF_D/2;   // front edge of shelf
-    const uBackZ = -MD/2 + WT + CR + 0.05;            // near back wall
-    // Seed coins fill the FRONT portion of the shelf — from mid-shelf to lip
-    // The pusher front face at rest = -0.748, so seed coins start just ahead of that
-    const uSeedBack  = U_PUSH_BACK + U_PUSH_HD + CR * 2.0;  // a gap ahead of pusher rest pos
-    const uSeedFront = uLipZ - CR * 1.2;                     // CR clear of lip
+    // Lip Z (front edge of shelf)
+    const uLipZ = UPPER_SHELF_Z + UPPER_SHELF_D/2;
+    const lLipZ = LOWER_SHELF_Z + LOWER_SHELF_D/2;
+
+    // Pusher front face at its RESTING (back) position — seed coins go AHEAD of this
+    const uPusherRestFront = U_PUSH_BACK + U_PUSH_HD;  // = -0.748
+    const lPusherRestFront = L_PUSH_BACK + L_PUSH_HD;  // = -0.050
+
+    // Seed coin Z range: from just ahead of pusher rest front, to just behind lip
+    const uZ0 = uPusherRestFront + CR * 2.5;
+    const uZ1 = uLipZ - CR * 1.5;
+    const lZ0 = lPusherRestFront + CR * 2.5;
+    const lZ1 = lLipZ - CR * 1.5;
+
     const uCols = Math.floor((hw * 2) / stepX);
-    const uRows = Math.max(1, Math.floor((uSeedFront - uSeedBack) / stepZ));
-
+    const uRows = Math.max(1, Math.floor((uZ1 - uZ0) / stepZ));
     for (let c = 0; c < uCols; c++) {
       for (let r = 0; r < uRows; r++) {
-        const x = -hw + CR + c * stepX + (Math.random()-0.5) * CR * 0.15;
-        const z = uSeedBack + r * stepZ + (Math.random()-0.5) * CR * 0.15;
-        spawnShelfCoin(x, uShelfY, z, 'upper');
+        const x = -hw + CR + c * stepX + (Math.random()-0.5)*CR*0.15;
+        const z = uZ0 + r * stepZ      + (Math.random()-0.5)*CR*0.15;
+        spawnShelfCoin(x, uSurfY, z, 'upper');
       }
     }
     // Sparse second layer
-    for (let c = 0; c < uCols - 1; c++) {
+    for (let c = 0; c < uCols-1; c++) {
       for (let r = 0; r < Math.floor(uRows * 0.4); r++) {
-        const x = -hw + CR + c * stepX + stepX * 0.5 + (Math.random()-0.5) * CR * 0.10;
-        const z = uSeedBack + r * stepZ               + (Math.random()-0.5) * CR * 0.10;
-        spawnShelfCoin(x, uShelfY + CT * 1.05, z, 'upper');
+        const x = -hw + CR + c*stepX + stepX*0.5 + (Math.random()-0.5)*CR*0.10;
+        const z = uZ0  + r*stepZ                 + (Math.random()-0.5)*CR*0.10;
+        spawnShelfCoin(x, uSurfY + CT*1.05, z, 'upper');
       }
     }
 
-    // Lower shelf
-    const lLipZ     = LOWER_SHELF_Z + LOWER_SHELF_D/2;
-    const lSeedBack  = L_PUSH_BACK + L_PUSH_HD + CR * 2.0;
-    const lSeedFront = lLipZ - CR * 1.2;
     const lCols = Math.floor((hw * 2) / stepX);
-    const lRows = Math.max(1, Math.floor((lSeedFront - lSeedBack) / stepZ));
-
+    const lRows = Math.max(1, Math.floor((lZ1 - lZ0) / stepZ));
     for (let c = 0; c < lCols; c++) {
       for (let r = 0; r < lRows; r++) {
-        const x = -hw + CR + c * stepX + (Math.random()-0.5) * CR * 0.15;
-        const z = lSeedBack + r * stepZ + (Math.random()-0.5) * CR * 0.15;
-        spawnShelfCoin(x, lShelfY, z, 'lower');
+        const x = -hw + CR + c * stepX + (Math.random()-0.5)*CR*0.15;
+        const z = lZ0 + r * stepZ      + (Math.random()-0.5)*CR*0.15;
+        spawnShelfCoin(x, lSurfY, z, 'lower');
       }
     }
-    for (let c = 0; c < lCols - 1; c++) {
+    for (let c = 0; c < lCols-1; c++) {
       for (let r = 0; r < Math.floor(lRows * 0.4); r++) {
-        const x = -hw + CR + c * stepX + stepX * 0.5 + (Math.random()-0.5) * CR * 0.10;
-        const z = lSeedBack + r * stepZ               + (Math.random()-0.5) * CR * 0.10;
-        spawnShelfCoin(x, lShelfY + CT * 1.05, z, 'lower');
+        const x = -hw + CR + c*stepX + stepX*0.5 + (Math.random()-0.5)*CR*0.10;
+        const z = lZ0  + r*stepZ                 + (Math.random()-0.5)*CR*0.10;
+        spawnShelfCoin(x, lSurfY + CT*1.05, z, 'lower');
       }
     }
 
     // Bonus tokens near front of each shelf
-    const uBonusY = uShelfY + BONUS_W/2;
-    const lBonusY = lShelfY + BONUS_W/2;
-    spawnBonus(-MW*0.28, uBonusY, uSeedBack + (uSeedFront-uSeedBack)*0.3, 0).shelf='upper';
-    spawnBonus( MW*0.28, uBonusY, uSeedBack + (uSeedFront-uSeedBack)*0.7, 1).shelf='upper';
-    const lb1=spawnBonus(-MW*0.22, lBonusY, lSeedBack+(lSeedFront-lSeedBack)*0.25, 2); lb1.shelf='lower';
-    const lb2=spawnBonus( MW*0.22, lBonusY, lSeedBack+(lSeedFront-lSeedBack)*0.55, 3); lb2.shelf='lower';
-    const lb3=spawnBonus( 0,       lBonusY, lSeedBack+(lSeedFront-lSeedBack)*0.80, 4); lb3.shelf='lower';
+    const uBY = uSurfY + BONUS_W*0.5 + 0.01;
+    const lBY = lSurfY + BONUS_W*0.5 + 0.01;
+    const b0 = spawnBonus(-MW*0.28, uBY, uZ0+(uZ1-uZ0)*0.30, 0); b0.shelf='upper';
+    const b1 = spawnBonus( MW*0.28, uBY, uZ0+(uZ1-uZ0)*0.70, 1); b1.shelf='upper';
+    const b2 = spawnBonus(-MW*0.22, lBY, lZ0+(lZ1-lZ0)*0.25, 2); b2.shelf='lower';
+    const b3 = spawnBonus( MW*0.22, lBY, lZ0+(lZ1-lZ0)*0.55, 3); b3.shelf='lower';
+    const b4 = spawnBonus( 0,       lBY, lZ0+(lZ1-lZ0)*0.80, 4); b4.shelf='lower';
   }
 
-  // Plain static coin sitting on shelf — no kinematic logic, never moves unless physics moves it
+  // Static coin sitting on shelf surface — sleeps immediately, wakes when hit
   function spawnShelfCoin(x, y, z, shelf) {
     const mesh = new THREE.Mesh(new THREE.CylinderGeometry(CR, CR, CT, 16), coinMat);
     mesh.castShadow = true;
@@ -647,20 +636,17 @@ export default (() => {
     mesh.position.set(x, y, z);
     scene.add(mesh);
 
-    const body = new CANNON.Body({ mass: 0.18, linearDamping: 0.60, angularDamping: 0.80 });
+    const body = new CANNON.Body({ mass: 0.18, linearDamping: 0.55, angularDamping: 0.75 });
     body.addShape(new CANNON.Cylinder(CR, CR, CT, 12));
     body.position.set(x, y, z);
-    body.velocity.set(0, 0, 0);
-    body.angularVelocity.set(0, 0, 0);
-    // Put to sleep immediately so they don't drift
-    body.sleepSpeedLimit = 0.1;
-    body.sleepTimeLimit  = 0.2;
+    body.allowSleep = true;
+    body.sleepSpeedLimit = 0.15;
+    body.sleepTimeLimit  = 0.25;
     body.sleep();
     world.addBody(body);
 
-    const obj = { mesh, body, type:'coin', value:2, shelf, isKinematic:false };
-    coinBodies.push(obj);
-    return obj;
+    coinBodies.push({ mesh, body, type:'coin', value:2, shelf });
+    return coinBodies[coinBodies.length-1];
   }
 
   // ── Drop a coin from the chute ─────────────────────────────────
@@ -790,29 +776,26 @@ export default (() => {
 
     const dt = Math.min(clock.getDelta(), 0.05);
 
-    // Step physics
-    world.step(1/60, dt, 3);
-
-    // Move pusher plates — sweep back→front, stop before front lip
+    // Move pusher plates
     const uDeltaZ = PUSH_SPEED * upperPusherDir * dt;
     upperPusherBody.position.z += uDeltaZ;
     if (upperPusherBody.position.z > U_PUSH_FRONT) { upperPusherBody.position.z = U_PUSH_FRONT; upperPusherDir=-1; }
     if (upperPusherBody.position.z < U_PUSH_BACK)  { upperPusherBody.position.z = U_PUSH_BACK;  upperPusherDir= 1; }
-    upperPusherMesh.position.copy(upperPusherBody.position);
+    upperPusherMesh.position.z = upperPusherBody.position.z;
     upperPusherMesh.position.y = UPPER_TOP + PUSH_H/2;
 
     const lDeltaZ = PUSH_SPEED * lowerPusherDir * dt * 0.82;
     lowerPusherBody.position.z += lDeltaZ;
     if (lowerPusherBody.position.z > L_PUSH_FRONT) { lowerPusherBody.position.z = L_PUSH_FRONT; lowerPusherDir=-1; }
     if (lowerPusherBody.position.z < L_PUSH_BACK)  { lowerPusherBody.position.z = L_PUSH_BACK;  lowerPusherDir= 1; }
-    lowerPusherMesh.position.copy(lowerPusherBody.position);
+    lowerPusherMesh.position.z = lowerPusherBody.position.z;
     lowerPusherMesh.position.y = LOWER_TOP + PUSH_H/2;
 
-    // Drag player coins forward when they're resting on a pusher plate
-    rideWithPusher(
-      upperPusherDir > 0 ? uDeltaZ : 0,
-      lowerPusherDir > 0 ? lDeltaZ : 0
-    );
+    // Manually push any coin the pusher front face is overlapping
+    rideWithPusher(uDeltaZ, lDeltaZ);
+
+    // Step physics (coins now have corrected positions/velocities from above)
+    world.step(1/60, dt, 3);
 
     // Sync meshes → bodies
     coinBodies.forEach(obj => {
@@ -850,40 +833,39 @@ export default (() => {
     renderer.render(scene, camera);
   }
 
-  // ── Player coins ride the pusher ──────────────────────────────────────────
-  // Any dynamic coin resting on top of a pusher plate gets dragged forward
-  // with it. When the pusher reverses, coins are released to slide freely.
-  // "On pusher" = coin Y is within [pusherTop - CT, pusherTop + CT*2]
-  //              AND coin Z is within the pusher's current Z extent.
+  // ── Manual pusher collision ────────────────────────────────────
+  // Since Cannon kinematic bodies don't push dynamic ones, we do it ourselves.
+  // Each frame, for every coin whose back edge (z - CR) is behind the pusher
+  // front face, we push it forward so it no longer overlaps, and wake it.
+  function applyPusherToCoin(obj, pusherFrontZ, pusherTopY, pusherBotY, deltaZ) {
+    const p  = obj.body.position;
+    // Only coins on this shelf level (within pusher height band)
+    if (p.y > pusherTopY + CR || p.y < pusherBotY - CR) return;
+    // Only when pusher is moving forward
+    if (deltaZ <= 0) return;
+    // Coin back edge overlaps pusher front face?
+    const coinBack = p.z - CR;
+    const penetration = pusherFrontZ - coinBack;
+    if (penetration <= 0) return;
+    // Resolve: push coin forward by penetration + tiny separation
+    obj.body.position.z += penetration + 0.001;
+    // Give it the pusher's velocity so it doesn't just snap
+    if (obj.body.velocity.z < deltaZ * 55) obj.body.velocity.z = deltaZ * 55;
+    // Wake sleeping coins
+    if (obj.body.sleepState === CANNON.Body.SLEEPING) obj.body.wakeUp();
+  }
+
   function rideWithPusher(uDeltaZ, lDeltaZ) {
-    const uPusherTop  = UPPER_TOP + PUSH_H;
-    const lPusherTop  = LOWER_TOP + PUSH_H;
-    const uPusherBack = upperPusherBody.position.z - U_PUSH_HD;
-    const uPusherFront= upperPusherBody.position.z + U_PUSH_HD;
-    const lPusherBack = lowerPusherBody.position.z - L_PUSH_HD;
-    const lPusherFront= lowerPusherBody.position.z + L_PUSH_HD;
+    const uFrontZ  = upperPusherBody.position.z + U_PUSH_HD;
+    const uTopY    = UPPER_TOP + PUSH_H;
+    const uBotY    = UPPER_TOP;
+    const lFrontZ  = lowerPusherBody.position.z + L_PUSH_HD;
+    const lTopY    = LOWER_TOP + PUSH_H;
+    const lBotY    = LOWER_TOP;
 
     coinBodies.forEach(obj => {
-      if (obj.isKinematic) return;
-      const p  = obj.body.position;
-      const vz = obj.body.velocity.z;
-
-      // Is this coin sitting on the upper pusher?
-      if (uDeltaZ > 0 &&
-          p.y >= uPusherTop - CT * 1.5 && p.y <= uPusherTop + CT * 3 &&
-          p.z >= uPusherBack - CR      && p.z <= uPusherFront + CR) {
-        // Drag it forward with the pusher — add deltaZ to its position and clamp velocity
-        obj.body.position.z += uDeltaZ;
-        if (obj.body.velocity.z < uDeltaZ * 60) obj.body.velocity.z = uDeltaZ * 60;
-      }
-
-      // Is this coin sitting on the lower pusher?
-      if (lDeltaZ > 0 &&
-          p.y >= lPusherTop - CT * 1.5 && p.y <= lPusherTop + CT * 3 &&
-          p.z >= lPusherBack - CR      && p.z <= lPusherFront + CR) {
-        obj.body.position.z += lDeltaZ;
-        if (obj.body.velocity.z < lDeltaZ * 60) obj.body.velocity.z = lDeltaZ * 60;
-      }
+      applyPusherToCoin(obj, uFrontZ, uTopY, uBotY, uDeltaZ);
+      applyPusherToCoin(obj, lFrontZ, lTopY, lBotY, lDeltaZ);
     });
   }
 
@@ -1127,8 +1109,8 @@ export default (() => {
     });
     coinBodies.length = 0;
     upperPusherDir=1; lowerPusherDir=-1;
-    upperPusherBody.position.set(0, UPPER_TOP+PUSH_H/2, U_PUSH_BACK);
-    lowerPusherBody.position.set(0, LOWER_TOP+PUSH_H/2, L_PUSH_BACK);
+    upperPusherBody.position.z = U_PUSH_BACK;
+    lowerPusherBody.position.z = L_PUSH_BACK;
     seedCoins();
     updateHUD();
   }
