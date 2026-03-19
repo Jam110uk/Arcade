@@ -29,6 +29,16 @@ export default (() => {
   let clawBody = null;
   let movingSoundNode = null; // looping movement buzz
 
+  // ── Sway / momentum state ──────────────────────────────────
+  // The claw+cable sway like a pendulum when moving or dropping
+  let swayAngleX = 0;    // current sway angle around Z axis (XY plane)
+  let swayAngleZ = 0;    // current sway angle around X axis (ZY plane)
+  let swayVelX   = 0;    // angular velocity X
+  let swayVelZ   = 0;    // angular velocity Z
+  const SWAY_DAMPING = 0.92;   // per-frame damping (< 1 = decay)
+  const SWAY_SPRING  = 18.0;   // spring constant (restoring force)
+  const SWAY_DRIVE   = 0.55;   // how hard movement kicks the sway
+
   // Two-tier heights
   const PLAY_FLOOR_Y  = -1.2;  // lower tier — balls live here
   const SHELF_Y       = -0.35; // raised shelf — chute lives here
@@ -651,8 +661,9 @@ export default (() => {
   function _resetClaw() {
     clawX = 0; clawZ = 0; dropY = 0;
     clawOpen = 1.0; grabbed = null; dropTimer = 0;
+    swayAngleX = 0; swayAngleZ = 0; swayVelX = 0; swayVelZ = 0;
     gameState = 'idle';
-    if (clawGroup) _updateClawPose(); // only call if claw already built
+    if (clawGroup) _updateClawPose();
   }
 
   function _updateClawPose() {
@@ -661,32 +672,27 @@ export default (() => {
     const hubY = CLAW_REST_Y - dropY;
     clawGroup.position.set(clawX, hubY, clawZ);
 
-    // Cable
+    // Apply pendulum sway as a rotation of the whole clawGroup
+    // Sway rotates around the rail attachment point (top of cable)
+    // We tilt the group: positive swayAngleX tilts in +X, positive swayAngleZ tilts in +Z
+    clawGroup.rotation.x = swayAngleZ;   // Z sway tilts around X axis
+    clawGroup.rotation.z = -swayAngleX;  // X sway tilts around Z axis
+
+    // Cable stretches from rail to hub (with sway the visual length stays constant)
     const wireLen = Math.max(0.04, RAIL_Y - hubY);
     clawWire.scale.y = wireLen;
     clawWire.position.y = wireLen / 2;
 
-    // Physics body at hub base
+    // Physics body tracks hub (no sway on physics body — keep collision clean)
     clawBody.position.set(clawX, hubY - 0.40, clawZ);
 
-    // ── Lower arm animation ────────────────────────────────
-    // clawOpen=1 → lower arms angled OUT (wide, ready to scoop)
-    // clawOpen=0 → lower arms fold INWARD forming a cage
-    //
-    // Rotation is around the tangent axis at each finger's azimuth.
-    // OPEN: pivot rotated outward by OPEN_ANGLE
-    // CLOSED: pivot rotated inward/straight by CLOSED_ANGLE
-    // clawOpen=1  → lower arms flare OUTWARD (OPEN_ANGLE > 0)
-    // clawOpen=0  → lower arms fold INWARD forming cage (CLOSED_ANGLE < 0)
-    const OPEN_ANGLE   =  0.85;   // outward flare when open (wide bell)
-    const CLOSED_ANGLE = -0.50;   // inward fold forming cage under ball
-
+    const OPEN_ANGLE   =  0.85;
+    const CLOSED_ANGLE = -0.50;
     const angle = OPEN_ANGLE + (CLOSED_ANGLE - OPEN_ANGLE) * (1.0 - clawOpen);
 
     clawFingers.forEach(({ pivot }) => {
       const rX = pivot.userData.radX;
       const rZ = pivot.userData.radZ;
-      // Rotate around tangent axis to open/close lower arms
       pivot.rotation.x =  rZ * angle;
       pivot.rotation.z = -rX * angle;
     });
@@ -835,6 +841,13 @@ export default (() => {
     gameState = 'dropping';
     dropY = 0; clawOpen = 1.0; dropTimer = 0;
     _dropChanceChecked = false;
+    // Roll instant-miss (40%) — claw opens immediately on contact, no grab
+    _instantMissRoll = (Math.random() < 0.40);
+    // Randomise the height at which a grabbed ball is dropped (5%–95% of retraction)
+    _dropChanceThreshold = 0.05 + Math.random() * 0.90;
+    // Give the cable a little downward-kick sway when dropping
+    swayVelX += (Math.random() - 0.5) * 0.18;
+    swayVelZ += (Math.random() - 0.5) * 0.18;
     _playDrop();
     _playTone(440, 'square', 0.10, 0.12, 0.01, 0.08);
   }
@@ -854,11 +867,31 @@ export default (() => {
     }
 
     _handleMovement(dt);
+    _updateSway(dt);
     _handleDrop(dt);
     _syncPhysics(dt);
     _checkScoringZone();
     _animateScene(now);
     renderer.render(scene, camera);
+  }
+
+  // ── Pendulum sway physics ──────────────────────────────────
+  function _updateSway(dt) {
+    // Spring-damper pendulum
+    // The cable hangs from the rail; sway angle is the displacement from vertical.
+    // Spring pulls back toward zero, damping bleeds energy each frame.
+    swayVelX += -SWAY_SPRING * swayAngleX * dt;
+    swayVelZ += -SWAY_SPRING * swayAngleZ * dt;
+    swayVelX *= Math.pow(SWAY_DAMPING, dt * 60);
+    swayVelZ *= Math.pow(SWAY_DAMPING, dt * 60);
+    swayAngleX += swayVelX * dt;
+    swayAngleZ += swayVelZ * dt;
+    // Clamp to avoid wild oscillations
+    const MAX_SWAY = 0.18;
+    swayAngleX = Math.max(-MAX_SWAY, Math.min(MAX_SWAY, swayAngleX));
+    swayAngleZ = Math.max(-MAX_SWAY, Math.min(MAX_SWAY, swayAngleZ));
+    // When idle just moving the claw, keep calling _updateClawPose so sway is visible
+    _updateClawPose();
   }
 
   function _handleMovement(dt) {
@@ -869,7 +902,6 @@ export default (() => {
     const hd = MACHINE.d/2 - 0.22;
 
     // Camera-relative movement
-    // Forward = direction camera looks projected onto XZ plane
     const camFwdX = -Math.sin(camAngle);
     const camFwdZ = -Math.cos(camAngle);
     const camRgtX =  Math.cos(camAngle);
@@ -885,11 +917,15 @@ export default (() => {
 
     if (isMoving) {
       const len = Math.sqrt(mx*mx + mz*mz);
-      clawX += (mx/len) * speed * dt;
-      clawZ += (mz/len) * speed * dt;
+      const vx = (mx/len) * speed;
+      const vz = (mz/len) * speed;
+      clawX += vx * dt;
+      clawZ += vz * dt;
       clawX = Math.max(-hw, Math.min(hw, clawX));
       clawZ = Math.max(-hd, Math.min(hd, clawZ));
-      _updateClawPose();
+      // Movement kicks the sway in the direction of travel (trailing lag)
+      swayVelX -= vx * SWAY_DRIVE * dt;
+      swayVelZ -= vz * SWAY_DRIVE * dt;
       if (!wasMoving) _startMoveSound();
     } else {
       if (wasMoving) _stopMoveSound();
@@ -903,34 +939,46 @@ export default (() => {
       dropY = Math.min(dropY + dt * 1.8, maxDrop);
       _updateClawPose();
       if (dropY >= maxDrop) {
-        // Reached bottom — start searching for a ball
-        // Fingers stay open until a ball is detected
         gameState = 'grabbing';
         dropTimer = 0;
+        // Kick sway slightly on impact
+        swayVelX += (Math.random() - 0.5) * 0.12;
+        swayVelZ += (Math.random() - 0.5) * 0.12;
       }
     }
 
     else if (gameState === 'grabbing') {
       dropTimer += dt;
-      // clawOpen stays at 1.0 until _tryGrab detects a ball
-      // Once grabbed, close around it
+
       if (!grabbed) {
         grabbed = _tryGrab();
         if (grabbed) {
-          // Start closing
-          _playClawClose();
+          if (_instantMissRoll) {
+            // 40% instant miss — claw touches but doesn't hold
+            grabbed.body.velocity.set((Math.random()-0.5)*2.0, Math.random()*1.5, (Math.random()-0.5)*2.0);
+            grabbed.body.type = C.Body.DYNAMIC;
+            grabbed.body.wakeUp();
+            grabbed.grabbed = false;
+            grabbed = null;
+            clawOpen = 0.0;   // closes briefly then reopens during retract
+            _showToast('😬 Slipped off!');
+            _playMiss();
+            // kick sway
+            swayVelX += (Math.random() - 0.5) * 0.20;
+            swayVelZ += (Math.random() - 0.5) * 0.20;
+          } else {
+            _playClawClose();
+          }
         }
       } else {
-        // Close fingers around ball
         clawOpen = Math.max(0, clawOpen - dt * 2.8);
       }
       _updateClawPose();
-      // After enough time (whether we got one or not), retract
+
       if (dropTimer >= 0.70) {
         if (!grabbed) {
-          // Didn't grab anything — start closing for retraction anyway (looks better)
           clawOpen = 0.0;
-          _playMiss();
+          if (!_instantMissRoll) _playMiss();
         }
         gameState = 'retracting';
         dropTimer = 0;
@@ -940,23 +988,27 @@ export default (() => {
     else if (gameState === 'retracting') {
       dropY = Math.max(0, dropY - dt * 2.0);
       _updateClawPose();
+
       if (grabbed) {
-        // 30% chance to drop the ball partway up (checked once at ~half height)
         const maxDrop = CLAW_REST_Y - DROP_BOTTOM;
-        if (!_dropChanceChecked && dropY < maxDrop * 0.55) {
+        // 70% chance to drop — checked once when retraction passes the random threshold
+        if (!_dropChanceChecked && dropY < maxDrop * _dropChanceThreshold) {
           _dropChanceChecked = true;
-          if (Math.random() < 0.30) {
-            // Drop it — open claw and release ball back into play area
+          if (Math.random() < 0.70) {
             grabbed.body.type = C.Body.DYNAMIC;
-            grabbed.body.velocity.set((Math.random()-0.5)*1.5, -2.0, (Math.random()-0.5)*1.5);
+            grabbed.body.velocity.set((Math.random()-0.5)*2.0, -1.5 - Math.random(), (Math.random()-0.5)*2.0);
             grabbed.body.wakeUp();
             grabbed.grabbed = false;
             grabbed = null;
             clawOpen = 1.0;
-            _showToast('💨 Slipped away!');
+            _showToast('💨 Dropped it!');
             _playMiss();
+            // sway from the sudden release
+            swayVelX += (Math.random() - 0.5) * 0.25;
+            swayVelZ += (Math.random() - 0.5) * 0.25;
           }
         }
+
         if (grabbed) {
           const hubY = CLAW_REST_Y - dropY;
           const tipY = hubY - 0.68;
@@ -966,6 +1018,7 @@ export default (() => {
           grabbed.body.angularVelocity.set(0,0,0);
         }
       }
+
       if (dropY <= 0) {
         _dropChanceChecked = false;
         if (grabbed) {
@@ -975,14 +1028,14 @@ export default (() => {
         } else {
           clawOpen = 1.0;
           _updateClawPose();
-          gameState = tries <= 0 ? 'gameover' : 'idle';
-          if (gameState === 'gameover') setTimeout(_showGameOver, 700);
+          // Return to centre after miss or drop
+          gameState = 'returning';
+          dropTimer = 0;
         }
       }
     }
 
     else if (gameState === 'delivering') {
-      // Slide to chute position (on shelf)
       const tx = MACHINE.w/2 - 0.38, tz = MACHINE.d/2 - 0.38;
       const dx = tx - clawX, dz = tz - clawZ;
       const dist = Math.sqrt(dx*dx + dz*dz);
@@ -1012,7 +1065,6 @@ export default (() => {
       clawOpen = Math.min(1.0, dropTimer * 3.0);
       _updateClawPose();
       if (grabbed && dropTimer > 0.22) {
-        // Sync mesh→body one last time before releasing
         const releaseX = clawX;
         const releaseY = CLAW_REST_Y - 0.45;
         const releaseZ = clawZ;
@@ -1039,6 +1091,9 @@ export default (() => {
       if (dist > 0.06) {
         clawX += (dx/dist)*spd*dt;
         clawZ += (dz/dist)*spd*dt;
+        // Gentle sway impulse while sliding back
+        swayVelX -= (dx/dist) * SWAY_DRIVE * dt * 0.4;
+        swayVelZ -= (dz/dist) * SWAY_DRIVE * dt * 0.4;
       } else {
         clawX = 0; clawZ = 0;
         clawOpen = 1.0;
@@ -1066,20 +1121,14 @@ export default (() => {
     });
 
     if (best) {
-      // 60% chance of missing even if in range
-      if (Math.random() < 0.60) {
-        // Miss — nudge the ball and return null
-        best.body.velocity.set((Math.random()-0.5)*2.0, Math.random()*1.5, (Math.random()-0.5)*2.0);
-        _playMiss();
-        return null;
-      }
+      // Mark as grabbed — caller decides whether to keep or instant-miss
       best.grabbed = true;
       best.body.type = C.Body.KINEMATIC;
       best.body.velocity.set(0,0,0);
       return best;
     }
 
-    // Nudge nearby balls even on complete miss
+    // Nudge nearby balls on complete miss
     prizes.forEach(p => {
       if (p.grabbed || p.scored) return;
       const dx = p.mesh.position.x - tipX;
@@ -1090,8 +1139,10 @@ export default (() => {
     return null;
   }
 
-  // 30% chance of dropping the ball back during retraction
+  // drop/grab chance state
   let _dropChanceChecked = false;
+  let _dropChanceThreshold = 0;   // random retraction height at which to drop (0–1 of maxDrop)
+  let _instantMissRoll = false;    // whether this grab attempt is an instant-miss
 
   function _checkScoringZone() {
     const cx = MACHINE.w/2 - 0.38, cz = MACHINE.d/2 - 0.38;
