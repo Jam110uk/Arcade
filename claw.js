@@ -44,8 +44,9 @@ export default (() => {
 
   const RAIL_Y      =  1.1;
   const CLAW_REST_Y =  RAIL_Y - 0.15;
-  const DROP_BOTTOM =  PLAY_FLOOR_Y + 0.30;
-  const GRAB_RADIUS =  0.50;
+  // Tips hang ~0.70 below hub; stop tips 0.28 above play floor
+  const DROP_BOTTOM =  PLAY_FLOOR_Y + 0.98;
+  const GRAB_RADIUS =  0.52;
 
   // Camera
   let camAngle = 0.3, camDist = 6.4, camPitch = 3.0;
@@ -269,11 +270,11 @@ export default (() => {
         .claw-toast{background:rgba(0,0,0,0.85);border:1px solid rgba(255,200,40,0.7);border-radius:10px;padding:10px 26px;color:#ffe040;font-size:15px;font-weight:700;letter-spacing:2px;text-align:center;margin-bottom:6px;animation:ct-in 0.3s ease,ct-out 0.4s ease 1.8s forwards;white-space:nowrap;}
         @keyframes ct-in{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
         @keyframes ct-out{from{opacity:1}to{opacity:0;transform:translateY(-10px)}}
-        #claw-controls-panel{position:absolute;bottom:18px;right:18px;background:rgba(0,0,0,0.68);border:1px solid rgba(200,80,255,0.25);border-radius:10px;padding:14px 18px;z-index:10;pointer-events:none;backdrop-filter:blur(4px);}
-        .claw-ctrl-title{font-size:10px;letter-spacing:3px;color:#cc66ff;margin-bottom:10px;}
-        .claw-ctrl-row{font-size:11px;color:#bbb;margin-bottom:6px;display:flex;align-items:center;gap:6px;}
-        .hl{color:#cc88ff;font-size:11px;}
-        kbd{background:rgba(255,255,255,0.13);border:1px solid rgba(255,255,255,0.3);border-radius:4px;padding:2px 6px;font-size:10px;color:#fff;font-family:inherit;}
+        #claw-controls-panel{position:fixed;bottom:14px;right:14px;background:rgba(0,0,0,0.72);border:1px solid rgba(200,80,255,0.28);border-radius:8px;padding:10px 13px;z-index:9999;pointer-events:none;backdrop-filter:blur(4px);max-width:190px;}
+        .claw-ctrl-title{font-size:9px;letter-spacing:2px;color:#cc66ff;margin-bottom:8px;}
+        .claw-ctrl-row{font-size:10px;color:#bbb;margin-bottom:5px;display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
+        .hl{color:#cc88ff;font-size:10px;}
+        kbd{background:rgba(255,255,255,0.13);border:1px solid rgba(255,255,255,0.3);border-radius:3px;padding:1px 5px;font-size:9px;color:#fff;font-family:inherit;}
         #claw-gameover{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:30;background:rgba(0,0,0,0.78);backdrop-filter:blur(7px);}
         #claw-gameover.hidden{display:none;}
         .claw-go-box{background:linear-gradient(135deg,#1a0032,#0c0018);border:1px solid rgba(180,80,255,0.55);border-radius:18px;padding:42px 58px;text-align:center;box-shadow:0 0 70px rgba(140,0,255,0.35);}
@@ -511,6 +512,9 @@ export default (() => {
     sl.position.copy(sign.position); scene.add(sl);
 
     _buildClaw();
+    // Apply initial open pose now that fingers exist
+    clawOpen = 1.0;
+    _updateClawPose();
   }
 
   // ── Claw ───────────────────────────────────────────────────
@@ -603,7 +607,7 @@ export default (() => {
     clawX = 0; clawZ = 0; dropY = 0;
     clawOpen = 1.0; grabbed = null; dropTimer = 0;
     gameState = 'idle';
-    _updateClawPose();
+    if (clawGroup) _updateClawPose(); // only call if claw already built
   }
 
   function _updateClawPose() {
@@ -627,8 +631,10 @@ export default (() => {
     // Rotation is around the tangent axis at each finger's azimuth.
     // OPEN: pivot rotated outward by OPEN_ANGLE
     // CLOSED: pivot rotated inward/straight by CLOSED_ANGLE
-    const OPEN_ANGLE   =  0.80;   // outward flare when open
-    const CLOSED_ANGLE = -0.30;   // slight inward close (cage, not full clamp)
+    // clawOpen=1  → lower arms flare OUTWARD (OPEN_ANGLE > 0)
+    // clawOpen=0  → lower arms fold INWARD forming cage (CLOSED_ANGLE < 0)
+    const OPEN_ANGLE   =  0.85;   // outward flare when open (wide bell)
+    const CLOSED_ANGLE = -0.50;   // inward fold forming cage under ball
 
     const angle = OPEN_ANGLE + (CLOSED_ANGLE - OPEN_ANGLE) * (1.0 - clawOpen);
 
@@ -938,13 +944,22 @@ export default (() => {
       dropTimer += dt;
       clawOpen = Math.min(1.0, dropTimer * 3.0);
       _updateClawPose();
-      if (grabbed && dropTimer > 0.18) {
+      if (grabbed && dropTimer > 0.22) {
+        // Sync mesh→body one last time before releasing
+        const releaseX = clawX;
+        const releaseY = CLAW_REST_Y - 0.45;
+        const releaseZ = clawZ;
+        grabbed.body.position.set(releaseX, releaseY, releaseZ);
+        grabbed.mesh.position.set(releaseX, releaseY, releaseZ);
         grabbed.body.type = C.Body.DYNAMIC;
-        grabbed.body.velocity.set(0, -2.0, 0);
+        grabbed.body.velocity.set(0, -2.5, 0);
+        grabbed.body.angularVelocity.set(0, 0, 0);
+        grabbed.body.wakeUp();
+        grabbed.grabbed = false;
         grabbed = null;
         _playBallDrop();
       }
-      if (dropTimer >= 0.65) {
+      if (dropTimer >= 0.70) {
         gameState = 'returning';
         dropTimer = 0;
       }
@@ -1028,7 +1043,7 @@ export default (() => {
     world.step(1/60, dt, 3);
     meshBodies.forEach(({ mesh, body }) => {
       const p = prizes.find(p => p.mesh === mesh);
-      if (p && p.grabbed) return;
+      if (p && (p.grabbed || p.scored)) return;
       mesh.position.copy(body.position);
       mesh.quaternion.copy(body.quaternion);
     });
