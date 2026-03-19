@@ -7554,7 +7554,15 @@ function _clearTopScoreBanner() {
 
 function _updateTopScoreBanner(gameKey) {
   _clearTopScoreBanner();
-  if (!window.HS || !window.HS.subscribeTopScore) return;
+  // If HS module not loaded yet, wait for it then retry
+  if (!window.HS || !window.HS.subscribeTopScore) {
+    const retry = () => {
+      if (window.HS && window.HS.subscribeTopScore) _updateTopScoreBanner(gameKey);
+    };
+    setTimeout(retry, 300);
+    return;
+  }
+  if (!window._firebaseReady) return;
 
   _topScoreUnsub = window.HS.subscribeTopScore(gameKey, (entry, game) => {
     const banner  = document.getElementById('hs-top-banner');
@@ -8072,7 +8080,10 @@ window.rcTogglePause = () => window.RC?.togglePause();
 // Global wrappers
 window.hsSubmitConfirm = () => window.HS?.submitConfirm();
 window.hsSubmitClose   = () => window.HS?.submitClose();
-window.hsViewOpen      = (tab) => window.HS?.viewOpen(tab);
+window.hsViewOpen      = (tab) => {
+  if (window.HS) { window.HS.viewOpen(tab); return; }
+  setTimeout(() => window.HS?.viewOpen(tab), 500);
+};
 window.hsViewClose     = () => window.HS?.viewClose();
 window.hsTabSelect     = (key) => window.HS?.tabSelect(key);
 
