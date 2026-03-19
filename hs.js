@@ -14,6 +14,7 @@ export default (() => {
     { key: 'bubblebreaker',label: 'BUBBLE BREAKER', unit: 'pts' },
     { key: 'puzzlebobble', label: 'PUZZLE BOBBLE',  unit: 'pts' },
     { key: 'orbit',        label: 'ORBIT',          unit: 'pts' },
+    { key: 'claw',         label: 'CLAW MACHINE',   unit: 'pts' },
     { key: 'wordle',       label: 'WORDLE',         unit: 'streak' },
     { key: 'hangman',      label: 'HANGMAN',        unit: 'streak' },
     { key: 'minesweeper',  label: 'MINESWEEPER',    unit: 'sec', lowerBetter: true },
