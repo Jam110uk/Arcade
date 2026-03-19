@@ -1,18 +1,17 @@
 // ============================================================
 // CLAW MACHINE — claw.js
 // Three.js r128 + Cannon-es physics
-// Changes: camera-relative movement, close-on-ball-contact only,
-//   cage claw (only lower tips fold in), two-tier floor (play area
-//   lower + raised chute shelf), Web Audio sounds
 // ============================================================
+
+// Import Three.js from the local repo file — same source coinpusher and other 3D games use
+import * as THREE from './three_module_min.js';
 
 export default (() => {
 
   let C = null;
   let audioCtx = null;
 
-  // Load cannon-es immediately when the module is first imported (before init is called)
-  // so the download completes in the background while the user sees the game screen.
+  // Load cannon-es immediately when the module is first imported
   const _cannonReady = import('https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js')
     .then(mod => { C = mod; })
     .catch(() => { C = window.CANNON; });
@@ -519,9 +518,9 @@ export default (() => {
   function _buildMachine() {
     const hw = MACHINE.w / 2, hd = MACHINE.d / 2;
 
-    const glassMat = new THREE.MeshPhysicalMaterial({
+    const glassMat = new THREE.MeshStandardMaterial({
       color:0x8899ff, transparent:true, opacity:0.08,
-      roughness:0, metalness:0, transmission:0.95, thickness:0.06,
+      roughness:0, metalness:0.1,
       side:THREE.DoubleSide, depthWrite:false,
     });
     const frameMat = new THREE.MeshStandardMaterial({ color:0x1a0033, metalness:0.88, roughness:0.18 });

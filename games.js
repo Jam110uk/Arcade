@@ -80,6 +80,9 @@ export async function loadGame(gameKey) {
   if (def.script) {
     try {
       await loadScript(def.script);
+      // Defer init by one tick so the script's non-hoisted function expressions
+      // (const/let/arrow) are fully initialised before we call into them
+      await new Promise(r => setTimeout(r, 0));
       def.init(null);
     } catch (err) {
       console.error(`[games] Failed to load script ${gameKey}:`, err);
