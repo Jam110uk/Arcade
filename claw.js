@@ -295,23 +295,23 @@ export default (() => {
         .claw-stat{background:rgba(0,0,0,0.65);border:1px solid rgba(200,80,255,0.45);border-radius:8px;padding:8px 22px;text-align:center;backdrop-filter:blur(4px);}
         .claw-stat-label{display:block;font-size:9px;letter-spacing:3px;color:#aa55ff;margin-bottom:2px;}
         #claw-score,#claw-tries{display:block;font-size:28px;font-weight:900;color:#fff;text-shadow:0 0 14px #cc33ff;line-height:1.1;min-width:48px;}
-        #claw-prize-chart{position:fixed;left:10px;top:50%;transform:translateY(-50%);background:rgba(0,0,0,0.80);border:1px solid rgba(200,80,255,0.35);border-radius:12px;padding:14px 16px;z-index:9999;pointer-events:none;backdrop-filter:blur(5px);width:300px;max-height:90vh;overflow:hidden;}
-        .claw-chart-title{font-size:12px;letter-spacing:3px;color:#cc66ff;margin-bottom:10px;text-align:center;}
-        .claw-chart-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:13px;color:#ddd;}
-        .claw-chart-emoji{font-size:20px;width:26px;text-align:center;}
-        .claw-chart-label{flex:1;font-size:11px;color:#bbb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-        .claw-chart-pts{font-size:13px;font-weight:700;color:#ffdd44;min-width:38px;text-align:right;}
-        .claw-chart-bar{height:5px;background:rgba(255,200,50,0.20);border-radius:3px;margin-top:2px;}
-        .claw-chart-bar-fill{height:5px;border-radius:3px;background:linear-gradient(90deg,#cc33ff,#ffdd44);}
-        #claw-prize-toast{position:absolute;top:92px;left:50%;transform:translateX(-50%);z-index:20;pointer-events:none;}
+        #claw-prize-chart{position:fixed;left:10px;top:50%;transform:translateY(-50%);background:rgba(0,0,0,0.82);border:1px solid rgba(200,80,255,0.35);border-radius:12px;padding:16px 18px;z-index:9999;pointer-events:none;backdrop-filter:blur(5px);width:340px;max-height:92vh;overflow:hidden;}
+        .claw-chart-title{font-size:14px;letter-spacing:3px;color:#cc66ff;margin-bottom:12px;text-align:center;}
+        .claw-chart-row{display:flex;align-items:center;gap:10px;margin-bottom:7px;font-size:14px;color:#ddd;}
+        .claw-chart-emoji{font-size:22px;width:28px;text-align:center;}
+        .claw-chart-label{flex:1;font-size:12px;color:#ccc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+        .claw-chart-pts{font-size:14px;font-weight:700;color:#ffdd44;min-width:42px;text-align:right;}
+        .claw-chart-bar{height:6px;background:rgba(255,200,50,0.20);border-radius:3px;margin-top:2px;}
+        .claw-chart-bar-fill{height:6px;border-radius:3px;background:linear-gradient(90deg,#cc33ff,#ffdd44);}
+        #claw-prize-toast{position:absolute;top:92px;left:50%;transform:translateX(-50%);z-index:20;pointer-events:none;max-width:1px;white-space:nowrap;}
         .claw-toast{background:rgba(0,0,0,0.85);border:1px solid rgba(255,200,40,0.7);border-radius:10px;padding:10px 26px;color:#ffe040;font-size:15px;font-weight:700;letter-spacing:2px;text-align:center;margin-bottom:6px;animation:ct-in 0.3s ease,ct-out 0.4s ease 1.8s forwards;white-space:nowrap;}
         @keyframes ct-in{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
         @keyframes ct-out{from{opacity:1}to{opacity:0;transform:translateY(-10px)}}
-        #claw-controls-panel{position:fixed;bottom:14px;right:14px;background:rgba(0,0,0,0.72);border:1px solid rgba(200,80,255,0.28);border-radius:8px;padding:10px 13px;z-index:9999;pointer-events:none;backdrop-filter:blur(4px);max-width:190px;}
-        .claw-ctrl-title{font-size:9px;letter-spacing:2px;color:#cc66ff;margin-bottom:8px;}
-        .claw-ctrl-row{font-size:10px;color:#bbb;margin-bottom:5px;display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
-        .hl{color:#cc88ff;font-size:10px;}
-        kbd{background:rgba(255,255,255,0.13);border:1px solid rgba(255,255,255,0.3);border-radius:3px;padding:1px 5px;font-size:9px;color:#fff;font-family:inherit;}
+        #claw-controls-panel{position:fixed;bottom:14px;right:14px;background:rgba(0,0,0,0.80);border:1px solid rgba(200,80,255,0.35);border-radius:10px;padding:18px 22px;z-index:9999;pointer-events:none;backdrop-filter:blur(4px);min-width:220px;}
+        .claw-ctrl-title{font-size:13px;letter-spacing:3px;color:#cc66ff;margin-bottom:12px;}
+        .claw-ctrl-row{font-size:13px;color:#ccc;margin-bottom:9px;display:flex;align-items:center;gap:7px;flex-wrap:wrap;}
+        .hl{color:#cc88ff;font-size:13px;}
+        kbd{background:rgba(255,255,255,0.13);border:1px solid rgba(255,255,255,0.3);border-radius:4px;padding:3px 8px;font-size:12px;color:#fff;font-family:inherit;}
         #claw-gameover{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:30;background:rgba(0,0,0,0.78);backdrop-filter:blur(7px);}
         #claw-gameover.hidden{display:none;}
         .claw-go-box{background:linear-gradient(135deg,#1a0032,#0c0018);border:1px solid rgba(180,80,255,0.55);border-radius:18px;padding:42px 58px;text-align:center;box-shadow:0 0 70px rgba(140,0,255,0.35);}
@@ -739,7 +739,7 @@ export default (() => {
       emissive:    new THREE.Color(def.glow),
       emissiveIntensity: 0.20,
       transparent: true,
-      opacity:     0.72,
+      opacity:     0.55,
       shininess:   130,
       specular:    new THREE.Color(0xffffff),
       side:        THREE.FrontSide,
@@ -753,13 +753,24 @@ export default (() => {
     mesh.position.set(x, y, z);
     scene.add(mesh);
 
-    // Emoji billboard — rendered inside the sphere, clipped by depth
+    // Emoji billboard — sits at sphere centre, faces camera each frame.
+    // polygonOffset pushes it in front of the sphere surface so it's always visible.
     const emojiTex = _makeEmojiTexture(def.emoji);
+    const emojiMat = new THREE.MeshBasicMaterial({
+      map: emojiTex,
+      transparent: true,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      depthTest: true,
+      polygonOffset: true,
+      polygonOffsetFactor: -4,
+      polygonOffsetUnits:  -4,
+    });
     const emojiPlane = new THREE.Mesh(
-      new THREE.PlaneGeometry(def.radius * 1.55, def.radius * 1.55),
-      new THREE.MeshBasicMaterial({ map:emojiTex, transparent:true, side:THREE.DoubleSide, depthWrite:false, depthTest:true })
+      new THREE.PlaneGeometry(def.radius * 1.6, def.radius * 1.6),
+      emojiMat
     );
-    emojiPlane.renderOrder = 1;
+    emojiPlane.renderOrder = 2;
     mesh.add(emojiPlane);
 
     // Glow halo
@@ -861,6 +872,7 @@ export default (() => {
     gameState = 'dropping';
     dropY = 0; clawOpen = 1.0; dropTimer = 0;
     _dropChanceChecked = false;
+    _grabAttempted = false;
     // Roll instant-miss (40%) — claw opens immediately on contact, no grab
     _instantMissRoll = (Math.random() < 0.40);
     // Randomise the height at which a grabbed ball is dropped (5%–95% of retraction)
@@ -970,7 +982,8 @@ export default (() => {
     else if (gameState === 'grabbing') {
       dropTimer += dt;
 
-      if (!grabbed) {
+      if (!grabbed && !_grabAttempted) {
+        _grabAttempted = true;
         grabbed = _tryGrab();
         if (grabbed) {
           if (_instantMissRoll) {
@@ -1163,6 +1176,7 @@ export default (() => {
   let _dropChanceChecked = false;
   let _dropChanceThreshold = 0;   // random retraction height at which to drop (0–1 of maxDrop)
   let _instantMissRoll = false;    // whether this grab attempt is an instant-miss
+  let _grabAttempted = false;      // true once _tryGrab has been called this drop cycle
 
   function _checkScoringZone() {
     const cx = MACHINE.w/2 - 0.38, cz = MACHINE.d/2 - 0.38;
