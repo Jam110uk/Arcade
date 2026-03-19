@@ -6,8 +6,7 @@ export default (() => {
 
   const COLS = 8, ROWS = 8;
   const GEM_TYPES = 7;
-  // 7 distinct gem colours — each owns a clear hue region, no near-neighbours
-  // Red · Blue · Green · Yellow · Purple · Teal · Orange
+  // 7 distinct gem colours — Red · Blue · Green · Yellow · Purple · Teal · Orange
   const GEM_COLORS = ['#f52222','#1565ff','#00c853','#ffd600','#aa00ff','#00bcd4','#ff6d00'];
   const GEM_DARK   = ['#7f0000','#0033aa','#005929','#997a00','#5500aa','#006070','#7a2800'];
   const GEM_LIGHT  = ['#ff8080','#80a8ff','#80ffaa','#ffee66','#cc80ff','#80e8ff','#ffaa66'];
@@ -50,14 +49,13 @@ export default (() => {
   let threeRenderer = null;
   let threeScene   = null;
   let threeCamera  = null;
-  let gemMeshPool  = {};   // `r,c` → { body: Mesh, icon: Mesh }
+  let gemMeshPool  = {};
   let ambientLight = null;
   let dirLight1    = null;
   let dirLight2    = null;
   let orbitLight   = null;
   let threeReady   = false;
 
-  // Per-gem horizontal-axis spin phases
   let spinPhases = [];
   let spinSpeeds = [];
   function initSpinPhases() {
@@ -67,8 +65,12 @@ export default (() => {
       Array.from({length:COLS}, () => 0.00055 + Math.random() * 0.00045));
   }
 
-  // ── Icon textures ─────────────────────────────────────────────
-  let iconTextures = {};  // `special-type` → CanvasTexture
+  // Level-transition exit offsets: [r][c] = {vx,vy} world-units/frame, grows each frame
+  let lvlExitVel    = null;  // set during exit anim
+  let lvlExitPos    = null;  // accumulated world offset per gem
+  let lvlExitAlpha  = 1;     // overall alpha for exiting gems
+
+  let iconTextures = {};
   const SPECIAL_ICONS = { flame:'🔥', star:'⭐', supernova:'💫', hyper:'💣' };
 
   function hexToRgb(hex) {
@@ -82,279 +84,196 @@ export default (() => {
     cv.width = cv.height = sz;
     const cx2 = cv.getContext('2d');
     const {r,g,b} = hexToRgb(GEM_COLORS[gemType] || '#ffffff');
-    // Soft glow ring
     const grd = cx2.createRadialGradient(sz/2,sz/2,0, sz/2,sz/2,sz*0.48);
     grd.addColorStop(0,   `rgba(${r},${g},${b},0.45)`);
     grd.addColorStop(0.6, `rgba(${r},${g},${b},0.12)`);
     grd.addColorStop(1,   `rgba(${r},${g},${b},0)`);
-    cx2.fillStyle = grd;
-    cx2.fillRect(0,0,sz,sz);
-    // Emoji
-    cx2.textAlign = 'center'; cx2.textBaseline = 'middle';
-    cx2.font = `${(sz*0.54)|0}px serif`;
-    cx2.shadowColor = `rgba(${r},${g},${b},0.9)`;
-    cx2.shadowBlur  = sz * 0.15;
-    cx2.fillText(SPECIAL_ICONS[special] || '?', sz/2, sz/2);
-    const tex = new THREE.CanvasTexture(cv);
-    tex.needsUpdate = true;
-    return tex;
+    cx2.fillStyle = grd; cx2.fillRect(0,0,sz,sz);
+    cx2.textAlign='center'; cx2.textBaseline='middle';
+    cx2.font=`${(sz*0.54)|0}px serif`;
+    cx2.shadowColor=`rgba(${r},${g},${b},0.9)`; cx2.shadowBlur=sz*0.15;
+    cx2.fillText(SPECIAL_ICONS[special]||'?', sz/2, sz/2);
+    const tex = new THREE.CanvasTexture(cv); tex.needsUpdate=true; return tex;
   }
 
   function getIconTexture(special, gemType) {
-    const key = `${special}-${gemType}`;
-    if (!iconTextures[key]) iconTextures[key] = buildIconTexture(special, gemType);
+    const key=`${special}-${gemType}`;
+    if (!iconTextures[key]) iconTextures[key]=buildIconTexture(special,gemType);
     return iconTextures[key];
   }
 
   function disposeIconTextures() {
-    Object.values(iconTextures).forEach(t => t.dispose());
-    iconTextures = {};
+    Object.values(iconTextures).forEach(t=>t.dispose()); iconTextures={};
   }
 
-  // ── Gem geometry ──────────────────────────────────────────────
   function makeGemGeometry(radius) {
-    const r = radius;
-    const pts = [
-      new THREE.Vector2(0,        r*0.72),
-      new THREE.Vector2(r*0.55,   r*0.35),
-      new THREE.Vector2(r*0.88,   r*0.08),
-      new THREE.Vector2(r*0.88,  -r*0.08),
-      new THREE.Vector2(r*0.55,  -r*0.40),
-      new THREE.Vector2(r*0.18,  -r*0.78),
-      new THREE.Vector2(0,       -r*0.88),
+    const r=radius;
+    const pts=[
+      new THREE.Vector2(0,r*0.72), new THREE.Vector2(r*0.55,r*0.35),
+      new THREE.Vector2(r*0.88,r*0.08), new THREE.Vector2(r*0.88,-r*0.08),
+      new THREE.Vector2(r*0.55,-r*0.40), new THREE.Vector2(r*0.18,-r*0.78),
+      new THREE.Vector2(0,-r*0.88),
     ];
-    const geo = new THREE.LatheGeometry(pts, 8);
-    geo.computeVertexNormals();
-    return geo;
+    const geo=new THREE.LatheGeometry(pts,8); geo.computeVertexNormals(); return geo;
   }
 
-  // ── Materials ─────────────────────────────────────────────────
-  // All gems solid — specials get brighter emissive of their own colour
   function makeGemMaterial(type, special) {
     if (!THREE) return null;
-    const baseCol  = new THREE.Color(GEM_COLORS[type] || '#ffffff');
-    const darkCol  = new THREE.Color(GEM_DARK[type]   || '#333333');
-    const lightCol = new THREE.Color(GEM_LIGHT[type]  || '#ffffff');
-    const emissive = special
-      ? darkCol.clone().lerp(baseCol, 0.45)
-      : darkCol.clone().multiplyScalar(0.30);
+    const baseCol=new THREE.Color(GEM_COLORS[type]||'#ffffff');
+    const darkCol=new THREE.Color(GEM_DARK[type]||'#333333');
+    const lightCol=new THREE.Color(GEM_LIGHT[type]||'#ffffff');
+    const emissive=special?darkCol.clone().lerp(baseCol,0.45):darkCol.clone().multiplyScalar(0.30);
     return new THREE.MeshPhongMaterial({
-      color:       baseCol,
-      emissive,
-      specular:    lightCol.clone().lerp(new THREE.Color('#ffffff'), 0.45),
-      shininess:   special ? 750 : 600,
-      transparent: true,
-      opacity:     0.92,
-      side:        THREE.DoubleSide,
-      flatShading: true,
+      color:baseCol, emissive,
+      specular:lightCol.clone().lerp(new THREE.Color('#ffffff'),0.45),
+      shininess:special?750:600,
+      transparent:true, opacity:0.92,
+      side:THREE.DoubleSide, flatShading:true,
     });
   }
 
   function makeIconMaterial(special, gemType) {
     return new THREE.MeshBasicMaterial({
-      map:         getIconTexture(special, gemType),
-      transparent: true,
-      depthWrite:  false,
-      side:        THREE.DoubleSide,
+      map:getIconTexture(special,gemType), transparent:true, depthWrite:false, side:THREE.DoubleSide,
     });
   }
 
-  // ── Scene setup ───────────────────────────────────────────────
   function initThree() {
     if (threeReady) return Promise.resolve();
-    return new Promise(resolve => {
-      const script = document.createElement('script');
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
-      script.onload = () => { THREE = window.THREE; setupThreeScene(); threeReady = true; resolve(); };
-      script.onerror = () => { console.warn('[bjw] Three.js failed to load'); resolve(); };
+    return new Promise(resolve=>{
+      const script=document.createElement('script');
+      script.src='https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
+      script.onload=()=>{ THREE=window.THREE; setupThreeScene(); threeReady=true; resolve(); };
+      script.onerror=()=>{ console.warn('[bjw] Three.js failed to load'); resolve(); };
       document.head.appendChild(script);
     });
   }
 
   function setupThreeScene() {
-    threeRenderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
-    threeRenderer.setPixelRatio(1);
-    threeRenderer.setClearColor(0x000000, 0);
-    threeRenderer.setSize(canvas.width, canvas.height);
-    threeRenderer.sortObjects = true;
-    threeRenderer.domElement.style.display = 'none';
-    document.body.appendChild(threeRenderer.domElement);
-
-    threeScene = new THREE.Scene();
-    const W = canvas.width, H = canvas.height;
-    threeCamera = new THREE.OrthographicCamera(-W/2,W/2,H/2,-H/2,-500,500);
-    threeCamera.position.set(0,0,200);
-    threeCamera.lookAt(0,0,0);
-
-    ambientLight = new THREE.AmbientLight(0xffffff, 0.30);
-    threeScene.add(ambientLight);
-    dirLight1 = new THREE.DirectionalLight(0xffffff, 1.10);
-    dirLight1.position.set(-W*0.4, H*0.6, 300);
-    threeScene.add(dirLight1);
-    dirLight2 = new THREE.DirectionalLight(0xb0ccff, 0.50);
-    dirLight2.position.set(W*0.5, -H*0.4, 200);
-    threeScene.add(dirLight2);
-    // Orbital point light — sweeps across board creating moving specular glints
-    orbitLight = new THREE.PointLight(0xffffff, 1.8, W*3);
-    orbitLight.position.set(0,0,260);
-    threeScene.add(orbitLight);
-
-    initSpinPhases();
-    rebuildGemMeshes();
+    threeRenderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+    threeRenderer.setPixelRatio(1); threeRenderer.setClearColor(0x000000,0);
+    threeRenderer.setSize(canvas.width,canvas.height); threeRenderer.sortObjects=true;
+    threeRenderer.domElement.style.display='none'; document.body.appendChild(threeRenderer.domElement);
+    threeScene=new THREE.Scene();
+    const W=canvas.width,H=canvas.height;
+    threeCamera=new THREE.OrthographicCamera(-W/2,W/2,H/2,-H/2,-500,500);
+    threeCamera.position.set(0,0,200); threeCamera.lookAt(0,0,0);
+    ambientLight=new THREE.AmbientLight(0xffffff,0.30); threeScene.add(ambientLight);
+    dirLight1=new THREE.DirectionalLight(0xffffff,1.10);
+    dirLight1.position.set(-W*0.4,H*0.6,300); threeScene.add(dirLight1);
+    dirLight2=new THREE.DirectionalLight(0xb0ccff,0.50);
+    dirLight2.position.set(W*0.5,-H*0.4,200); threeScene.add(dirLight2);
+    orbitLight=new THREE.PointLight(0xffffff,1.8,W*3);
+    orbitLight.position.set(0,0,260); threeScene.add(orbitLight);
+    initSpinPhases(); rebuildGemMeshes();
   }
 
   function rebuildThreeSize() {
-    if (!threeReady || !threeRenderer) return;
-    const W = canvas.width, H = canvas.height;
-    threeRenderer.setSize(W, H);
+    if (!threeReady||!threeRenderer) return;
+    const W=canvas.width,H=canvas.height;
+    threeRenderer.setSize(W,H);
     threeCamera.left=-W/2; threeCamera.right=W/2;
     threeCamera.top=H/2;   threeCamera.bottom=-H/2;
     threeCamera.updateProjectionMatrix();
-    if (dirLight1) dirLight1.position.set(-W*0.4, H*0.6, 300);
-    if (dirLight2) dirLight2.position.set( W*0.5,-H*0.4, 200);
-    disposeIconTextures();
-    rebuildGemMeshes();
+    if (dirLight1) dirLight1.position.set(-W*0.4,H*0.6,300);
+    if (dirLight2) dirLight2.position.set(W*0.5,-H*0.4,200);
+    disposeIconTextures(); rebuildGemMeshes();
   }
 
   function clearGemMeshes() {
-    Object.values(gemMeshPool).forEach(entry => {
-      threeScene.remove(entry.body);
-      entry.body.material.dispose();
-      if (entry.icon) { threeScene.remove(entry.icon); entry.icon.material.dispose(); }
+    Object.values(gemMeshPool).forEach(entry=>{
+      threeScene.remove(entry.body); entry.body.material.dispose();
+      if (entry.icon){threeScene.remove(entry.icon); entry.icon.material.dispose();}
     });
-    gemMeshPool = {};
+    gemMeshPool={};
   }
 
   function rebuildGemMeshes() {
     if (!threeReady) return;
     clearGemMeshes();
-    const geo    = makeGemGeometry(cellSize * 0.40);
-    const iconSz = cellSize * 0.72;
-    const iconGeo = new THREE.PlaneGeometry(iconSz, iconSz);
-
-    for (let r=0; r<ROWS; r++) {
-      for (let c=0; c<COLS; c++) {
-        const body = new THREE.Mesh(geo,
-          new THREE.MeshPhongMaterial({color:0xffffff,transparent:true,opacity:0}));
-        body.visible = false; body.renderOrder = 1;
-        threeScene.add(body);
-
-        const icon = new THREE.Mesh(iconGeo,
-          new THREE.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false}));
-        icon.visible = false; icon.renderOrder = 2;
-        threeScene.add(icon);
-
-        gemMeshPool[`${r},${c}`] = { body, icon };
-      }
+    const geo=makeGemGeometry(cellSize*0.40);
+    const iconSz=cellSize*0.72;
+    const iconGeo=new THREE.PlaneGeometry(iconSz,iconSz);
+    for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) {
+      const body=new THREE.Mesh(geo,new THREE.MeshPhongMaterial({color:0xffffff,transparent:true,opacity:0}));
+      body.visible=false; body.renderOrder=1; threeScene.add(body);
+      const icon=new THREE.Mesh(iconGeo,new THREE.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false}));
+      icon.visible=false; icon.renderOrder=2; threeScene.add(icon);
+      gemMeshPool[`${r},${c}`]={body,icon};
     }
   }
 
-  // ── Per-frame sync ────────────────────────────────────────────
   function syncGemMeshes(ts) {
     if (!threeReady) return;
+    const ot=ts*0.00105;
+    const W=canvas.width,H=canvas.height;
+    orbitLight.position.set(Math.cos(ot)*W*0.72,Math.sin(ot*0.7)*H*0.55,220+Math.sin(ot*1.3)*60);
 
-    // Orbit point light — slow ellipse ~6 s/loop, creates moving glint sweeps
-    const ot = ts * 0.00105;
-    const W = canvas.width, H = canvas.height;
-    orbitLight.position.set(
-      Math.cos(ot)       * W * 0.72,
-      Math.sin(ot * 0.7) * H * 0.55,
-      220 + Math.sin(ot * 1.3) * 60
-    );
+    for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) {
+      const key=`${r},${c}`;
+      const entry=gemMeshPool[key];
+      if (!entry) continue;
+      const {body,icon}=entry;
+      const g=gems[r]?.[c];
+      if (!g||g.type<0){body.visible=false;if(icon)icon.visible=false;continue;}
 
-    for (let r=0; r<ROWS; r++) {
-      for (let c=0; c<COLS; c++) {
-        const key   = `${r},${c}`;
-        const entry = gemMeshPool[key];
-        if (!entry) continue;
-        const { body, icon } = entry;
+      let ox=0,oyScreen=0,oyDrop=0,scale=1,alpha=1;
 
-        const g = gems[r]?.[c];
-        if (!g || g.type < 0) {
-          body.visible = false;
-          if (icon) icon.visible = false;
-          continue;
-        }
-
-        // Animation offsets
-        let ox=0, oyScreen=0, oyDrop=0, scale=1, alpha=1;
-
-        if (phase==='playing' && !busy && bobPhases[r]?.[c] !== undefined) {
-          const spd = bobSpeeds[r][c];
-          oyScreen = Math.sin(ts*spd + bobPhases[r][c]) * cellSize * 0.018;
-          scale    = 1 + Math.sin(ts*spd*0.7 + bobPhases[r][c]+1) * 0.006;
-        }
-
-        if (swapAnim) {
-          const {r1,c1,r2,c2,p} = swapAnim;
-          if (r===r1&&c===c1)      { ox=(c2-c1)*cellSize*p; oyScreen+=(r2-r1)*cellSize*p; }
-          else if (r===r2&&c===c2) { ox=(c1-c2)*cellSize*p; oyScreen+=(r1-r2)*cellSize*p; }
-        }
-
-        if (dropOffsets?.[r]?.[c]) {
-          oyDrop = dropOffsets[r][c] * (1 - easeOut(dropProgress));
-        }
-
-        if (matchExplodeSet?.has(key)) {
-          scale = 1 - easeIn(explodeProgress) * 0.85;
-          alpha = 1 - easeIn(explodeProgress);
-        }
-
-        let selGlow = 0;
-        if (sel?.r===r && sel?.c===c && !busy) {
-          selGlow = 0.5 + 0.5*Math.sin(ts/250);
-        }
-
-        // oyScreen: canvas-down → negate for Three-up; oyDrop: starts above → add
-        const wx = (c+0.5)*cellSize - W/2 + ox;
-        const wy = -(r+0.5)*cellSize + H/2 - oyScreen + oyDrop;
-
-        body.position.set(wx, wy, 0);
-        body.scale.setScalar(scale);
-        body.visible = alpha > 0.02;
-
-        // Horizontal-axis rock spin — each gem independent
-        const sp      = spinPhases[r]?.[c] ?? 0;
-        const ss      = spinSpeeds[r]?.[c] ?? 0.0007;
-        const spinAmp = g.special ? 0.20 : 0.28;
-        const rockX   = Math.sin(ts*ss + sp) * spinAmp;
-        const rockZ   = Math.cos(ts*ss*0.61 + sp) * spinAmp * 0.35;
-        body.rotation.set(rockX + selGlow*0.28, selGlow*0.14, rockZ);
-
-        // Material — update only on type/special change
-        const matKey = `${g.type}-${g.special||'n'}`;
-        if (body._bjwMatKey !== matKey) {
-          body.material.dispose();
-          body.material   = makeGemMaterial(g.type, g.special);
-          body._bjwMatKey = matKey;
-        }
-        body.material.opacity = 0.92 + selGlow*0.06;
-
-        // Icon overlay for power-up gems
-        if (g.special && icon) {
-          const iKey = `${g.special}-${g.type}`;
-          if (icon._bjwMatKey !== iKey) {
-            icon.material.dispose();
-            icon.material   = makeIconMaterial(g.special, g.type);
-            icon._bjwMatKey = iKey;
-          }
-          icon.position.set(wx, wy, cellSize*0.55);
-          icon.rotation.set(rockX*0.35, 0, rockZ*0.35);
-          icon.scale.setScalar(scale);
-          icon.material.opacity = Math.min(1, 0.88*alpha + selGlow*0.1);
-          icon.visible = alpha > 0.02;
-        } else if (icon) {
-          icon.visible = false;
-        }
+      if (phase==='playing'&&!busy&&bobPhases[r]?.[c]!==undefined) {
+        const spd=bobSpeeds[r][c];
+        oyScreen=Math.sin(ts*spd+bobPhases[r][c])*cellSize*0.018;
+        scale=1+Math.sin(ts*spd*0.7+bobPhases[r][c]+1)*0.006;
       }
+      if (swapAnim) {
+        const {r1,c1,r2,c2,p}=swapAnim;
+        if (r===r1&&c===c1)      {ox=(c2-c1)*cellSize*p;oyScreen+=(r2-r1)*cellSize*p;}
+        else if (r===r2&&c===c2) {ox=(c1-c2)*cellSize*p;oyScreen+=(r1-r2)*cellSize*p;}
+      }
+      if (dropOffsets?.[r]?.[c]) oyDrop=dropOffsets[r][c]*(1-easeOut(dropProgress));
+      if (matchExplodeSet?.has(key)){scale=1-easeIn(explodeProgress)*0.85;alpha=1-easeIn(explodeProgress);}
+
+      // Level-exit override: each gem has its own world-space velocity
+      let exitOx=0, exitOy=0;
+      if (lvlExitVel&&lvlExitPos) {
+        exitOx=lvlExitPos[r][c].x;
+        exitOy=lvlExitPos[r][c].y;
+        alpha=Math.max(0,lvlExitAlpha);
+      }
+
+      let selGlow=0;
+      if (!lvlExitVel&&sel?.r===r&&sel?.c===c&&!busy) selGlow=0.5+0.5*Math.sin(ts/250);
+
+      const wx=(c+0.5)*cellSize-W/2+ox+exitOx;
+      const wy=-(r+0.5)*cellSize+H/2-oyScreen+oyDrop+exitOy;
+      body.position.set(wx,wy,0); body.scale.setScalar(scale); body.visible=alpha>0.02;
+
+      const sp=spinPhases[r]?.[c]??0,ss=spinSpeeds[r]?.[c]??0.0007;
+      const spinAmp=g.special?0.20:0.28;
+      const rockX=Math.sin(ts*ss+sp)*spinAmp,rockZ=Math.cos(ts*ss*0.61+sp)*spinAmp*0.35;
+      body.rotation.set(rockX+selGlow*0.28,selGlow*0.14,rockZ);
+
+      const matKey=`${g.type}-${g.special||'n'}`;
+      if (body._bjwMatKey!==matKey){
+        body.material.dispose(); body.material=makeGemMaterial(g.type,g.special); body._bjwMatKey=matKey;
+      }
+      body.material.opacity=(0.92+selGlow*0.06)*alpha;
+
+      if (g.special&&icon) {
+        const iKey=`${g.special}-${g.type}`;
+        if (icon._bjwMatKey!==iKey){
+          icon.material.dispose(); icon.material=makeIconMaterial(g.special,g.type); icon._bjwMatKey=iKey;
+        }
+        icon.position.set(wx,wy,cellSize*0.55);
+        icon.rotation.set(rockX*0.35,0,rockZ*0.35); icon.scale.setScalar(scale);
+        icon.material.opacity=Math.min(1,(0.88+selGlow*0.1)*alpha); icon.visible=alpha>0.02;
+      } else if (icon) icon.visible=false;
     }
   }
 
   function renderThreeGems(ts) {
-    if (!threeReady || !threeRenderer) return;
-    syncGemMeshes(ts);
-    threeRenderer.render(threeScene, threeCamera);
-    ctx.drawImage(threeRenderer.domElement, 0, 0, canvas.width, canvas.height);
+    if (!threeReady||!threeRenderer) return;
+    syncGemMeshes(ts); threeRenderer.render(threeScene,threeCamera);
+    ctx.drawImage(threeRenderer.domElement,0,0,canvas.width,canvas.height);
   }
 
   // ── Floating score popups ────────────────────────────────────
@@ -633,7 +552,12 @@ export default (() => {
         for (let r=0;r<ROWS;r++) gems[r][c] = col[ROWS-1-r];
       }
       animDrop(fallOffsets, () => {
-        setTimeout(() => cascade(combo+1, onDone), 16);
+        if (leveledUp) {
+          // Trigger the board-clear transition instead of continuing cascade
+          doLevelTransition(level, () => { cascade(1, onDone); });
+        } else {
+          setTimeout(() => cascade(combo+1, onDone), 16);
+        }
       });
     });
   }
@@ -727,6 +651,87 @@ export default (() => {
       size:3+Math.random()*4, color, angle:Math.random()*Math.PI });
   }
 
+  // ── Power-up particle effects ─────────────────────────────────
+
+  function fxFlame(cx, cy, color) {
+    for (let i=0;i<3;i++) setTimeout(()=>spawnRing(cx,cy,i===0?'#ffffff':color),i*60);
+    const fc=['#ff9900','#ffdd00','#ff4400','#ffffff',color];
+    for (let i=0;i<28;i++) {
+      const angle=(Math.PI*2*i/28)+(Math.random()-0.5)*0.5;
+      const speed=cellSize*(0.10+Math.random()*0.22);
+      particles.push({type:'ember',x:cx,y:cy,
+        vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed-cellSize*0.08,
+        life:1,decay:0.028+Math.random()*0.035,r:1.5+Math.random()*3.5,
+        color:fc[i%fc.length],gravity:0.55+Math.random()*0.3});
+    }
+    spawnStar(cx,cy,'#ffffff'); spawnStar(cx,cy,'#ffee88');
+  }
+
+  function fxStar(gemRow, gemCol, color) {
+    const cx=gemCol*cellSize+cellSize/2, cy=gemRow*cellSize+cellSize/2;
+    spawnBurst(cx,cy,'#ffffff',14); spawnRing(cx,cy,'#ffffff'); spawnStar(cx,cy,color);
+    for (let c2=0;c2<COLS;c2++) {
+      const tx=c2*cellSize+cellSize/2;
+      setTimeout(()=>{
+        particles.push({type:'streak',x:tx,y:cy,life:1,decay:0.055,w:cellSize*0.85,h:cellSize*0.18,color});
+        spawnStar(tx,cy,color);
+      },Math.abs(c2-gemCol)*28);
+    }
+    for (let r2=0;r2<ROWS;r2++) {
+      const ty=r2*cellSize+cellSize/2;
+      setTimeout(()=>{
+        particles.push({type:'streak',x:cx,y:ty,life:1,decay:0.055,w:cellSize*0.18,h:cellSize*0.85,color});
+        spawnStar(cx,ty,color);
+      },Math.abs(r2-gemRow)*28);
+    }
+  }
+
+  function fxSupernova(cx, cy, color) {
+    const sc=[color,'#ffffff','#ffff88',color,'#ffffff'];
+    for (let i=0;i<36;i++) {
+      const angle=(Math.PI*2*i/36)+(Math.random()-0.5)*0.3;
+      const speed=cellSize*(0.12+Math.random()*0.30);
+      particles.push({type:'shard',x:cx,y:cy,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,
+        life:1,decay:0.018+Math.random()*0.022,len:cellSize*(0.18+Math.random()*0.28),
+        width:2+Math.random()*2,color:sc[i%sc.length],angle,gravity:0.12});
+    }
+    for (let i=0;i<5;i++) setTimeout(()=>{
+      const rc=i===0?'#ffffff':i===1?color:'#ffff88';
+      spawnRing(cx,cy,rc);
+      particles.push({type:'ring',x:cx,y:cy,r:0,maxR:cellSize*(1.2+i*0.4),life:1,decay:0.030,color:rc,lineWidth:3-i*0.4});
+    },i*80);
+    spawnBurst(cx,cy,'#ffffff',8);
+    for (let i=0;i<4;i++) spawnStar(cx,cy,i%2===0?'#ffffff':color);
+  }
+
+  function fxHyper(targetCells) {
+    const W=canvas.width,H=canvas.height;
+    spawnRing(W/2,H/2,'#ffffff');
+    particles.push({type:'ring',x:W/2,y:H/2,r:0,maxR:Math.max(W,H)*0.8,life:1,decay:0.022,color:'#aaddff',lineWidth:3});
+    targetCells.forEach(({r,c},idx)=>{
+      const cx=c*cellSize+cellSize/2,cy=r*cellSize+cellSize/2;
+      setTimeout(()=>{
+        for (let i=0;i<16;i++) {
+          const angle=(Math.PI*2*i/16)+(Math.random()-0.5)*0.8;
+          const speed=cellSize*(0.08+Math.random()*0.18);
+          particles.push({type:'arc',x:cx,y:cy,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,
+            life:1,decay:0.06+Math.random()*0.06,r:1+Math.random()*2,
+            color:Math.random()<0.6?'#aaddff':'#ffffff',gravity:0});
+        }
+        spawnRing(cx,cy,'#aaddff');
+        if (idx%3===0) spawnStar(cx,cy,'#ffffff');
+      },idx*18);
+    });
+  }
+
+  // ── Level transition state ────────────────────────────────────
+  let lvlTransitionActive = false;
+  let lvlFlashOverlay     = 0;
+  let lvlTitleAlpha       = 0;
+  let lvlTitleScale       = 1;
+  let lvlTitleText        = '';
+  let carryOverSpecials   = [];  // power-ups that survive into the next level
+
   function tickGlints(now) {
     if (Math.random() < 0.06 && phase === 'playing') {
       const r = Math.floor(Math.random()*ROWS), c = Math.floor(Math.random()*COLS);
@@ -764,26 +769,173 @@ export default (() => {
     particles = particles.filter(p => p.life > 0);
     particles.forEach(p => {
       p.life -= p.decay;
-      if (p.type==='ring') { p.r += (p.maxR-p.r)*0.18; return; }
-      p.x += p.vx; p.y += p.vy;
-      p.vy += 0.35;
+      if (p.type==='ring'){p.r+=(p.maxR-p.r)*0.18;return;}
+      if (p.type==='streak') return;
+      p.x+=p.vx; p.y+=p.vy;
+      const grav=p.gravity!==undefined?p.gravity:0.35;
+      p.vy+=grav; if(p.vx!==undefined) p.vx*=0.97;
     });
   }
 
   function drawParticles() {
     particles.forEach(p => {
-      const a = Math.max(0, p.life);
+      const a=Math.max(0,p.life);
       if (p.type==='ring') {
         ctx.beginPath(); ctx.arc(p.x,p.y,Math.max(0,p.r),0,Math.PI*2);
-        ctx.strokeStyle=p.color; ctx.globalAlpha=a; ctx.lineWidth=2; ctx.stroke();
-        ctx.globalAlpha=1;
+        ctx.strokeStyle=p.color; ctx.globalAlpha=a; ctx.lineWidth=p.lineWidth||2; ctx.stroke(); ctx.globalAlpha=1;
       } else if (p.type==='star') {
-        drawStar4(p.x, p.y, p.size, a, p.color);
+        drawStar4(p.x,p.y,p.size,a,p.color);
+      } else if (p.type==='streak') {
+        ctx.save(); ctx.globalAlpha=a*0.85; ctx.translate(p.x,p.y);
+        const grd=ctx.createLinearGradient(-p.w/2,0,p.w/2,0);
+        grd.addColorStop(0,'rgba(0,0,0,0)'); grd.addColorStop(0.3,p.color);
+        grd.addColorStop(0.5,'#ffffff'); grd.addColorStop(0.7,p.color); grd.addColorStop(1,'rgba(0,0,0,0)');
+        ctx.fillStyle=grd; ctx.shadowColor=p.color; ctx.shadowBlur=10;
+        ctx.fillRect(-p.w/2,-p.h/2,p.w,p.h); ctx.restore();
+      } else if (p.type==='shard') {
+        ctx.save(); ctx.globalAlpha=a; ctx.translate(p.x,p.y); ctx.rotate(p.angle);
+        ctx.shadowColor=p.color; ctx.shadowBlur=6;
+        const grd2=ctx.createLinearGradient(0,-p.len/2,0,p.len/2);
+        grd2.addColorStop(0,'rgba(0,0,0,0)'); grd2.addColorStop(0.3,p.color);
+        grd2.addColorStop(0.7,p.color); grd2.addColorStop(1,'rgba(0,0,0,0)');
+        ctx.strokeStyle=grd2; ctx.lineWidth=p.width;
+        ctx.beginPath(); ctx.moveTo(0,-p.len/2); ctx.lineTo(0,p.len/2); ctx.stroke(); ctx.restore();
+      } else if (p.type==='arc') {
+        ctx.save(); ctx.globalAlpha=a; ctx.shadowColor=p.color; ctx.shadowBlur=8;
+        ctx.fillStyle=p.color;
+        ctx.beginPath(); ctx.arc(p.x,p.y,Math.max(0,p.r),0,Math.PI*2); ctx.fill(); ctx.restore();
+      } else if (p.type==='ember') {
+        const radius=Math.max(0,p.r*(0.3+a*0.7));
+        ctx.save(); ctx.globalAlpha=a; ctx.shadowColor=p.color; ctx.shadowBlur=radius*3;
+        ctx.fillStyle=p.color;
+        ctx.beginPath(); ctx.arc(p.x,p.y,radius,0,Math.PI*2); ctx.fill(); ctx.restore();
       } else {
         ctx.beginPath(); ctx.arc(p.x,p.y,Math.max(0,p.r*p.life),0,Math.PI*2);
         ctx.fillStyle=p.color; ctx.globalAlpha=a; ctx.fill(); ctx.globalAlpha=1;
       }
     });
+  }
+
+  // ── Level transition ──────────────────────────────────────────
+  // Called once per level-up, after the cascade that triggered it settles.
+  // Phase 1 (exit, 650ms): gems scatter off-screen with staggered column delay.
+  // Phase 2 (flash+title, 600ms): white flash, "LEVEL X" title pulses in.
+  // Phase 3 (enter, 550ms): fresh board drops in from above, staggered by column.
+  function doLevelTransition(newLevel, onComplete) {
+    busy = true;
+    lvlTransitionActive = true;
+
+    // ── Collect surviving power-ups before the board clears ───
+    carryOverSpecials = [];
+    for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) {
+      const g = gems[r]?.[c];
+      if (g && g.special) carryOverSpecials.push({ special: g.special, type: g.type });
+    }
+
+    // ── Phase 1: EXIT — gems scatter off screen ───────────────
+    lvlExitPos = Array.from({length:ROWS},()=>Array.from({length:COLS},()=>({x:0,y:0})));
+    lvlExitVel = Array.from({length:ROWS},()=>Array.from({length:COLS},()=>{
+      const angle = Math.random()*Math.PI*2;
+      const speed = cellSize*(0.12+Math.random()*0.18);
+      return { vx:Math.cos(angle)*speed, vy:Math.sin(angle)*speed-cellSize*0.04, accel:1.055+Math.random()*0.03 };
+    }));
+    lvlExitAlpha = 1;
+
+    // Particle burst per column staggered
+    for (let c=0;c<COLS;c++) setTimeout(()=>{
+      for (let r=0;r<ROWS;r++) {
+        const cx=c*cellSize+cellSize/2, cy=r*cellSize+cellSize/2;
+        const col=GEM_COLORS[gems[r]?.[c]?.type||0]||'#ffffff';
+        spawnBurst(cx,cy,col,6);
+      }
+    }, c*40);
+
+    // Animate exit over 650ms
+    const exitDur=650, exitStart=performance.now();
+    function exitTick() {
+      const t=Math.min((performance.now()-exitStart)/exitDur,1);
+      lvlExitAlpha=1-t;
+      for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) {
+        const colDelay=c/COLS;
+        const progress=Math.max(0,t-colDelay*0.35);
+        const v=lvlExitVel[r][c];
+        lvlExitPos[r][c].x = Math.cos(Math.atan2(v.vy,v.vx))*cellSize*progress*progress*12*v.accel;
+        lvlExitPos[r][c].y = -( Math.sin(Math.abs(Math.atan2(v.vy,v.vx)))*cellSize*progress*progress*10*v.accel );
+      }
+      if (t<1) { requestAnimationFrame(exitTick); return; }
+
+      // ── Phase 2: FLASH + TITLE ──────────────────────────────
+      lvlExitVel=null; lvlExitPos=null; lvlExitAlpha=0;
+
+      // Build fresh board
+      let _tries=0;
+      do { buildBoard(); _tries++; } while ((findMatches().hit.length>0||!anyValidMove())&&_tries<100);
+
+      // ── Inject surviving power-ups into the fresh board ──────
+      // Shuffle a list of all cell positions, then plant each carry-over
+      // power-up into a random cell that isn't involved in a match.
+      if (carryOverSpecials.length > 0) {
+        const positions = [];
+        for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) positions.push({r,c});
+        // Fisher-Yates shuffle
+        for (let i=positions.length-1;i>0;i--) {
+          const j=Math.floor(Math.random()*(i+1));
+          [positions[i],positions[j]]=[positions[j],positions[i]];
+        }
+        let posIdx=0;
+        for (const carried of carryOverSpecials) {
+          // Find a position that won't immediately create a match when placed
+          let placed=false;
+          while (posIdx<positions.length && !placed) {
+            const {r,c}=positions[posIdx++];
+            // Give the carried gem the same colour type as the normal gem
+            // already there, so it still matches correctly with its neighbours
+            gems[r][c] = mkGem(gems[r][c].type, carried.special);
+            placed=true;
+          }
+          if (!placed) break; // no room (very unlikely)
+        }
+        carryOverSpecials=[];
+        // Re-check — if injecting created a match, rebuild (edge case safety)
+        if (findMatches().hit.length>0) {
+          let _t2=0;
+          do { buildBoard(); _t2++; } while ((findMatches().hit.length>0||!anyValidMove())&&_t2<100);
+        }
+      }
+
+      // Reset mesh keys
+      Object.values(gemMeshPool).forEach(entry=>{
+        entry.body._bjwMatKey=null; if(entry.icon) entry.icon._bjwMatKey=null;
+      });
+
+      lvlTitleText=`LEVEL ${newLevel}`;
+      lvlTitleAlpha=0; lvlTitleScale=2.2; lvlFlashOverlay=1;
+
+      const flashDur=600, flashStart=performance.now();
+      function flashTick() {
+        const t=Math.min((performance.now()-flashStart)/flashDur,1);
+        lvlFlashOverlay=Math.max(0,1-t*2.2);
+        lvlTitleAlpha=Math.min(1,t*3);
+        lvlTitleScale=2.2-1.2*Math.min(1,t*2.5);
+        if (t<1) { requestAnimationFrame(flashTick); return; }
+
+        // ── Phase 3: ENTER — new gems drop from above ─────────
+        lvlFlashOverlay=0; lvlTitleAlpha=0;
+        const enterOffsets=Array.from({length:ROWS},()=>Array(COLS).fill(0));
+        for (let c=0;c<COLS;c++) for (let r=0;r<ROWS;r++) {
+          const colDelay=(COLS-1-c)/COLS;
+          enterOffsets[r][c]=(ROWS+colDelay*ROWS)*cellSize;
+        }
+        animDrop(enterOffsets, ()=>{
+          lvlTransitionActive=false;
+          initBobPhases(); initSpinPhases();
+          busy=false;
+          if (typeof onComplete==='function') onComplete();
+        });
+      }
+      requestAnimationFrame(flashTick);
+    }
+    requestAnimationFrame(exitTick);
   }
 
   function drawGlints() {
@@ -866,12 +1018,35 @@ export default (() => {
       ctx.shadowBlur=0; ctx.globalAlpha=1;
     }
 
-    // Level-up flash
+    // Level-up flash (normal gameplay)
     if (levelFlash > 0) {
       ctx.globalAlpha = levelFlash*0.55;
       ctx.fillStyle = theme.accent;
       ctx.fillRect(-shakeAmt,-shakeAmt,canvas.width+shakeAmt*2,canvas.height+shakeAmt*2);
       ctx.globalAlpha=1;
+    }
+
+    // Level transition: white flash overlay
+    if (lvlFlashOverlay > 0) {
+      ctx.globalAlpha = lvlFlashOverlay;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.globalAlpha=1;
+    }
+
+    // Level transition: "LEVEL X" title
+    if (lvlTitleAlpha > 0) {
+      ctx.save();
+      ctx.globalAlpha = lvlTitleAlpha;
+      ctx.translate(canvas.width/2, canvas.height/2);
+      ctx.scale(lvlTitleScale, lvlTitleScale);
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.font=`bold ${Math.round(cellSize*0.9)}px 'Orbitron', sans-serif`;
+      ctx.fillStyle='#ffffff';
+      ctx.shadowColor=theme.accent; ctx.shadowBlur=40;
+      ctx.fillText(lvlTitleText, 0, 0);
+      ctx.shadowBlur=0;
+      ctx.restore();
     }
 
     ctx.restore();
@@ -984,12 +1159,16 @@ export default (() => {
     matchSet.forEach(key => {
       const [r,c]=key.split(',').map(Number);
       const g=gems[r]?.[c]; if (!g||g.type<0) return;
-      const col=g.special==='hyper'?'#ffffff':g.special==='star'?'#ffd600':g.special==='supernova'?'#e040fb':(GEM_COLORS[g.type]??'#ffffff');
-      const lite=g.special==='hyper'?'#ffffff':g.special==='star'?'#fff9c4':g.special==='supernova'?'#ffffff':(GEM_LIGHT[g.type]??'#ffffff');
+      const col=GEM_COLORS[g.type]??'#ffffff';
+      const lite=GEM_LIGHT[g.type]??'#ffffff';
       const cx=c*cellSize+cellSize/2, cy=r*cellSize+cellSize/2;
-      spawnBurst(cx,cy,col,g.special?16:10);
-      spawnRing(cx,cy,col);
-      if (Math.random()<0.5) spawnStar(cx,cy,lite);
+      if (g.special==='flame')     { fxFlame(cx,cy,col); }
+      else if (g.special==='star') { fxStar(r,c,col); }
+      else if (g.special==='supernova') { fxSupernova(cx,cy,col); }
+      else {
+        spawnBurst(cx,cy,col,10); spawnRing(cx,cy,col);
+        if (Math.random()<0.5) spawnStar(cx,cy,lite);
+      }
     });
     matchExplodeSet=matchSet; explodeProgress=0;
     const dur=380, start=performance.now();
@@ -1061,10 +1240,7 @@ export default (() => {
         }
       }
       const hyperSet=new Set(toRemove.map(({r,c})=>`${r},${c}`));
-      toRemove.forEach(({r,c}) => {
-        const cx=c*cellSize+cellSize/2, cy=r*cellSize+cellSize/2;
-        spawnBurst(cx,cy,'#ffffff',12); spawnRing(cx,cy,'#ffffff');
-      });
+      fxHyper(toRemove);
       triggerShake(22);
       const pts=toRemove.length*200;
       score+=pts; spawnScorePopup(canvas.width/2,canvas.height/2,pts,3);
@@ -1216,10 +1392,10 @@ export default (() => {
     do { buildBoard(); _tries++; } while ((findMatches().hit.length>0||!anyValidMove())&&_tries<100);
     initBobPhases();
     initSpinPhases();
-    // Reset mesh keys so gems re-skin on new game
-    Object.values(gemMeshPool).forEach(entry => {
-      entry.body._bjwMatKey = null;
-      if (entry.icon) entry.icon._bjwMatKey = null;
+    lvlTransitionActive=false; lvlExitVel=null; lvlExitPos=null;
+    lvlExitAlpha=1; lvlFlashOverlay=0; lvlTitleAlpha=0; carryOverSpecials=[];
+    Object.values(gemMeshPool).forEach(entry=>{
+      entry.body._bjwMatKey=null; if(entry.icon) entry.icon._bjwMatKey=null;
     });
     document.getElementById('bjw-overlay').classList.remove('active');
     updateHUD(); startRaf(); startTimer();
@@ -1230,8 +1406,7 @@ export default (() => {
   function destroy() {
     clearInterval(timerInterval); stopRaf();
     if (threeRenderer) {
-      clearGemMeshes();
-      disposeIconTextures();
+      clearGemMeshes(); disposeIconTextures();
       threeRenderer.dispose();
       if (threeRenderer.domElement.parentNode)
         threeRenderer.domElement.parentNode.removeChild(threeRenderer.domElement);
