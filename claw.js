@@ -26,7 +26,7 @@ export default (() => {
   // states: idle | dropping | grabbing | closing | retracting
   //         | delivering | releasing | returning | gameover
   let gameState = 'idle';
-  let tries = 20, score = 0;
+  let tries = 20, score = 0, prizesCollected = 0;
   let clawOpen = 1.0;        // 1=open, 0=fully closed
   let dropY = 0, dropTimer = 0;
   let grabbed = null;
@@ -119,7 +119,7 @@ export default (() => {
     _bindEvents();
     gameState = 'idle';
     introAnim = true; introCamAngle = 0;
-    tries = 20; score = 0;
+    tries = 20; score = 0; prizesCollected = 0;
     _updateUI();
     lastTime = performance.now();
     _loop();
@@ -190,10 +190,10 @@ export default (() => {
     });
   }
 
-  // Soft descending whistle — slipped off / dropped it / so close
+  // Sad descending tones — missed grab
   function _playMiss() {
-    [520, 400, 300].forEach((f, i) => {
-      setTimeout(() => _playTone(f, 'triangle', 0.3, 0.05, 0.02, 0.28), i * 90);
+    [400, 300, 200].forEach((f, i) => {
+      setTimeout(() => _playTone(f, 'sawtooth', 0.18, 0.15, 0.01, 0.15), i * 70);
     });
   }
 
@@ -224,10 +224,10 @@ export default (() => {
     const ac = _getAudio(); if (!ac) return;
     const o = ac.createOscillator();
     const g = ac.createGain();
-    o.type = 'sine';
-    o.frequency.setValueAtTime(320, ac.currentTime);
-    o.frequency.exponentialRampToValueAtTime(80, ac.currentTime + 0.5);
-    g.gain.setValueAtTime(0.07, ac.currentTime);
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(600, ac.currentTime);
+    o.frequency.exponentialRampToValueAtTime(220, ac.currentTime + 0.5);
+    g.gain.setValueAtTime(0.03, ac.currentTime);
     g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.55);
     o.connect(g); g.connect(ac.destination);
     o.start(); o.stop(ac.currentTime + 0.6);
@@ -444,7 +444,7 @@ export default (() => {
       prizes = []; meshBodies = [];
       clawGroup = null; clawWire = null; clawFingers = [];
       grabbed = null; clawBody = null; movingSoundNode = null;
-      tries = 20; score = 0; gameState = 'idle';
+      tries = 20; score = 0; prizesCollected = 0; gameState = 'idle';
       swayAngleX = 0; swayAngleZ = 0; swayVelX = 0; swayVelZ = 0;
       init();
     };
@@ -837,7 +837,7 @@ export default (() => {
 
   // ── Prizes ─────────────────────────────────────────────────
   function _spawnPrizes() {
-    for (let i = 0; i < 46; i++) _spawnOnePrize(PRIZE_DEFS[i % PRIZE_DEFS.length]);
+    for (let i = 0; i < 36; i++) _spawnOnePrize(PRIZE_DEFS[i % PRIZE_DEFS.length]);
   }
 
   function _spawnOnePrize(def) {
@@ -1381,9 +1381,18 @@ export default (() => {
       if (Math.sqrt(dx*dx + dz*dz) < CHUTE_R + p.def.radius * 0.7 && dy < p.def.radius + 0.25 && dy > -0.3) {
         p.scored = true;
         score += p.def.pts;
+        prizesCollected++;
         _updateUI();
         _showToast(`${p.def.emoji}  +${p.def.pts} pts  —  ${p.def.label}!`);
         _playPrizeJingle(p.def.emoji);
+        // Every 3rd prize collected, drop 3 new random prizes into the pit
+        if (prizesCollected % 3 === 0) {
+          setTimeout(() => {
+            for (let i = 0; i < 3; i++) {
+              setTimeout(() => _spawnOnePrize(PRIZE_DEFS[Math.floor(Math.random() * PRIZE_DEFS.length)]), i * 200);
+            }
+          }, 1200);
+        }
         setTimeout(() => {
           scene.remove(p.mesh);
           world.removeBody(p.body);
