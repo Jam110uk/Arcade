@@ -107,12 +107,7 @@ export default (() => {
 
     try {
       const path = `highscores/${pendingGame}`;
-
-      // Race the firebase call against a 8s timeout so it never hangs forever
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('timeout')), 8000)
-      );
-      const snap = await Promise.race([get(ref(null, path)), timeoutPromise]);
+      const snap = await get(ref(null, path));
       const existing = snap.exists() ? snap.val() : {};
 
       // Keep top 20 entries
@@ -138,7 +133,6 @@ export default (() => {
     } catch(e) {
       btn.disabled = false;
       btn.textContent = '✅ SUBMIT';
-      console.warn('[HS] Submit failed:', e);
     }
   }
 

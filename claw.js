@@ -430,7 +430,10 @@ export default (() => {
     if (pts) pts.textContent = score;
     _playTone(220, 'sawtooth', 0.6, 0.2, 0.01, 0.55);
     window._clawSubmitHS = () => {
-      if (window.HS) window.HS.promptSubmitOnExit('claw', score, `${score} pts`, null);
+      if (!window.HS) return;
+      // Clear stored PB so promptSubmit always shows (it gates on new personal best)
+      localStorage.removeItem('hs-pb-claw');
+      window.HS.promptSubmit('claw', score, `${score} pts`);
     };
     window._clawPlayAgain = () => {
       // Tear down and reinitialise in place
