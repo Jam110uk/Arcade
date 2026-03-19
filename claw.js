@@ -131,8 +131,6 @@ export default (() => {
     _stopMoveSound();
     if (animId) cancelAnimationFrame(animId);
     if (renderer) { renderer.dispose(); renderer = null; }
-    // Remove all emoji planes from scene before clearing
-    prizes.forEach(p => { if (p.emojiPlane && scene) scene.remove(p.emojiPlane); });
     scene = null; world = null;
     prizes = []; meshBodies = [];
   }
@@ -165,7 +163,7 @@ export default (() => {
     o.stop(ac.currentTime + (duration || 0.3) + 0.05);
   }
 
-  // Mechanical thunk / clunk
+  // Mechanical thunk / clunk — soft
   function _playClunk(pitch) {
     const ac = _getAudio(); if (!ac) return;
     const bufSz = Math.floor(ac.sampleRate * 0.12);
@@ -178,7 +176,7 @@ export default (() => {
     filt.frequency.value = pitch || 180;
     filt.Q.value = 2;
     const g = ac.createGain();
-    g.gain.setValueAtTime(0.4, ac.currentTime);
+    g.gain.setValueAtTime(0.10, ac.currentTime);
     g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.14);
     src.buffer = buf;
     src.connect(filt); filt.connect(g); g.connect(ac.destination);
@@ -258,6 +256,50 @@ export default (() => {
     src.start();
   }
 
+  // Per-prize chute jingle — each prize has a unique soft 3-note melody
+  // Notes are [freq, delay_ms, duration_s, waveType]
+  const PRIZE_JINGLES = {
+    '🦄': [[523,0,0.35,'sine'],[659,180,0.35,'sine'],[784,360,0.5,'sine'],[1047,580,0.7,'sine']],        // Unicorn — bright rising fanfare
+    '💎': [[880,0,0.25,'sine'],[1108,150,0.25,'sine'],[1320,300,0.45,'sine'],[1047,500,0.6,'triangle']], // Diamond — crystalline high
+    '🌈': [[523,0,0.3,'triangle'],[659,140,0.3,'triangle'],[784,280,0.3,'triangle'],[1047,420,0.55,'triangle'],[784,580,0.4,'triangle']], // Rainbow — bouncy cascade
+    '🔥': [[220,0,0.2,'sawtooth'],[330,130,0.2,'sawtooth'],[440,260,0.3,'sawtooth'],[660,420,0.5,'triangle']], // Fire — punchy rock riff
+    '⭐': [[784,0,0.2,'sine'],[988,120,0.2,'sine'],[1175,240,0.4,'sine'],[988,420,0.2,'sine'],[1175,560,0.5,'sine']], // Star — twinkly
+    '🐙': [[311,0,0.3,'sine'],[370,160,0.3,'sine'],[440,320,0.5,'sine'],[370,520,0.6,'sine']],           // Octopus — wobbly minor
+    '🐸': [[330,0,0.18,'square'],[440,140,0.18,'square'],[330,280,0.18,'square'],[523,400,0.4,'sine']],  // Frog — ribbit-like staccato
+    '🍀': [[523,0,0.25,'sine'],[622,150,0.25,'sine'],[698,300,0.4,'sine'],[784,480,0.5,'sine']],         // Clover — gentle Irish lilt
+    '🐻': [[262,0,0.3,'triangle'],[330,180,0.3,'triangle'],[392,360,0.5,'triangle'],[330,560,0.6,'triangle']], // Bear — warm low tones
+    '🐶': [[392,0,0.2,'sine'],[494,140,0.2,'sine'],[587,280,0.35,'sine'],[494,460,0.5,'sine']],          // Dog — happy wag
+    '🐱': [[523,0,0.22,'sine'],[659,140,0.22,'sine'],[523,280,0.22,'sine'],[784,440,0.45,'sine']],       // Cat — curious little melody
+    '🎀': [[659,0,0.2,'sine'],[784,130,0.2,'sine'],[880,260,0.3,'sine'],[988,400,0.5,'sine']],           // Bow — pretty ascending
+    '🐧': [[440,0,0.18,'square'],[370,130,0.18,'square'],[440,260,0.18,'square'],[494,390,0.4,'sine']],  // Penguin — waddle march
+    '🦆': [[370,0,0.2,'sawtooth'],[440,130,0.15,'sawtooth'],[370,260,0.2,'sawtooth'],[523,400,0.4,'sine']], // Duck — quacky
+    '🐮': [[220,0,0.3,'triangle'],[277,200,0.3,'triangle'],[330,400,0.45,'triangle']],                   // Cow — moo-like low
+    '🐷': [[330,0,0.18,'sine'],[415,130,0.18,'sine'],[370,260,0.18,'sine'],[330,390,0.35,'sine']],       // Piggy — oink squeak
+    '🎾': [[587,0,0.15,'square'],[740,100,0.15,'square'],[587,200,0.15,'square'],[880,320,0.35,'sine']], // Tennis — springy bounce
+    '🔮': [[494,0,0.3,'sine'],[587,180,0.3,'sine'],[740,360,0.5,'sine']],                               // Crystal — mystical shimmer
+    '🍭': [[784,0,0.18,'sine'],[880,110,0.18,'sine'],[988,220,0.18,'sine'],[1047,330,0.4,'sine']],       // Lollipop — sweet ascending
+    '🎲': [[440,0,0.15,'square'],[330,110,0.15,'square'],[440,220,0.15,'square'],[523,340,0.35,'sine']], // Dice — punchy random
+  };
+
+  function _playPrizeJingle(emoji) {
+    const ac = _getAudio(); if (!ac) return;
+    const notes = PRIZE_JINGLES[emoji] || [[523,0,0.3,'sine'],[659,200,0.3,'sine'],[784,400,0.5,'sine']];
+    notes.forEach(([freq, delayMs, dur, type]) => {
+      setTimeout(() => {
+        const o = ac.createOscillator();
+        const g = ac.createGain();
+        o.type = type;
+        o.frequency.setValueAtTime(freq, ac.currentTime);
+        g.gain.setValueAtTime(0, ac.currentTime);
+        g.gain.linearRampToValueAtTime(0.18, ac.currentTime + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + dur);
+        o.connect(g); g.connect(ac.destination);
+        o.start(ac.currentTime);
+        o.stop(ac.currentTime + dur + 0.05);
+      }, delayMs);
+    });
+  }
+
   // ── UI ─────────────────────────────────────────────────────
   function _buildUI() {
     const ui = document.createElement('div');
@@ -312,8 +354,8 @@ export default (() => {
         .claw-chart-pts{font-size:14px;font-weight:700;color:#ffdd44;min-width:42px;text-align:right;}
         .claw-chart-bar{height:6px;background:rgba(255,200,50,0.20);border-radius:3px;margin-top:2px;}
         .claw-chart-bar-fill{height:6px;border-radius:3px;background:linear-gradient(90deg,#cc33ff,#ffdd44);}
-        #claw-prize-toast{position:absolute;top:92px;left:50%;transform:translateX(-50%);z-index:20;pointer-events:none;max-width:1px;white-space:nowrap;}
-        .claw-toast{background:rgba(0,0,0,0.85);border:1px solid rgba(255,200,40,0.7);border-radius:10px;padding:10px 26px;color:#ffe040;font-size:15px;font-weight:700;letter-spacing:2px;text-align:center;margin-bottom:6px;animation:ct-in 0.3s ease,ct-out 0.4s ease 1.8s forwards;white-space:nowrap;}
+        #claw-prize-toast{position:absolute;top:80px;left:50%;transform:translateX(-50%);z-index:20;pointer-events:none;text-align:center;white-space:nowrap;}
+        .claw-toast{background:none;border:none;border-radius:0;padding:4px 0;color:#ffe040;font-size:30px;font-weight:900;letter-spacing:3px;text-align:center;text-shadow:0 0 20px #ffaa00,0 0 40px rgba(255,160,0,0.6);margin-bottom:4px;animation:ct-in 0.25s ease,ct-out 0.4s ease 1.8s forwards;white-space:nowrap;}
         @keyframes ct-in{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
         @keyframes ct-out{from{opacity:1}to{opacity:0;transform:translateY(-10px)}}
         #claw-controls-panel{position:fixed;bottom:14px;right:14px;background:rgba(0,0,0,0.80);border:1px solid rgba(200,80,255,0.35);border-radius:10px;padding:18px 22px;z-index:9999;pointer-events:none;backdrop-filter:blur(4px);min-width:220px;}
@@ -380,6 +422,8 @@ export default (() => {
   }
 
   function _showGameOver() {
+    // Stop the render loop — no need to keep rendering behind the modal
+    if (animId) { cancelAnimationFrame(animId); animId = null; }
     const go  = document.getElementById('claw-gameover');
     const pts = document.getElementById('claw-go-pts');
     if (go) go.classList.remove('hidden');
@@ -492,6 +536,32 @@ export default (() => {
     floorBody.position.set(0, PLAY_FLOOR_Y, 0);
     world.addBody(floorBody);
 
+    // ── Base side panels — solid walls from bottom of machine up to play floor ──
+    // These fill the gap below the glass panels on all 4 sides
+    const baseMat = new THREE.MeshStandardMaterial({ color:0x1a0033, metalness:0.85, roughness:0.2, emissive:0x0a0018, emissiveIntensity:0.3 });
+    const baseH = PLAY_FLOOR_Y - (-MACHINE.h/2); // height from machine bottom to play floor
+    const baseY = (-MACHINE.h/2) + baseH/2;
+    // Front and back base panels
+    [[0, baseY, hd],[0, baseY, -hd]].forEach(pos => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(MACHINE.w, baseH, 0.06), baseMat);
+      m.position.set(...pos); scene.add(m);
+    });
+    // Left and right base panels
+    [[hw, baseY, 0],[-hw, baseY, 0]].forEach(pos => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(0.06, baseH, MACHINE.d), baseMat);
+      m.position.set(...pos); scene.add(m);
+    });
+    // Base neon edge strips along the bottom
+    const baseEdgeMat = new THREE.MeshStandardMaterial({ color:0xcc33ff, emissive:0xcc33ff, emissiveIntensity:0.6, metalness:0.9, roughness:0.1 });
+    [[0,-MACHINE.h/2,hd],[0,-MACHINE.h/2,-hd]].forEach(pos => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(MACHINE.w, 0.06, 0.07), baseEdgeMat);
+      m.position.set(...pos); scene.add(m);
+    });
+    [[hw,-MACHINE.h/2,0],[-hw,-MACHINE.h/2,0]].forEach(pos => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.06, MACHINE.d), baseEdgeMat);
+      m.position.set(...pos); scene.add(m);
+    });
+
     // ── Raised shelf in +X,+Z corner (chute lives on top) ──
     const shelfThick = 0.10;
     const shelfMat = new THREE.MeshStandardMaterial({
@@ -507,6 +577,20 @@ export default (() => {
     shelfBody.addShape(new C.Box(new C.Vec3(SHELF_W/2, shelfThick/2, SHELF_D/2)));
     shelfBody.position.set(hw - SHELF_W/2, SHELF_Y - shelfThick/2, hd - SHELF_D/2);
     world.addBody(shelfBody);
+
+    // ── Shelf side walls — solid panels on the open sides of the chute shelf ──
+    // These rise from PLAY_FLOOR_Y up to SHELF_Y, enclosing the shelf pocket
+    const shelfSideMat = new THREE.MeshStandardMaterial({ color:0x1a0033, metalness:0.85, roughness:0.2, emissive:0x0a0018, emissiveIntensity:0.3 });
+    const shelfWallH = SHELF_Y - PLAY_FLOOR_Y;
+    const shelfWallY = PLAY_FLOOR_Y + shelfWallH / 2;
+    // Back wall of shelf pocket (at +Z outer wall, full shelf width)
+    const shelfWallBack = new THREE.Mesh(new THREE.BoxGeometry(SHELF_W, shelfWallH, 0.06), shelfSideMat);
+    shelfWallBack.position.set(hw - SHELF_W/2, shelfWallY, hd);
+    scene.add(shelfWallBack);
+    // Right wall of shelf pocket (at +X outer wall, full shelf depth)
+    const shelfWallRight = new THREE.Mesh(new THREE.BoxGeometry(0.06, shelfWallH, SHELF_D), shelfSideMat);
+    shelfWallRight.position.set(hw, shelfWallY, hd - SHELF_D/2);
+    scene.add(shelfWallRight);
 
     // Step wall — prevents balls rolling onto shelf
     const stepMat = new THREE.MeshStandardMaterial({ color:0x330066, metalness:0.6, roughness:0.3 });
@@ -528,15 +612,17 @@ export default (() => {
     stepBodyB.position.copy(stepB.position);
     world.addBody(stepBodyB);
 
-    // Chute marker (glowing gold circle on shelf surface)
+    // Chute hole — pitch black circle flush with shelf surface (looks like a real hole)
     const chuteX = hw - 0.38, chuteZ = hd - 0.38;
     const chuteMkr = new THREE.Mesh(
-      new THREE.CylinderGeometry(CHUTE_R, CHUTE_R, 0.02, 28),
-      new THREE.MeshStandardMaterial({ color:0xffcc00, emissive:0xffcc00, emissiveIntensity:1.2, roughness:0.2 })
+      new THREE.CylinderGeometry(CHUTE_R, CHUTE_R, 0.04, 32),
+      new THREE.MeshStandardMaterial({ color:0x000000, emissive:0x000000, roughness:1.0, metalness:0.0 })
     );
-    chuteMkr.position.set(chuteX, SHELF_Y + 0.005, chuteZ);
+    chuteMkr.position.set(chuteX, SHELF_Y + 0.001, chuteZ);
+    chuteMkr.renderOrder = 1;
     scene.add(chuteMkr);
-    const chuteLight = new THREE.PointLight(0xffcc00, 1.5, 2.5);
+    // Subtle rim light so the hole is findable in the dark
+    const chuteLight = new THREE.PointLight(0xffcc00, 0.4, 1.2);
     chuteLight.position.set(chuteX, SHELF_Y + 0.3, chuteZ);
     scene.add(chuteLight);
 
@@ -586,12 +672,45 @@ export default (() => {
       new THREE.MeshStandardMaterial({ color:0xdddddd, metalness:0.96, roughness:0.04 }));
     rail.position.set(0, RAIL_Y, 0); scene.add(rail);
 
-    // Neon sign
-    const sign = new THREE.Mesh(new THREE.BoxGeometry(2.5,0.33,0.09),
-      new THREE.MeshStandardMaterial({ color:0xff33aa, emissive:0xff33aa, emissiveIntensity:2.4, roughness:0.1, metalness:0.6 }));
-    sign.position.set(0, MACHINE.h/2+0.40, MACHINE.d/2-0.05); scene.add(sign);
+    // ── Neon sign with "THE CLAW" text on front face ──────────
+    // Build a canvas texture for the front face
+    const signCanvas = document.createElement('canvas');
+    signCanvas.width = 512; signCanvas.height = 128;
+    const signCtx = signCanvas.getContext('2d');
+    // Background — hot pink matching the sign body
+    signCtx.fillStyle = '#ff33aa';
+    signCtx.fillRect(0, 0, 512, 128);
+    // Outer glow pass
+    signCtx.shadowColor = '#ffffff';
+    signCtx.shadowBlur = 18;
+    signCtx.fillStyle = '#ffffff';
+    signCtx.font = 'bold 84px "Arial Black", Impact, sans-serif';
+    signCtx.textAlign = 'center';
+    signCtx.textBaseline = 'middle';
+    signCtx.letterSpacing = '8px';
+    signCtx.fillText('THE CLAW', 256, 64);
+    // Second pass — bright white crisp
+    signCtx.shadowBlur = 0;
+    signCtx.fillStyle = '#fff0ff';
+    signCtx.fillText('THE CLAW', 256, 64);
+    const signTex = new THREE.CanvasTexture(signCanvas);
+
+    // Sign body — 6 faces: front gets text texture, others get plain pink material
+    // Use a group with two meshes: the box body + a front-face plane
+    const signBodyMat = new THREE.MeshStandardMaterial({ color:0xff33aa, emissive:0xff33aa, emissiveIntensity:2.4, roughness:0.1, metalness:0.6 });
+    const sign = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.33, 0.09), signBodyMat);
+    sign.position.set(0, MACHINE.h/2+0.40, MACHINE.d/2-0.05);
+    scene.add(sign);
+
+    // Front face overlay — plane sitting just in front of the sign with the text
+    const signFaceMat = new THREE.MeshBasicMaterial({ map: signTex, transparent: false });
+    const signFace = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 0.33), signFaceMat);
+    signFace.position.set(0, MACHINE.h/2+0.40, MACHINE.d/2-0.05 + 0.051);
+    scene.add(signFace);
+
     const sl = new THREE.PointLight(0xff33aa, 2.8, 5);
-    sl.position.copy(sign.position); scene.add(sl);
+    sl.position.set(0, MACHINE.h/2+0.40, MACHINE.d/2-0.05);
+    scene.add(sl);
 
     _buildClaw();
     // Apply initial open pose now that fingers exist
@@ -748,37 +867,26 @@ export default (() => {
       emissive:    new THREE.Color(def.glow),
       emissiveIntensity: 0.20,
       transparent: true,
-      opacity:     0.55,
+      opacity:     0.58,
       shininess:   130,
       specular:    new THREE.Color(0xffffff),
       side:        THREE.FrontSide,
-      depthWrite:  true,
+      depthWrite:  false,
     });
-    mat.renderOrder = 0;
 
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(def.radius, 28, 28), mat);
     mesh.castShadow = true;
-    mesh.renderOrder = 0;
     mesh.position.set(x, y, z);
     scene.add(mesh);
 
-    // Emoji billboard — added directly to scene (not as child) so lookAt works in world space.
-    // Position is synced to the ball centre every frame in _animateScene.
+    // Emoji billboard — child of mesh, faces camera each frame via lookAt in _animateScene
     const emojiTex = _makeEmojiTexture(def.emoji);
-    const emojiMat = new THREE.MeshBasicMaterial({
-      map: emojiTex,
-      transparent: true,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-      depthTest: true,
-    });
     const emojiPlane = new THREE.Mesh(
-      new THREE.PlaneGeometry(def.radius * 1.8, def.radius * 1.8),
-      emojiMat
+      new THREE.PlaneGeometry(def.radius * 1.85, def.radius * 1.85),
+      new THREE.MeshBasicMaterial({ map:emojiTex, transparent:true, side:THREE.DoubleSide, depthWrite:false })
     );
-    emojiPlane.renderOrder = 2;
-    emojiPlane.position.copy(mesh.position);
-    scene.add(emojiPlane);
+    emojiPlane.renderOrder = 3;
+    mesh.add(emojiPlane);
 
     // Glow halo
     const halo = new THREE.Mesh(
@@ -880,6 +988,8 @@ export default (() => {
     dropY = 0; clawOpen = 1.0; dropTimer = 0;
     _dropChanceChecked = false;
     _grabAttempted = false;
+    _deliveryDropRoll = false;
+    _deliveryDropFired = false;
     // Roll instant-miss (20%) — claw opens immediately on contact, no grab
     _instantMissRoll = (Math.random() < 0.20);
     // Randomise the height at which a grabbed ball is dropped (5%–95% of retraction)
@@ -894,6 +1004,7 @@ export default (() => {
   // ── Game loop ──────────────────────────────────────────────
   function _loop() {
     animId = requestAnimationFrame(_loop);
+    if (!renderer || !scene || !camera) return;
     const now = performance.now();
     const dt  = Math.min((now - lastTime) / 1000, 0.05);
     lastTime  = now;
@@ -1062,9 +1173,13 @@ export default (() => {
       if (dropY <= 0) {
         _dropChanceChecked = false;
         if (grabbed) {
-          gameState = 'delivering';
+          // Reached top with ball — enter dramatic sway pause before delivering
+          gameState = 'swaying';
           dropTimer = 0;
-          _playTone(660, 'triangle', 0.18, 0.2, 0.01, 0.15);
+          // Big sway kick to simulate the inertia of the ball swinging
+          swayVelX += (Math.random() - 0.5) * 0.9;
+          swayVelZ += (Math.random() - 0.5) * 0.9;
+          _playTone(660, 'triangle', 0.18, 0.15, 0.01, 0.15);
         } else {
           clawOpen = 1.0;
           _updateClawPose();
@@ -1075,11 +1190,67 @@ export default (() => {
       }
     }
 
+    else if (gameState === 'swaying') {
+      dropTimer += dt;
+      // Keep ball locked to claw tip while swaying
+      if (grabbed) {
+        const hubY = CLAW_REST_Y;
+        const tipY = hubY - 0.68;
+        grabbed.mesh.position.set(clawX, tipY, clawZ);
+        grabbed.body.position.set(clawX, tipY, clawZ);
+        grabbed.body.velocity.set(0,0,0);
+        grabbed.body.angularVelocity.set(0,0,0);
+      }
+      // Add extra sway pumps at 0.6s and 1.2s for that pendulum drama
+      if (dropTimer > 0.58 && dropTimer < 0.62) {
+        swayVelX += (Math.random() - 0.5) * 0.5;
+        swayVelZ += (Math.random() - 0.5) * 0.5;
+      }
+      if (dropTimer > 1.18 && dropTimer < 1.22) {
+        swayVelX += (Math.random() - 0.5) * 0.3;
+        swayVelZ += (Math.random() - 0.5) * 0.3;
+      }
+      // After 2 seconds, move to delivering
+      if (dropTimer >= 2.0) {
+        gameState = 'delivering';
+        dropTimer = 0;
+        // Record start position so we can find the halfway point during delivery
+        _deliverStartX = clawX;
+        _deliverStartZ = clawZ;
+        // Roll 30% chance to drop at the halfway point during delivery
+        _deliveryDropRoll = (Math.random() < 0.30);
+        _deliveryDropFired = false;
+      }
+    }
+
     else if (gameState === 'delivering') {
       const tx = MACHINE.w/2 - 0.38, tz = MACHINE.d/2 - 0.38;
       const dx = tx - clawX, dz = tz - clawZ;
       const dist = Math.sqrt(dx*dx + dz*dz);
       const spd = 1.4;
+
+      // 30% chance to drop ball at the halfway point between pickup and chute
+      if (_deliveryDropRoll && !_deliveryDropFired && grabbed) {
+        const totalDX = tx - _deliverStartX, totalDZ = tz - _deliverStartZ;
+        const totalDist = Math.sqrt(totalDX*totalDX + totalDZ*totalDZ);
+        const travelledDX = clawX - _deliverStartX, travelledDZ = clawZ - _deliverStartZ;
+        const travelled = Math.sqrt(travelledDX*travelledDX + travelledDZ*travelledDZ);
+        if (totalDist > 0.01 && travelled >= totalDist * 0.5) {
+          _deliveryDropFired = true;
+          grabbed.body.type = C.Body.DYNAMIC;
+          grabbed.body.velocity.set((Math.random()-0.5)*1.5, -2.0, (Math.random()-0.5)*1.5);
+          grabbed.body.wakeUp();
+          grabbed.grabbed = false;
+          grabbed = null;
+          clawOpen = 1.0;
+          _updateClawPose();
+          _showToast('💨 So close!');
+          _playMiss();
+          swayVelX += (Math.random() - 0.5) * 0.3;
+          swayVelZ += (Math.random() - 0.5) * 0.3;
+        }
+      }
+
       if (dist > 0.05) {
         clawX += (dx/dist)*spd*dt;
         clawZ += (dz/dist)*spd*dt;
@@ -1184,6 +1355,10 @@ export default (() => {
   let _dropChanceThreshold = 0;   // random retraction height at which to drop (0–1 of maxDrop)
   let _instantMissRoll = false;    // whether this grab attempt is an instant-miss
   let _grabAttempted = false;      // true once _tryGrab has been called this drop cycle
+  // mid-delivery drop state
+  let _deliverStartX = 0, _deliverStartZ = 0;
+  let _deliveryDropRoll = false;   // whether this delivery will drop at halfway
+  let _deliveryDropFired = false;  // true once the halfway drop has triggered
 
   function _checkScoringZone() {
     const cx = MACHINE.w/2 - 0.38, cz = MACHINE.d/2 - 0.38;
@@ -1197,10 +1372,9 @@ export default (() => {
         score += p.def.pts;
         _updateUI();
         _showToast(`${p.def.emoji}  +${p.def.pts} pts  —  ${p.def.label}!`);
-        _playWin();
+        _playPrizeJingle(p.def.emoji);
         setTimeout(() => {
           scene.remove(p.mesh);
-          if (p.emojiPlane) scene.remove(p.emojiPlane);
           world.removeBody(p.body);
           prizes     = prizes.filter(x => x !== p);
           meshBodies = meshBodies.filter(x => x.body !== p.body);
@@ -1221,12 +1395,7 @@ export default (() => {
 
   function _animateScene(now) {
     prizes.forEach(p => {
-      if (p.emojiPlane) {
-        // Sync billboard to ball's world position
-        p.emojiPlane.position.copy(p.mesh.position);
-        // Face the camera in world space (plane is a scene child, not mesh child)
-        p.emojiPlane.lookAt(camera.position);
-      }
+      if (p.emojiPlane) p.emojiPlane.lookAt(camera.position);
       if (!p.scored) {
         const intensity = 0.16 + 0.13 * Math.sin(now * 0.0017 + p.mesh.position.x * 3.2);
         p.mesh.material.emissiveIntensity = intensity;
