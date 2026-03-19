@@ -107,7 +107,12 @@ export default (() => {
 
     try {
       const path = `highscores/${pendingGame}`;
-      const snap = await window._fbGet(window._fbRef(path));
+
+      // Race the firebase call against a 8s timeout so it never hangs forever
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('timeout')), 8000)
+      );
+      const snap = await Promise.race([get(ref(null, path)), timeoutPromise]);
       const existing = snap.exists() ? snap.val() : {};
 
       // Keep top 20 entries
@@ -119,7 +124,7 @@ export default (() => {
       const obj = {};
       top20.forEach((e, i) => { obj[i] = e; });
 
-      await window._fbSet(window._fbRef(path), obj);
+      await set(ref(null, path), obj);
 
       // Save new personal best
       const pbKey = `hs-pb-${pendingGame}`;
@@ -133,6 +138,7 @@ export default (() => {
     } catch(e) {
       btn.disabled = false;
       btn.textContent = '✅ SUBMIT';
+      console.warn('[HS] Submit failed:', e);
     }
   }
 
@@ -180,7 +186,7 @@ export default (() => {
       return;
     }
 
-    const r = window._fbRef(`highscores/${key}`);
+    const r = ref(null, `highscores/${key}`);
     viewUnsub = window._fbOnValue(r, snap => {
       const game = GAMES.find(g => g.key === key);
       if (!snap.exists()) {
@@ -224,7 +230,7 @@ export default (() => {
     if (!window._firebaseReady) { cb(null); return () => {}; }
     const game = GAMES.find(g => g.key === key);
     if (!game) { cb(null); return () => {}; }
-    const r = window._fbRef(`highscores/${key}`);
+    const r = ref(null, `highscores/${key}`);
     const unsub = window._fbOnValue(r, snap => {
       if (!snap.exists()) { cb(null); return; }
       const entries = Object.values(snap.val());
