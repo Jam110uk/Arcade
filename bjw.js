@@ -44,159 +44,141 @@ export default (() => {
   function mkGem(type, special=null) { return { type, special }; }
 
   // ── THREE.js gem renderer ─────────────────────────────────────
-  let THREE = null;
+  let THREE        = null;
   let threeRenderer = null;
-  let threeScene    = null;
-  let threeCamera   = null;
-  let gemMeshPool   = {};   // key `r,c` → THREE.Mesh
-  let ambientLight  = null;
-  let dirLight1     = null;
-  let dirLight2     = null;
-  let pointLightPool = [];
-  let threeReady    = false;
+  let threeScene   = null;
+  let threeCamera  = null;
+  let gemMeshPool  = {};   // key `r,c` → { body: Mesh, icon: Mesh|null }
+  let ambientLight = null;
+  let dirLight1    = null;
+  let dirLight2    = null;
+  let orbitLight   = null;   // moving point light for glint sweeps
+  let threeReady   = false;
 
-  // (position and colour helpers are inlined)
+  // ── Spin phases — each gem rocks independently on X axis ──────
+  let spinPhases = [];   // [r][c] = random 0..2π
+  let spinSpeeds = [];   // [r][c] = radians/ms
+  function initSpinPhases() {
+    spinPhases = Array.from({length:ROWS}, () =>
+      Array.from({length:COLS}, () => Math.random() * Math.PI * 2));
+    spinSpeeds = Array.from({length:ROWS}, () =>
+      Array.from({length:COLS}, () => 0.00055 + Math.random() * 0.00045));
+  }
 
-  // Build gem geometry — shape varies by special type for visual distinction
-  // normal:    classic diamond cut (octagonal lathe, balanced crown/pavilion)
-  // flame:     squat wide gem — broad girdle, short pavilion, prominent facets
-  // star:      tall spiky gem — elongated crown point, narrow waist
-  // supernova: large bold gem — wide girdle, thick body, assertive presence
-  // hyper:     deep teardrop — very elongated pavilion, almost spherical crown
-  function makeGemGeometry(radius, special) {
+  // ── Icon textures for power-up gems ──────────────────────────
+  // We bake each icon once per cellSize into a CanvasTexture.
+  let iconTextures = {};   // key: special → THREE.CanvasTexture
+  const SPECIAL_ICONS = { flame:'🔥', star:'⭐', supernova:'💫', hyper:'💣' };
+  const SPECIAL_ICON_COLORS = {
+    flame:    '#ff9900',
+    star:     '#ffe066',
+    supernova:'#cc88ff',
+    hyper:    '#88ddff',
+  };
+
+  function buildIconTexture(special) {
+    const sz = Math.max(64, cellSize * 1.2) | 0;
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = sz;
+    const cx2 = cv.getContext('2d');
+    // Glow
+    const grd = cx2.createRadialGradient(sz/2,sz/2,0, sz/2,sz/2,sz*0.44);
+    const col = SPECIAL_ICON_COLORS[special] || '#ffffff';
+    grd.addColorStop(0,   col.replace('#','rgba(').replace(/(..)(..)(..)/, (m,r,g,b) =>
+      `${parseInt(r,16)},${parseInt(g,16)},${parseInt(b,16)}`) + ',0.38)');
+    grd.addColorStop(1,   'rgba(0,0,0,0)');
+    cx2.fillStyle = grd;
+    cx2.fillRect(0, 0, sz, sz);
+    // Emoji icon
+    cx2.textAlign    = 'center';
+    cx2.textBaseline = 'middle';
+    cx2.font         = `${(sz * 0.52)|0}px serif`;
+    cx2.shadowColor  = col;
+    cx2.shadowBlur   = sz * 0.18;
+    cx2.fillText(SPECIAL_ICONS[special] || '?', sz/2, sz/2);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  function getIconTexture(special) {
+    if (!iconTextures[special]) iconTextures[special] = buildIconTexture(special);
+    return iconTextures[special];
+  }
+
+  function disposeIconTextures() {
+    Object.values(iconTextures).forEach(t => t.dispose());
+    iconTextures = {};
+  }
+
+  // ── Gem geometry — classic diamond cut LatheGeometry ─────────
+  function makeGemGeometry(radius) {
     const r = radius;
-    let points;
-
-    if (special === 'flame') {
-      // Squat, wide — like a cushion cut. Broad girdle, short pointed bottom.
-      points = [
-        new THREE.Vector2(0,         r * 0.48),
-        new THREE.Vector2(r * 0.68,  r * 0.25),
-        new THREE.Vector2(r * 0.96,  r * 0.05),
-        new THREE.Vector2(r * 0.96, -r * 0.05),
-        new THREE.Vector2(r * 0.72, -r * 0.38),
-        new THREE.Vector2(r * 0.22, -r * 0.68),
-        new THREE.Vector2(0,        -r * 0.75),
-      ];
-    } else if (special === 'star') {
-      // Tall and spiky — elongated crown, narrow waist, long pavilion.
-      points = [
-        new THREE.Vector2(0,         r * 1.05),
-        new THREE.Vector2(r * 0.42,  r * 0.55),
-        new THREE.Vector2(r * 0.78,  r * 0.10),
-        new THREE.Vector2(r * 0.78, -r * 0.05),
-        new THREE.Vector2(r * 0.46, -r * 0.48),
-        new THREE.Vector2(r * 0.14, -r * 0.85),
-        new THREE.Vector2(0,        -r * 0.95),
-      ];
-    } else if (special === 'supernova') {
-      // Large and bold — extra-wide girdle, thick body, assertive mass.
-      points = [
-        new THREE.Vector2(0,         r * 0.82),
-        new THREE.Vector2(r * 0.62,  r * 0.48),
-        new THREE.Vector2(r * 1.05,  r * 0.10),
-        new THREE.Vector2(r * 1.05, -r * 0.10),
-        new THREE.Vector2(r * 0.65, -r * 0.50),
-        new THREE.Vector2(r * 0.20, -r * 0.88),
-        new THREE.Vector2(0,        -r * 1.00),
-      ];
-    } else if (special === 'hyper') {
-      // Teardrop — domed crown, very elongated pointed pavilion.
-      points = [
-        new THREE.Vector2(0,         r * 0.60),
-        new THREE.Vector2(r * 0.58,  r * 0.28),
-        new THREE.Vector2(r * 0.82,  r * 0.00),
-        new THREE.Vector2(r * 0.78, -r * 0.18),
-        new THREE.Vector2(r * 0.40, -r * 0.70),
-        new THREE.Vector2(r * 0.12, -r * 1.05),
-        new THREE.Vector2(0,        -r * 1.15),
-      ];
-    } else {
-      // Normal diamond cut
-      points = [
-        new THREE.Vector2(0,         r * 0.72),
-        new THREE.Vector2(r * 0.55,  r * 0.35),
-        new THREE.Vector2(r * 0.88,  r * 0.08),
-        new THREE.Vector2(r * 0.88, -r * 0.08),
-        new THREE.Vector2(r * 0.55, -r * 0.40),
-        new THREE.Vector2(r * 0.18, -r * 0.78),
-        new THREE.Vector2(0,        -r * 0.88),
-      ];
-    }
-
-    const geo = new THREE.LatheGeometry(points, 8);
+    const pts = [
+      new THREE.Vector2(0,        r * 0.72),
+      new THREE.Vector2(r * 0.55, r * 0.35),
+      new THREE.Vector2(r * 0.88, r * 0.08),
+      new THREE.Vector2(r * 0.88,-r * 0.08),
+      new THREE.Vector2(r * 0.55,-r * 0.40),
+      new THREE.Vector2(r * 0.18,-r * 0.78),
+      new THREE.Vector2(0,       -r * 0.88),
+    ];
+    const geo = new THREE.LatheGeometry(pts, 8);
     geo.computeVertexNormals();
     return geo;
   }
 
-  // Flat-shading helper — kept for API compatibility
-  function facetGeometry(geo) {
-    geo.computeVertexNormals();
-    return geo;
-  }
-
-  // Material per gem — colour always derived from gem's own type.
-  // Special gems get a boosted emissive of their own hue to look distinct.
+  // ── Materials ─────────────────────────────────────────────────
+  // Normal gems: solid faceted crystal
+  // Special gems: transparent glass tinted with the gem's colour + icon overlay
   function makeGemMaterial(type, special) {
     if (!THREE) return null;
-
     const baseCol  = new THREE.Color(GEM_COLORS[type] || '#ffffff');
-    const darkCol  = new THREE.Color(GEM_DARK[type]   || '#222222');
+    const darkCol  = new THREE.Color(GEM_DARK[type]   || '#333333');
     const lightCol = new THREE.Color(GEM_LIGHT[type]  || '#ffffff');
 
-    let color, emissive, specular, shininess, opacity = 0.82;
-
-    if (special === 'flame') {
-      // Warm glow version of gem colour — fire-kissed
-      color     = baseCol.clone().lerp(new THREE.Color('#ffffff'), 0.15);
-      emissive  = baseCol.clone().multiplyScalar(0.55);
-      specular  = lightCol.clone().lerp(new THREE.Color('#ffcc44'), 0.5);
-      shininess = 600;
-      opacity   = 0.90;
-    } else if (special === 'star') {
-      // Brilliant, almost overexposed — very bright specular of gem colour
-      color     = baseCol.clone().lerp(new THREE.Color('#ffffff'), 0.25);
-      emissive  = baseCol.clone().multiplyScalar(0.40);
-      specular  = new THREE.Color('#ffffff');
-      shininess = 900;
-      opacity   = 0.88;
-    } else if (special === 'supernova') {
-      // Deep saturated, intense inner glow — like a gem that's about to explode
-      color     = baseCol.clone().lerp(darkCol, 0.20);
-      emissive  = baseCol.clone().multiplyScalar(0.70);
-      specular  = lightCol.clone();
-      shininess = 700;
-      opacity   = 0.95;
-    } else if (special === 'hyper') {
-      // Dark void version of gem colour — deep, mysterious, powerful
-      color     = darkCol.clone().multiplyScalar(0.6);
-      emissive  = baseCol.clone().multiplyScalar(0.25);
-      specular  = baseCol.clone().lerp(new THREE.Color('#ffffff'), 0.4);
-      shininess = 500;
-      opacity   = 0.95;
-    } else {
-      // Normal gem
-      color     = baseCol.clone();
-      emissive  = darkCol.clone().multiplyScalar(0.35);
-      specular  = lightCol.clone();
-      shininess = 480;
+    if (special) {
+      // Glass body — transparent, highly specular, tinted with gem colour
+      const glassCol = baseCol.clone().lerp(new THREE.Color('#ffffff'), 0.55);
+      const emissive = baseCol.clone().multiplyScalar(0.18);
+      return new THREE.MeshPhongMaterial({
+        color:       glassCol,
+        emissive,
+        specular:    new THREE.Color('#ffffff'),
+        shininess:   900,
+        transparent: true,
+        opacity:     0.38,
+        side:        THREE.DoubleSide,
+        flatShading: true,
+      });
     }
 
+    // Normal solid gem — faceted with strong specular for glint spin
     return new THREE.MeshPhongMaterial({
-      color,
-      emissive,
-      specular,
-      shininess,
+      color:       baseCol,
+      emissive:    darkCol.clone().multiplyScalar(0.30),
+      specular:    lightCol.clone().lerp(new THREE.Color('#ffffff'), 0.5),
+      shininess:   700,
       transparent: true,
-      opacity,
-      side: THREE.DoubleSide,
+      opacity:     0.90,
+      side:        THREE.DoubleSide,
       flatShading: true,
     });
   }
 
+  function makeIconMaterial(special) {
+    return new THREE.MeshBasicMaterial({
+      map:         getIconTexture(special),
+      transparent: true,
+      depthWrite:  false,
+      side:        THREE.DoubleSide,
+    });
+  }
+
+  // ── Scene setup ───────────────────────────────────────────────
   function initThree() {
     if (threeReady) return Promise.resolve();
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       const script = document.createElement('script');
       script.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
       script.onload = () => {
@@ -207,7 +189,6 @@ export default (() => {
       };
       script.onerror = () => {
         console.warn('[bjw] Three.js failed to load — falling back to 2D gems');
-        threeReady = false;
         resolve();
       };
       document.head.appendChild(script);
@@ -215,42 +196,42 @@ export default (() => {
   }
 
   function setupThreeScene() {
-    // Offscreen WebGL renderer — same pixel dimensions as game canvas
     threeRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     threeRenderer.setPixelRatio(1);
     threeRenderer.setClearColor(0x000000, 0);
     threeRenderer.setSize(canvas.width, canvas.height);
+    threeRenderer.sortObjects = true;
     threeRenderer.domElement.style.display = 'none';
     document.body.appendChild(threeRenderer.domElement);
 
     threeScene = new THREE.Scene();
 
-    // Orthographic camera — sized to match our canvas grid in world units
     const W = canvas.width, H = canvas.height;
     threeCamera = new THREE.OrthographicCamera(-W/2, W/2, H/2, -H/2, -500, 500);
-    threeCamera.position.set(0, 0, 100);
+    threeCamera.position.set(0, 0, 200);
     threeCamera.lookAt(0, 0, 0);
 
-    // Lighting for glossy gem look
-    ambientLight = new THREE.AmbientLight(0xffffff, 0.40);
+    // Ambient — low, keeps shadow side visible
+    ambientLight = new THREE.AmbientLight(0xffffff, 0.30);
     threeScene.add(ambientLight);
 
-    // Key light — upper left
-    dirLight1 = new THREE.DirectionalLight(0xffffff, 0.90);
-    dirLight1.position.set(-W * 0.4, H * 0.5, 200);
+    // Key directional — upper-left, strong, gives clear facet contrast
+    dirLight1 = new THREE.DirectionalLight(0xffffff, 1.10);
+    dirLight1.position.set(-W * 0.4, H * 0.6, 300);
     threeScene.add(dirLight1);
 
-    // Fill light — lower right
-    dirLight2 = new THREE.DirectionalLight(0xc8d8ff, 0.45);
-    dirLight2.position.set(W * 0.5, -H * 0.4, 150);
+    // Fill directional — lower-right, cooler colour
+    dirLight2 = new THREE.DirectionalLight(0xb0ccff, 0.50);
+    dirLight2.position.set(W * 0.5, -H * 0.4, 200);
     threeScene.add(dirLight2);
 
-    // Rim light — back
-    const rimLight = new THREE.DirectionalLight(0xffeedd, 0.30);
-    rimLight.position.set(0, 0, -200);
-    threeScene.add(rimLight);
+    // Orbital point light — sweeps around the board, triggers moving specular glints
+    // Positioned far forward in Z so it sweeps across all gems
+    orbitLight = new THREE.PointLight(0xffffff, 1.8, W * 3);
+    orbitLight.position.set(0, 0, 260);
+    threeScene.add(orbitLight);
 
-    // Pre-create gem meshes for all cells
+    initSpinPhases();
     rebuildGemMeshes();
   }
 
@@ -258,21 +239,20 @@ export default (() => {
     if (!threeReady || !threeRenderer) return;
     const W = canvas.width, H = canvas.height;
     threeRenderer.setSize(W, H);
-    threeCamera.left   = -W / 2;
-    threeCamera.right  =  W / 2;
-    threeCamera.top    =  H / 2;
-    threeCamera.bottom = -H / 2;
+    threeCamera.left = -W/2; threeCamera.right  =  W/2;
+    threeCamera.top  =  H/2; threeCamera.bottom = -H/2;
     threeCamera.updateProjectionMatrix();
-    if (dirLight1) dirLight1.position.set(-W * 0.4, H * 0.5, 200);
-    if (dirLight2) dirLight2.position.set(W * 0.5, -H * 0.4, 150);
+    if (dirLight1) dirLight1.position.set(-W*0.4, H*0.6, 300);
+    if (dirLight2) dirLight2.position.set( W*0.5,-H*0.4, 200);
+    disposeIconTextures();   // rebuild at new size
     rebuildGemMeshes();
   }
 
   function clearGemMeshes() {
-    Object.values(gemMeshPool).forEach(mesh => {
-      threeScene.remove(mesh);
-      // Geometry is shared — do NOT dispose it here (rebuildGemMeshes handles that)
-      mesh.material.dispose();
+    Object.values(gemMeshPool).forEach(entry => {
+      threeScene.remove(entry.body);
+      entry.body.material.dispose();
+      if (entry.icon) { threeScene.remove(entry.icon); entry.icon.material.dispose(); }
     });
     gemMeshPool = {};
   }
@@ -281,111 +261,140 @@ export default (() => {
     if (!threeReady) return;
     clearGemMeshes();
     const radius = cellSize * 0.40;
-
-    // Pre-build one geometry per special type (shared across all gems of that type)
-    const geoNormal    = makeGemGeometry(radius, null);
-    const geoFlame     = makeGemGeometry(radius, 'flame');
-    const geoStar      = makeGemGeometry(radius, 'star');
-    const geoSupernova = makeGemGeometry(radius, 'supernova');
-    const geoHyper     = makeGemGeometry(radius, 'hyper');
-    const GEO_MAP = { flame: geoFlame, star: geoStar, supernova: geoSupernova, hyper: geoHyper };
+    const geo = makeGemGeometry(radius);
+    const iconSize = cellSize * 0.72;
+    const iconGeo  = new THREE.PlaneGeometry(iconSize, iconSize);
 
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
-        // Start with normal geometry; will be swapped when gem special changes
-        const mat = new THREE.MeshPhongMaterial({ color: 0xffffff, flatShading: true, transparent: true, opacity: 0 });
-        const mesh = new THREE.Mesh(geoNormal, mat);
-        mesh.visible = false;
-        mesh._bjwGeoMap = GEO_MAP;
-        mesh._bjwGeoNormal = geoNormal;
-        threeScene.add(mesh);
-        gemMeshPool[`${r},${c}`] = mesh;
+        const mat  = new THREE.MeshPhongMaterial({ color:0xffffff, transparent:true, opacity:0 });
+        const body = new THREE.Mesh(geo, mat);
+        body.visible = false;
+        body.renderOrder = 1;
+        threeScene.add(body);
+
+        // Icon sprite (only shown for power-up gems; hidden by default)
+        const imat = new THREE.MeshBasicMaterial({ transparent:true, opacity:0, depthWrite:false });
+        const icon = new THREE.Mesh(iconGeo, imat);
+        icon.visible = false;
+        icon.renderOrder = 2;
+        threeScene.add(icon);
+
+        gemMeshPool[`${r},${c}`] = { body, icon };
       }
     }
   }
 
-  // (position calculation is inlined in syncGemMeshes)
-
-  // Update all gem meshes from current game state + anim offsets
+  // ── Per-frame sync ────────────────────────────────────────────
   function syncGemMeshes(ts) {
     if (!threeReady) return;
 
+    // Orbit the point light in a wide ellipse across the board
+    // One full loop every ~6 s — creates glint sweeps across all gems
+    const orbitT = ts * 0.00105;
+    const W = canvas.width, H = canvas.height;
+    orbitLight.position.set(
+      Math.cos(orbitT) * W * 0.72,
+      Math.sin(orbitT * 0.7) * H * 0.55,
+      220 + Math.sin(orbitT * 1.3) * 60
+    );
+
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
-        const key = `${r},${c}`;
-        const mesh = gemMeshPool[key];
-        if (!mesh) continue;
+        const key   = `${r},${c}`;
+        const entry = gemMeshPool[key];
+        if (!entry) continue;
+        const { body, icon } = entry;
 
         const g = gems[r] && gems[r][c];
         if (!g || g.type < 0) {
-          mesh.visible = false;
+          body.visible = false;
+          if (icon) icon.visible = false;
           continue;
         }
 
-        // ox: canvas-space horizontal offset (positive = right). Same sign in Three.js world.
-        // oyScreen: canvas-space vertical (positive = DOWN). Negate for Three.js (positive = UP).
-        // oyDrop: gems start ABOVE rest position and fall down.
-        //         "Above" in Three.js = larger wy, so ADD this to wy.
+        // ── Animation offsets (canvas-space) ──
         let ox = 0, oyScreen = 0, oyDrop = 0, scale = 1, alpha = 1;
 
-        // Bob — tiny symmetric float
-        if (phase === 'playing' && !busy && bobPhases[r] && bobPhases[r][c] !== undefined) {
-          const spd = bobSpeeds[r]?.[c] ?? 0.0014;
+        // Bob
+        if (phase === 'playing' && !busy && bobPhases[r]?.[c] !== undefined) {
+          const spd = bobSpeeds[r][c];
           oyScreen = Math.sin(ts * spd + bobPhases[r][c]) * cellSize * 0.018;
-          scale = 1 + Math.sin(ts * spd * 0.7 + bobPhases[r][c] + 1) * 0.006;
+          scale    = 1 + Math.sin(ts * spd * 0.7 + bobPhases[r][c] + 1) * 0.006;
         }
 
-        // Swap anim — canvas-space (positive r-delta = moving down screen)
+        // Swap
         if (swapAnim) {
           const {r1,c1,r2,c2,p} = swapAnim;
-          if (r===r1&&c===c1) { ox=(c2-c1)*cellSize*p; oyScreen+=(r2-r1)*cellSize*p; }
+          if (r===r1&&c===c1)    { ox=(c2-c1)*cellSize*p; oyScreen+=(r2-r1)*cellSize*p; }
           else if (r===r2&&c===c2) { ox=(c1-c2)*cellSize*p; oyScreen+=(r1-r2)*cellSize*p; }
         }
 
-        // Drop — pixel distance above rest position, decays to 0 as gem falls into place
-        if (dropOffsets && dropOffsets[r] && dropOffsets[r][c]) {
+        // Drop — start above, fall into place
+        if (dropOffsets?.[r]?.[c]) {
           oyDrop = dropOffsets[r][c] * (1 - easeOut(dropProgress));
         }
 
-        // Match explode
-        if (matchExplodeSet && matchExplodeSet.has(key)) {
+        // Explode
+        if (matchExplodeSet?.has(key)) {
           scale = 1 - easeIn(explodeProgress) * 0.85;
           alpha = 1 - easeIn(explodeProgress);
         }
 
         // Selection pulse
         let selGlow = 0;
-        if (sel && sel.r === r && sel.c === c && !busy) {
+        if (sel?.r === r && sel?.c === c && !busy) {
           selGlow = 0.5 + 0.5 * Math.sin(ts / 250);
         }
 
-        // World position: negate oyScreen (canvas-down → Three-up negated), add oyDrop (above = +wy)
-        const wx = (c + 0.5) * cellSize - canvas.width  / 2 + ox;
-        const wy = -(r + 0.5) * cellSize + canvas.height / 2 - oyScreen + oyDrop;
+        // World position
+        const wx = (c + 0.5) * cellSize - W / 2 + ox;
+        const wy = -(r + 0.5) * cellSize + H / 2 - oyScreen + oyDrop;
 
-        mesh.position.set(wx, wy, 0);
-        mesh.scale.setScalar(scale);
-        mesh.visible = alpha > 0.02;
+        body.position.set(wx, wy, 0);
+        body.scale.setScalar(scale);
+        body.visible = alpha > 0.02;
 
-        // Update geometry AND material if gem changed type/special
-        const matKey = `${g.type}-${g.special || 'n'}`;
-        if (mesh._bjwMatKey !== matKey) {
-          // Swap geometry to match special shape
-          const newGeo = g.special ? (mesh._bjwGeoMap[g.special] || mesh._bjwGeoNormal) : mesh._bjwGeoNormal;
-          if (mesh.geometry !== newGeo) mesh.geometry = newGeo;
-          mesh.material.dispose();
-          mesh.material = makeGemMaterial(g.type, g.special);
-          mesh._bjwMatKey = matKey;
-        }
-        mesh.material.opacity = 0.82 + selGlow * 0.15;
-        mesh.material.transparent = true;
+        // ── Horizontal-axis rock spin (X rotation) ──
+        // Each gem independently rocks forward/back revealing different facets.
+        // The LatheGeometry axis is Y, so rotation.x tilts the crown toward/away.
+        const sp = spinPhases[r]?.[c] ?? 0;
+        const ss = spinSpeeds[r]?.[c] ?? 0.0007;
+        const spinAmp = g.special ? 0.22 : 0.28;   // specials rock a little less
+        const rockX   = Math.sin(ts * ss + sp) * spinAmp;
+        const rockZ   = Math.cos(ts * ss * 0.61 + sp) * (spinAmp * 0.35);
 
-        // No idle spinning — slight tilt only on selection
-        mesh.rotation.set(selGlow * 0.18, selGlow * 0.12, 0);
-
-        // Emissive boost on selection
         if (selGlow > 0) {
-          mesh.material.emissiveIntensity = selGlow * 0.5;
+          // On selection: tilt toward camera more dramatically
+          body.rotation.set(rockX + selGlow * 0.30, selGlow * 0.15, rockZ);
+        } else {
+          body.rotation.set(rockX, 0, rockZ);
+        }
+
+        // ── Material update ──
+        const matKey = `${g.type}-${g.special || 'n'}`;
+        if (body._bjwMatKey !== matKey) {
+          body.material.dispose();
+          body.material   = makeGemMaterial(g.type, g.special);
+          body._bjwMatKey = matKey;
+        }
+        body.material.opacity = (g.special ? 0.38 : 0.90) + selGlow * 0.08;
+
+        // ── Icon overlay for power-up gems ──
+        if (g.special && icon) {
+          const imatKey = g.special;
+          if (icon._bjwMatKey !== imatKey) {
+            icon.material.dispose();
+            icon.material   = makeIconMaterial(g.special);
+            icon._bjwMatKey = imatKey;
+          }
+          icon.position.set(wx, wy, cellSize * 0.55);
+          icon.rotation.set(rockX * 0.4, 0, rockZ * 0.4);
+          icon.scale.setScalar(scale);
+          icon.material.opacity = Math.min(1, (0.80 + selGlow * 0.18) * alpha);
+          icon.visible = alpha > 0.02;
+        } else if (icon) {
+          icon.visible = false;
         }
       }
     }
@@ -396,7 +405,6 @@ export default (() => {
     if (!threeReady || !threeRenderer) return;
     syncGemMeshes(ts);
     threeRenderer.render(threeScene, threeCamera);
-    // Composite the WebGL canvas onto the 2D canvas
     ctx.drawImage(threeRenderer.domElement, 0, 0, canvas.width, canvas.height);
   }
 
@@ -1258,8 +1266,12 @@ export default (() => {
     let _tries=0;
     do { buildBoard(); _tries++; } while ((findMatches().hit.length>0||!anyValidMove())&&_tries<100);
     initBobPhases();
-    // Reset Three.js mesh material keys so gems re-skin on new game
-    Object.values(gemMeshPool).forEach(m => { m._bjwMatKey=null; });
+    initSpinPhases();
+    // Reset Three.js mesh keys so all gems re-skin on new game
+    Object.values(gemMeshPool).forEach(entry => {
+      entry.body._bjwMatKey = null;
+      if (entry.icon) entry.icon._bjwMatKey = null;
+    });
     document.getElementById('bjw-overlay').classList.remove('active');
     updateHUD(); startRaf(); startTimer();
   }
@@ -1270,6 +1282,7 @@ export default (() => {
     clearInterval(timerInterval); stopRaf();
     if (threeRenderer) {
       clearGemMeshes();
+      disposeIconTextures();
       threeRenderer.dispose();
       if (threeRenderer.domElement.parentNode)
         threeRenderer.domElement.parentNode.removeChild(threeRenderer.domElement);
