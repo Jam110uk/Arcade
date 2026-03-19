@@ -132,6 +132,45 @@
     text-align: center;
   }
 
+  /* ── Top-score arcade banner ─────────────────────────────── */
+  .hs-top-banner {
+    width: 100%;
+    max-width: 420px;
+    height: 18px;
+    overflow: hidden;
+    position: relative;
+    margin-top: 4px;
+    /* pixelated gold border */
+    border-top: 2px solid #b8860b;
+    border-bottom: 2px solid #b8860b;
+    background: rgba(0,0,0,0.55);
+    /* circle-pixel corner dots via box-shadow */
+    box-shadow:
+      -3px 0 0 #b8860b,  3px 0 0 #b8860b,
+      inset 0 1px 0 rgba(255,215,0,0.12),
+      inset 0 -1px 0 rgba(255,215,0,0.12);
+  }
+  .hs-top-banner-track {
+    display: inline-flex;
+    align-items: center;
+    gap: 0;
+    white-space: nowrap;
+    /* animation applied via JS once content is set */
+    font-family: 'Orbitron', 'Share Tech Mono', monospace;
+    font-size: 0.58rem;
+    font-weight: 700;
+    color: #ffd700;
+    text-shadow: 0 0 6px #ffd700, 0 0 12px rgba(255,215,0,0.5);
+    letter-spacing: 0.18em;
+    line-height: 14px;
+    padding-top: 1px;
+    /* pixel dots before/after via inline content */
+  }
+  @keyframes hs-banner-scroll {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+
   #room-code-display {
     position: absolute;
     right: clamp(8px, 2vw, 20px);
@@ -4657,7 +4696,6 @@
 })();
 </script>
 <link rel="modulepreload" href="./games.js">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
 <!-- PKM battle backgrounds preloaded as img tags so window.load fires on page load -->
@@ -4713,6 +4751,9 @@
 <div class="header">
   <h1 id="main-title">TOTALLY ARCADE</h1>
   <div class="subtitle" id="main-subtitle">SELECT YOUR GAME</div>
+  <div id="hs-top-banner" class="hs-top-banner" aria-hidden="true" style="display:none">
+    <div class="hs-top-banner-track" id="hs-top-banner-track"></div>
+  </div>
   <div id="room-code-display" style="display:none">
     <div style="font-size:0.7rem;color:var(--dim);letter-spacing:0.1em">ROOM CODE<span id="header-room-code">----</span></div>
     <button id="header-leave-btn" onclick="headerLeave()">🚪 LEAVE GAME</button>
@@ -4890,12 +4931,6 @@
       <span class="game-icon">🪐</span>
       <div class="game-name">ORBIT</div>
       <div class="game-desc">Launch planets into orbit — match 3 to destroy. Clear all rings to advance!</div>
-    </div>
-
-    <div class="game-card" style="--card-accent:#cc44ff" onclick="selectGame('claw')">
-      <span class="game-icon">🕹</span>
-      <div class="game-name">CLAW MACHINE</div>
-      <div class="game-desc">3D arcade claw machine — grab glowing prize orbs and plushies for points. 20 tries, aim for the high score!</div>
     </div>
 
   </div>
@@ -7500,6 +7535,51 @@ window.toggleMultiGames = function() {
   if (hint) hint.textContent = isShown ? '▲ SHOW GAMES' : '▼ HIDE GAMES';
 };
 
+// ============================================================
+// TOP-SCORE ARCADE BANNER
+// ============================================================
+let _topScoreUnsub = null;
+
+function _clearTopScoreBanner() {
+  if (_topScoreUnsub) { try { _topScoreUnsub(); } catch(e) {} _topScoreUnsub = null; }
+  const el = document.getElementById('hs-top-banner');
+  if (el) el.style.display = 'none';
+}
+
+function _updateTopScoreBanner(gameKey) {
+  _clearTopScoreBanner();
+  if (!window.HS || !window.HS.subscribeTopScore) return;
+
+  _topScoreUnsub = window.HS.subscribeTopScore(gameKey, (entry, game) => {
+    const banner  = document.getElementById('hs-top-banner');
+    const track   = document.getElementById('hs-top-banner-track');
+    if (!banner || !track) return;
+
+    if (!entry) { banner.style.display = 'none'; return; }
+
+    const unit = game ? game.unit.toUpperCase() : 'PTS';
+    const lowerBetter = game ? !!game.lowerBetter : false;
+    const scoreStr = lowerBetter ? `${entry.score}S` : entry.score.toLocaleString();
+
+    // Pixel-circle dots as separator ◆
+    const sep  = ' ◆ ';
+    const chunk = `🏆 TOP SCORE${sep}${entry.name}${sep}${scoreStr} ${unit}${sep}`;
+    // Double the content so seamless loop works
+    track.textContent = chunk + chunk;
+
+    // Reset and restart animation
+    track.style.animation = 'none';
+    // Force reflow
+    void track.offsetWidth;
+    // Calculate duration based on content length for consistent speed (~60px/s)
+    const len = track.scrollWidth / 2;
+    const dur = Math.max(6, len / 55);
+    track.style.animation = `hs-banner-scroll ${dur.toFixed(1)}s linear infinite`;
+
+    banner.style.display = 'block';
+  });
+}
+
 window.selectGame = async function(game) {
   const { GAMES, loadGame } = await import('./games.js');
   const def = GAMES[game];
@@ -7538,6 +7618,9 @@ window.selectGame = async function(game) {
   const [title, subtitle] = meta[game] || [game.toUpperCase(), ''];
   document.getElementById('main-title').textContent = title;
   document.getElementById('main-subtitle').textContent = subtitle;
+
+  // ── Top-score banner ──────────────────────────────────────
+  _updateTopScoreBanner(game);
 
   showScreen(def.screen);
   await loadGame(game);
@@ -7841,6 +7924,7 @@ window.backToGameSelect = function() {
   _safeHide('header-leave-btn');
   const mt = document.getElementById('main-title'); if (mt) mt.textContent = 'TOTALLY ARCADE';
   const ms = document.getElementById('main-subtitle'); if (ms) ms.textContent = 'SELECT YOUR GAME';
+  _clearTopScoreBanner();
   showScreen('game-select-screen');
   // Restart star field for game select
   if (window.FX && FX.startStarLoop) FX.startStarLoop();
@@ -13408,11 +13492,6 @@ window._setupMONO = function(MONOmodule) {
 <!-- STACK IT SCREEN                                              -->
 <!-- ============================================================ -->
 <div class="screen" id="stackit-screen"></div>
-
-<!-- ============================================================ -->
-<!-- CLAW MACHINE SCREEN                                          -->
-<!-- ============================================================ -->
-<div class="screen" id="claw-screen"></div>
 
 
 <script>

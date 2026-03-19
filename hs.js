@@ -217,5 +217,22 @@ export default (() => {
     });
   }
 
-  return { promptSubmit, promptSubmitOnExit, submitConfirm, submitClose, viewOpen, viewClose, tabSelect };
+  // Subscribe to top score for a given game key.
+  // Calls cb(entry | null) immediately and on every change.
+  // Returns an unsubscribe function.
+  function subscribeTopScore(key, cb) {
+    if (!window._firebaseReady) { cb(null); return () => {}; }
+    const game = GAMES.find(g => g.key === key);
+    if (!game) { cb(null); return () => {}; }
+    const r = ref(null, `highscores/${key}`);
+    const unsub = window._fbOnValue(r, snap => {
+      if (!snap.exists()) { cb(null); return; }
+      const entries = Object.values(snap.val());
+      entries.sort((a, b) => game.lowerBetter ? a.score - b.score : b.score - a.score);
+      cb(entries[0] || null, game);
+    });
+    return unsub;
+  }
+
+  return { promptSubmit, promptSubmitOnExit, submitConfirm, submitClose, viewOpen, viewClose, tabSelect, subscribeTopScore };
 })();
