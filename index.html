@@ -136,35 +136,33 @@
   .hs-top-banner {
     width: 100%;
     max-width: 420px;
-    height: 18px;
+    height: 22px;
     overflow: hidden;
     position: relative;
     margin-top: 4px;
-    /* pixelated gold border */
     border-top: 2px solid #b8860b;
     border-bottom: 2px solid #b8860b;
     background: rgba(0,0,0,0.55);
-    /* circle-pixel corner dots via box-shadow */
     box-shadow:
       -3px 0 0 #b8860b,  3px 0 0 #b8860b,
       inset 0 1px 0 rgba(255,215,0,0.12),
       inset 0 -1px 0 rgba(255,215,0,0.12);
+    display: flex;
+    align-items: center;
   }
   .hs-top-banner-track {
     display: inline-flex;
     align-items: center;
     gap: 0;
     white-space: nowrap;
-    /* animation applied via JS once content is set */
     font-family: 'Orbitron', 'Share Tech Mono', monospace;
     font-size: 0.58rem;
     font-weight: 700;
     color: #ffd700;
     text-shadow: 0 0 6px #ffd700, 0 0 12px rgba(255,215,0,0.5);
     letter-spacing: 0.18em;
-    line-height: 14px;
-    padding-top: 1px;
-    /* pixel dots before/after via inline content */
+    line-height: 1;
+    padding: 0;
   }
   @keyframes hs-banner-scroll {
     0%   { transform: translateX(0); }
@@ -4933,7 +4931,11 @@
       <div class="game-desc">Launch planets into orbit — match 3 to destroy. Clear all rings to advance!</div>
     </div>
 
-  </div>
+    <div class="game-card" style="--card-accent:#cc33ff" onclick="selectGame('claw')">
+      <span class="game-icon">🕹</span>
+      <div class="game-name">CLAW MACHINE</div>
+      <div class="game-desc">Position the claw, drop it and grab a prize — 20 tries to max your score!</div>
+    </div>
 
   <!-- MULTIPLAYER section -->
   <div class="game-select-section-label" style="margin-top:28px">MULTIPLAYER</div>
@@ -6374,7 +6376,7 @@ const GAME_SCREEN_IDS = new Set([
   'solitaire-screen','minesweeper-screen','pool-screen','scrabble-screen',
   'trivia-screen','trivia-wait-screen','connectfour-screen','zuma-screen',
   'placement-screen','hm-set-screen','poker-screen','chess-screen','guesswho-screen','guesswho-lobby-screen','pacman-screen','tron-screen','tron-lobby-screen','monopoly-screen','plinko-screen','orbit-screen',
-  'bubbleburst-screen','stackit-screen','coinpusher-screen',
+  'bubbleburst-screen','stackit-screen','coinpusher-screen','claw-screen',
 ]);
 
 function showScreen(id) {
@@ -7613,6 +7615,7 @@ window.selectGame = async function(game) {
     puzzlebobble:  ['🎯 PUZZLE BOBBLE',   'SHOOT — MATCH — CLEAR'],
     solitaire:     ['🃏 SOLITAIRE',       'CLASSIC PATIENCE'],
     minesweeper:   ['💣 MINESWEEPER',     'CLEAR THE MINEFIELD'],
+    claw:          ['🕹 CLAW MACHINE',    'GRAB — LIFT — SCORE'],
   };
 
   const [title, subtitle] = meta[game] || [game.toUpperCase(), ''];
@@ -13482,6 +13485,11 @@ window._setupMONO = function(MONOmodule) {
 </div>
 </div>
 
+
+<!-- ============================================================ -->
+<!-- CLAW MACHINE SCREEN                                         -->
+<!-- ============================================================ -->
+<div class="screen" id="claw-screen"></div>
 
 <!-- ============================================================ -->
 <!-- COIN PUSHER SCREEN                                          -->

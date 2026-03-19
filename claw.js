@@ -257,6 +257,7 @@ export default (() => {
       <div id="claw-hud">
         <div class="claw-stat"><span class="claw-stat-label">SCORE</span><span id="claw-score">0</span></div>
         <div class="claw-stat"><span class="claw-stat-label">TRIES</span><span id="claw-tries">20</span></div>
+        <button id="claw-back-btn" onclick="window.backToGameSelect()">🏠 ARCADE</button>
       </div>
       <div id="claw-prize-chart">
         <div class="claw-chart-title">🏆 PRIZE LIST</div>
@@ -275,7 +276,8 @@ export default (() => {
           <div class="claw-go-title">GAME OVER</div>
           <div class="claw-go-score">Final Score: <span id="claw-go-pts">0</span></div>
           <button onclick="window._clawSubmitHS()">🏆 Submit Score</button>
-          <button onclick="window.backToGameSelect()">🏠 Menu</button>
+          <button onclick="window._clawPlayAgain()">🔄 Play Again</button>
+          <button onclick="window.backToGameSelect()">🏠 Back to Arcade</button>
         </div>
       </div>
       <canvas id="claw-canvas"></canvas>
@@ -287,19 +289,21 @@ export default (() => {
         #claw-screen{position:relative;width:100%;height:100%;background:#080010;overflow:hidden;font-family:'Orbitron',monospace;}
         #claw-canvas{position:absolute;inset:0;width:100%!important;height:100%!important;display:block;}
         #claw-canvas.dragging{cursor:grabbing;}
-        #claw-hud{position:absolute;top:16px;left:50%;transform:translateX(-50%);display:flex;gap:28px;z-index:10;pointer-events:none;}
+        #claw-hud{position:absolute;top:12px;left:50%;transform:translateX(-50%);display:flex;gap:16px;align-items:center;z-index:10;pointer-events:none;}
+        #claw-back-btn{pointer-events:all;background:rgba(0,0,0,0.65);border:1px solid rgba(200,80,255,0.45);border-radius:8px;padding:8px 14px;color:#cc88ff;font-family:'Orbitron',monospace;font-size:10px;letter-spacing:2px;cursor:pointer;transition:all 0.2s;backdrop-filter:blur(4px);}
+        #claw-back-btn:hover{background:rgba(200,80,255,0.22);border-color:rgba(200,80,255,0.9);color:#fff;}
         .claw-stat{background:rgba(0,0,0,0.65);border:1px solid rgba(200,80,255,0.45);border-radius:8px;padding:8px 22px;text-align:center;backdrop-filter:blur(4px);}
         .claw-stat-label{display:block;font-size:9px;letter-spacing:3px;color:#aa55ff;margin-bottom:2px;}
-        #claw-score,#claw-tries{font-size:26px;font-weight:900;color:#fff;text-shadow:0 0 14px #cc33ff;}
-        #claw-prize-chart{position:fixed;left:10px;top:50%;transform:translateY(-50%);background:rgba(0,0,0,0.75);border:1px solid rgba(200,80,255,0.35);border-radius:10px;padding:10px 12px;z-index:9999;pointer-events:none;backdrop-filter:blur(5px);max-width:170px;max-height:90vh;overflow:hidden;}
-        .claw-chart-title{font-size:9px;letter-spacing:2px;color:#cc66ff;margin-bottom:8px;text-align:center;}
-        .claw-chart-row{display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:10px;color:#ddd;}
-        .claw-chart-emoji{font-size:14px;width:20px;text-align:center;}
-        .claw-chart-label{flex:1;font-size:9px;color:#bbb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-        .claw-chart-pts{font-size:10px;font-weight:700;color:#ffdd44;min-width:32px;text-align:right;}
-        .claw-chart-bar{height:3px;background:rgba(255,200,50,0.25);border-radius:2px;margin-top:1px;}
-        .claw-chart-bar-fill{height:3px;border-radius:2px;background:linear-gradient(90deg,#cc33ff,#ffdd44);}
-        #claw-prize-toast{position:absolute;top:88px;left:50%;transform:translateX(-50%);z-index:20;pointer-events:none;}
+        #claw-score,#claw-tries{display:block;font-size:28px;font-weight:900;color:#fff;text-shadow:0 0 14px #cc33ff;line-height:1.1;min-width:48px;}
+        #claw-prize-chart{position:fixed;left:10px;top:50%;transform:translateY(-50%);background:rgba(0,0,0,0.80);border:1px solid rgba(200,80,255,0.35);border-radius:12px;padding:14px 16px;z-index:9999;pointer-events:none;backdrop-filter:blur(5px);width:300px;max-height:90vh;overflow:hidden;}
+        .claw-chart-title{font-size:12px;letter-spacing:3px;color:#cc66ff;margin-bottom:10px;text-align:center;}
+        .claw-chart-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:13px;color:#ddd;}
+        .claw-chart-emoji{font-size:20px;width:26px;text-align:center;}
+        .claw-chart-label{flex:1;font-size:11px;color:#bbb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+        .claw-chart-pts{font-size:13px;font-weight:700;color:#ffdd44;min-width:38px;text-align:right;}
+        .claw-chart-bar{height:5px;background:rgba(255,200,50,0.20);border-radius:3px;margin-top:2px;}
+        .claw-chart-bar-fill{height:5px;border-radius:3px;background:linear-gradient(90deg,#cc33ff,#ffdd44);}
+        #claw-prize-toast{position:absolute;top:92px;left:50%;transform:translateX(-50%);z-index:20;pointer-events:none;}
         .claw-toast{background:rgba(0,0,0,0.85);border:1px solid rgba(255,200,40,0.7);border-radius:10px;padding:10px 26px;color:#ffe040;font-size:15px;font-weight:700;letter-spacing:2px;text-align:center;margin-bottom:6px;animation:ct-in 0.3s ease,ct-out 0.4s ease 1.8s forwards;white-space:nowrap;}
         @keyframes ct-in{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
         @keyframes ct-out{from{opacity:1}to{opacity:0;transform:translateY(-10px)}}
@@ -374,6 +378,20 @@ export default (() => {
     _playTone(220, 'sawtooth', 0.6, 0.2, 0.01, 0.55);
     window._clawSubmitHS = () => {
       if (window.HS) window.HS.promptSubmit('claw', score, `${score} pts`);
+    };
+    window._clawPlayAgain = () => {
+      // Tear down and reinitialise in place
+      _unbindEvents();
+      _stopMoveSound();
+      if (animId) { cancelAnimationFrame(animId); animId = null; }
+      if (renderer) { renderer.dispose(); renderer = null; }
+      scene = null; world = null;
+      prizes = []; meshBodies = [];
+      clawGroup = null; clawWire = null; clawFingers = [];
+      grabbed = null; clawBody = null; movingSoundNode = null;
+      tries = 20; score = 0; gameState = 'idle';
+      swayAngleX = 0; swayAngleZ = 0; swayVelX = 0; swayVelZ = 0;
+      init();
     };
   }
 
@@ -721,25 +739,27 @@ export default (() => {
       emissive:    new THREE.Color(def.glow),
       emissiveIntensity: 0.20,
       transparent: true,
-      opacity:     0.58,
+      opacity:     0.72,
       shininess:   130,
       specular:    new THREE.Color(0xffffff),
       side:        THREE.FrontSide,
-      depthWrite:  false,
+      depthWrite:  true,
     });
+    mat.renderOrder = 0;
 
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(def.radius, 28, 28), mat);
     mesh.castShadow = true;
+    mesh.renderOrder = 0;
     mesh.position.set(x, y, z);
     scene.add(mesh);
 
-    // Emoji billboard
+    // Emoji billboard — rendered inside the sphere, clipped by depth
     const emojiTex = _makeEmojiTexture(def.emoji);
     const emojiPlane = new THREE.Mesh(
-      new THREE.PlaneGeometry(def.radius * 1.85, def.radius * 1.85),
-      new THREE.MeshBasicMaterial({ map:emojiTex, transparent:true, side:THREE.DoubleSide, depthWrite:false })
+      new THREE.PlaneGeometry(def.radius * 1.55, def.radius * 1.55),
+      new THREE.MeshBasicMaterial({ map:emojiTex, transparent:true, side:THREE.DoubleSide, depthWrite:false, depthTest:true })
     );
-    emojiPlane.renderOrder = 3;
+    emojiPlane.renderOrder = 1;
     mesh.add(emojiPlane);
 
     // Glow halo
@@ -1181,8 +1201,8 @@ export default (() => {
     prizes.forEach(p => {
       if (p.emojiPlane) p.emojiPlane.lookAt(camera.position);
       if (!p.scored) {
-        p.mesh.material.emissive = new THREE.Color(p.def.glow);
-        p.mesh.material.emissiveIntensity = 0.16 + 0.13 * Math.sin(now * 0.0017 + p.mesh.position.x * 3.2);
+        const intensity = 0.16 + 0.13 * Math.sin(now * 0.0017 + p.mesh.position.x * 3.2);
+        p.mesh.material.emissiveIntensity = intensity;
       }
     });
   }
