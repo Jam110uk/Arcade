@@ -3,8 +3,8 @@
 // Three.js r128 + Cannon-es physics
 // ============================================================
 
-// Import Three.js from the local repo file — same source coinpusher and other 3D games use
-import * as THREE from './three_module_min.js';
+// Import Three.js as ES module from jsdelivr (same CDN used for cannon-es)
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.module.js';
 
 export default (() => {
 

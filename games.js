@@ -21,7 +21,7 @@ export const GAMES = {
   wordle:       { label: '📝 Wordle',          module: './wrd.js',    screen: 'wordle-screen',        global: 'WRD',   init: m => m.init() },
   tetris:       { label: '🧱 Tetris',          module: './tet.js',    screen: 'tetris-screen',        global: 'TET',   init: () => window.tetInit?.() },
   minesweeper:  { label: '💣 Minesweeper',     script: './minesweeper.js', screen: 'minesweeper-screen',  init: () => window.msInit?.() },
-  solitaire:    { label: '🃏 Solitaire',       script: './solitaire.js',   screen: 'solitaire-screen',    init: () => window.solNewGame?.() },
+  solitaire:    { label: '🃏 Solitaire',       script: './solitaire.js',   screen: 'solitaire-screen',    init: () => setTimeout(() => window.solNewGame?.(), 200) },
   bubblebreaker:{ label: '🫧 Bubble Breaker',  module: './bb.js',     screen: 'bubblebreaker-screen', global: 'BB',    init: m => m.newGame?.() },
   puzzlebobble: { label: '🎯 Puzzle Bobble',   module: './pb.js',     screen: 'puzzlebobble-screen',  global: 'PB',    init: m => m.newGame?.() },
   zuma:         { label: '🔴 Zuma',            module: './zm.js',     screen: 'zuma-screen',          global: 'ZM',    init: m => m.init() },
@@ -80,9 +80,9 @@ export async function loadGame(gameKey) {
   if (def.script) {
     try {
       await loadScript(def.script);
-      // Defer init by one tick so the script's non-hoisted function expressions
-      // (const/let/arrow) are fully initialised before we call into them
-      await new Promise(r => setTimeout(r, 0));
+      // Wait 50ms so non-hoisted declarations (const/let/arrow) in the script
+      // are fully initialised before we call into them
+      await new Promise(r => setTimeout(r, 50));
       def.init(null);
     } catch (err) {
       console.error(`[games] Failed to load script ${gameKey}:`, err);
