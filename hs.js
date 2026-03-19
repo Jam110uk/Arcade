@@ -23,7 +23,7 @@ export default (() => {
     { key: 'poker',        label: 'POKER',          unit: 'chips' },
     { key: 'chess',        label: 'CHESS',          unit: 'wins' },
     { key: 'tron',         label: 'TRON',           unit: 'wins' },
-    { key: 'stackit',      label: 'STACK IT',       unit: 'pts',  extraKey: 'rows', extraLabel: 'ROWS' },
+    { key: 'stackit',      label: 'STACK IT',       unit: 'pts', extraKey: 'rows', extraLabel: 'ROWS' },
   ];
 
   let pendingGame  = null;
