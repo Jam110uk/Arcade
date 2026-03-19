@@ -631,8 +631,6 @@ export default (() => {
     coinBodies.push(obj);
     return obj;
   }
-    return obj;
-  }
 
   // ── Drop a coin from the chute ─────────────────────────────────
   function dropCoin() {
