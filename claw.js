@@ -42,8 +42,8 @@ export default (() => {
   let swayVelX   = 0;    // angular velocity X
   let swayVelZ   = 0;    // angular velocity Z
   const SWAY_DAMPING = 0.92;   // per-frame damping (< 1 = decay)
-  const SWAY_SPRING  = 18.0;   // spring constant (restoring force)
-  const SWAY_DRIVE   = 0.55;   // how hard movement kicks the sway
+  const SWAY_SPRING  = 14.0;   // spring constant (softer = slower settle)
+  const SWAY_DRIVE   = 1.8;    // how hard movement kicks the sway
 
   // Two-tier heights
   const PLAY_FLOOR_Y  = -1.2;  // lower tier — balls live here
@@ -220,15 +220,15 @@ export default (() => {
     movingSoundNode = null;
   }
 
-  // Drop whir (descending pitch)
+  // Drop whir (descending pitch) — softened
   function _playDrop() {
     const ac = _getAudio(); if (!ac) return;
     const o = ac.createOscillator();
     const g = ac.createGain();
     o.type = 'sawtooth';
-    o.frequency.setValueAtTime(800, ac.currentTime);
-    o.frequency.exponentialRampToValueAtTime(300, ac.currentTime + 0.5);
-    g.gain.setValueAtTime(0.08, ac.currentTime);
+    o.frequency.setValueAtTime(600, ac.currentTime);
+    o.frequency.exponentialRampToValueAtTime(220, ac.currentTime + 0.5);
+    g.gain.setValueAtTime(0.03, ac.currentTime);
     g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.55);
     o.connect(g); g.connect(ac.destination);
     o.start(); o.stop(ac.currentTime + 0.6);
@@ -430,7 +430,7 @@ export default (() => {
     if (pts) pts.textContent = score;
     _playTone(220, 'sawtooth', 0.6, 0.2, 0.01, 0.55);
     window._clawSubmitHS = () => {
-      if (window.HS) window.HS.promptSubmit('claw', score, `${score} pts`);
+      if (window.HS) window.HS.promptSubmitOnExit('claw', score, `${score} pts`, null);
     };
     window._clawPlayAgain = () => {
       // Tear down and reinitialise in place
@@ -673,41 +673,33 @@ export default (() => {
     rail.position.set(0, RAIL_Y, 0); scene.add(rail);
 
     // ── Neon sign with "THE CLAW" text on front face ──────────
-    // Build a canvas texture for the front face
     const signCanvas = document.createElement('canvas');
-    signCanvas.width = 512; signCanvas.height = 128;
+    signCanvas.width = 1024; signCanvas.height = 128;
     const signCtx = signCanvas.getContext('2d');
-    // Background — hot pink matching the sign body
     signCtx.fillStyle = '#ff33aa';
-    signCtx.fillRect(0, 0, 512, 128);
-    // Outer glow pass
+    signCtx.fillRect(0, 0, 1024, 128);
+    // Glow pass
     signCtx.shadowColor = '#ffffff';
-    signCtx.shadowBlur = 18;
+    signCtx.shadowBlur = 22;
     signCtx.fillStyle = '#ffffff';
-    signCtx.font = 'bold 84px "Arial Black", Impact, sans-serif';
+    signCtx.font = 'bold 82px "Arial Black", Impact, sans-serif';
     signCtx.textAlign = 'center';
     signCtx.textBaseline = 'middle';
-    signCtx.letterSpacing = '8px';
-    signCtx.fillText('THE CLAW', 256, 64);
-    // Second pass — bright white crisp
+    signCtx.fillText('THE CLAW', 512, 66);
+    // Crisp pass
     signCtx.shadowBlur = 0;
     signCtx.fillStyle = '#fff0ff';
-    signCtx.fillText('THE CLAW', 256, 64);
+    signCtx.fillText('THE CLAW', 512, 66);
     const signTex = new THREE.CanvasTexture(signCanvas);
 
-    // Sign body — 6 faces: front gets text texture, others get plain pink material
-    // Use a group with two meshes: the box body + a front-face plane
     const signBodyMat = new THREE.MeshStandardMaterial({ color:0xff33aa, emissive:0xff33aa, emissiveIntensity:2.4, roughness:0.1, metalness:0.6 });
     const sign = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.33, 0.09), signBodyMat);
     sign.position.set(0, MACHINE.h/2+0.40, MACHINE.d/2-0.05);
     scene.add(sign);
-
-    // Front face overlay — plane sitting just in front of the sign with the text
     const signFaceMat = new THREE.MeshBasicMaterial({ map: signTex, transparent: false });
     const signFace = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 0.33), signFaceMat);
     signFace.position.set(0, MACHINE.h/2+0.40, MACHINE.d/2-0.05 + 0.051);
     scene.add(signFace);
-
     const sl = new THREE.PointLight(0xff33aa, 2.8, 5);
     sl.position.set(0, MACHINE.h/2+0.40, MACHINE.d/2-0.05);
     scene.add(sl);
@@ -846,18 +838,20 @@ export default (() => {
 
   // ── Prizes ─────────────────────────────────────────────────
   function _spawnPrizes() {
-    for (let i = 0; i < 36; i++) _spawnOnePrize(PRIZE_DEFS[i % PRIZE_DEFS.length]);
+    for (let i = 0; i < 46; i++) _spawnOnePrize(PRIZE_DEFS[i % PRIZE_DEFS.length]);
   }
 
   function _spawnOnePrize(def) {
     const hw = MACHINE.w/2 - 0.42;
     const hd = MACHINE.d/2 - 0.42;
-    // Keep prizes away from the shelf corner
-    let x, z;
+    // Keep prizes fully clear of the shelf + chute area (+X,+Z corner)
+    // Shelf occupies x > hw-SHELF_W and z > hd-SHELF_D
+    let x, z, attempts = 0;
     do {
       x = (Math.random()-0.5) * hw * 2;
       z = (Math.random()-0.5) * hd * 2;
-    } while (x > hw - SHELF_W + 0.3 && z > hd - SHELF_D + 0.3);
+      attempts++;
+    } while (attempts < 50 && (x > hw - SHELF_W - 0.1 && z > hd - SHELF_D - 0.1));
 
     const y = PLAY_FLOOR_Y + def.radius + 0.25 + Math.random() * 1.1;
 
@@ -998,7 +992,7 @@ export default (() => {
     swayVelX += (Math.random() - 0.5) * 0.18;
     swayVelZ += (Math.random() - 0.5) * 0.18;
     _playDrop();
-    _playTone(440, 'square', 0.10, 0.12, 0.01, 0.08);
+    _playTone(440, 'square', 0.10, 0.04, 0.01, 0.08);
   }
 
   // ── Game loop ──────────────────────────────────────────────
@@ -1037,15 +1031,18 @@ export default (() => {
     swayAngleX += swayVelX * dt;
     swayAngleZ += swayVelZ * dt;
     // Clamp to avoid wild oscillations
-    const MAX_SWAY = 0.18;
+    const MAX_SWAY = 0.38;
     swayAngleX = Math.max(-MAX_SWAY, Math.min(MAX_SWAY, swayAngleX));
     swayAngleZ = Math.max(-MAX_SWAY, Math.min(MAX_SWAY, swayAngleZ));
     // When idle just moving the claw, keep calling _updateClawPose so sway is visible
     _updateClawPose();
   }
 
+  let _lastMoveX = 0, _lastMoveZ = 0; // track previous movement direction
+
   function _handleMovement(dt) {
-    if (gameState !== 'idle') return;
+    if (gameState !== 'idle' && gameState !== 'swaying') return;
+    if (gameState === 'swaying') return; // sway state handles itself
 
     const speed = 1.55;
     const hw = MACHINE.w/2 - 0.22;
@@ -1073,12 +1070,21 @@ export default (() => {
       clawZ += vz * dt;
       clawX = Math.max(-hw, Math.min(hw, clawX));
       clawZ = Math.max(-hd, Math.min(hd, clawZ));
-      // Movement kicks the sway in the direction of travel (trailing lag)
+      // Direction change detection — big sway kick when reversing
+      const dot = _lastMoveX * (mx/len) + _lastMoveZ * (mz/len);
+      if (wasMoving && dot < -0.3) {
+        // Sharp direction reversal — extra impulse
+        swayVelX -= vx * 2.2 * dt;
+        swayVelZ -= vz * 2.2 * dt;
+      }
+      // Normal movement trailing sway
       swayVelX -= vx * SWAY_DRIVE * dt;
       swayVelZ -= vz * SWAY_DRIVE * dt;
+      _lastMoveX = mx/len; _lastMoveZ = mz/len;
       if (!wasMoving) _startMoveSound();
     } else {
       if (wasMoving) _stopMoveSound();
+      _lastMoveX = 0; _lastMoveZ = 0;
     }
     wasMoving = isMoving;
   }
@@ -1163,8 +1169,11 @@ export default (() => {
         if (grabbed) {
           const hubY = CLAW_REST_Y - dropY;
           const tipY = hubY - 0.68;
-          grabbed.mesh.position.set(clawX, tipY, clawZ);
-          grabbed.body.position.set(clawX, tipY, clawZ);
+          // Ball swings with claw sway — offset by sway angles scaled by wire length
+          const swayOffX = swayAngleX * (RAIL_Y - hubY);
+          const swayOffZ = swayAngleZ * (RAIL_Y - hubY);
+          grabbed.mesh.position.set(clawX + swayOffX, tipY, clawZ + swayOffZ);
+          grabbed.body.position.set(clawX + swayOffX, tipY, clawZ + swayOffZ);
           grabbed.body.velocity.set(0,0,0);
           grabbed.body.angularVelocity.set(0,0,0);
         }
@@ -1192,12 +1201,14 @@ export default (() => {
 
     else if (gameState === 'swaying') {
       dropTimer += dt;
-      // Keep ball locked to claw tip while swaying
+      // Ball swings with claw sway during the pause
       if (grabbed) {
         const hubY = CLAW_REST_Y;
         const tipY = hubY - 0.68;
-        grabbed.mesh.position.set(clawX, tipY, clawZ);
-        grabbed.body.position.set(clawX, tipY, clawZ);
+        const swayOffX = swayAngleX * (RAIL_Y - hubY);
+        const swayOffZ = swayAngleZ * (RAIL_Y - hubY);
+        grabbed.mesh.position.set(clawX + swayOffX, tipY, clawZ + swayOffZ);
+        grabbed.body.position.set(clawX + swayOffX, tipY, clawZ + swayOffZ);
         grabbed.body.velocity.set(0,0,0);
         grabbed.body.angularVelocity.set(0,0,0);
       }
@@ -1264,8 +1275,10 @@ export default (() => {
       if (grabbed) {
         const hubY = CLAW_REST_Y;
         const tipY = hubY - 0.68;
-        grabbed.mesh.position.set(clawX, tipY, clawZ);
-        grabbed.body.position.set(clawX, tipY, clawZ);
+        const swayOffX = swayAngleX * (RAIL_Y - hubY);
+        const swayOffZ = swayAngleZ * (RAIL_Y - hubY);
+        grabbed.mesh.position.set(clawX + swayOffX, tipY, clawZ + swayOffZ);
+        grabbed.body.position.set(clawX + swayOffX, tipY, clawZ + swayOffZ);
         grabbed.body.velocity.set(0,0,0);
         grabbed.body.angularVelocity.set(0,0,0);
       }

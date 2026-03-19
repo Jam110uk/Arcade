@@ -107,7 +107,8 @@ export default (() => {
 
     try {
       const path = `highscores/${pendingGame}`;
-      const snap = await get(ref(null, path));
+      const dbRef = window._fbRef(path);
+      const snap = await window._fbGet(dbRef);
       const existing = snap.exists() ? snap.val() : {};
 
       // Keep top 20 entries
@@ -119,7 +120,7 @@ export default (() => {
       const obj = {};
       top20.forEach((e, i) => { obj[i] = e; });
 
-      await set(ref(null, path), obj);
+      await window._fbSet(window._fbRef(path), obj);
 
       // Save new personal best
       const pbKey = `hs-pb-${pendingGame}`;
@@ -180,7 +181,7 @@ export default (() => {
       return;
     }
 
-    const r = ref(null, `highscores/${key}`);
+    const r = window._fbRef(`highscores/${key}`);
     viewUnsub = window._fbOnValue(r, snap => {
       const game = GAMES.find(g => g.key === key);
       if (!snap.exists()) {
@@ -224,7 +225,7 @@ export default (() => {
     if (!window._firebaseReady) { cb(null); return () => {}; }
     const game = GAMES.find(g => g.key === key);
     if (!game) { cb(null); return () => {}; }
-    const r = ref(null, `highscores/${key}`);
+    const r = window._fbRef(`highscores/${key}`);
     const unsub = window._fbOnValue(r, snap => {
       if (!snap.exists()) { cb(null); return; }
       const entries = Object.values(snap.val());
