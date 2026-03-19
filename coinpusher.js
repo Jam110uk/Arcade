@@ -22,36 +22,34 @@ export default (() => {
   const MD         = 5.0;    // machine depth — deeper for proper coin pusher feel
   const MH         = 9.5;    // machine total height
   const WT         = 0.15;   // wall thickness
-
-  // Both shelves span the full usable cabinet depth
   const SHELF_D    = MD - WT * 2 - 0.1;   // 4.60 — full usable depth
+  const BACK_WALL_Z = -MD/2 + WT;          // -2.35
 
-  // Upper and lower shelves are identical depth, centred in the cabinet
-  const UPPER_SHELF_D = SHELF_D;
-  const UPPER_SHELF_Z = -MD/2 + UPPER_SHELF_D/2 + WT;   // = -0.05 (centred)
+  // Upper shelf: 55% of cabinet depth, anchored to back wall.
+  // Coins fall off its front lip onto the exposed front portion of the lower shelf.
+  const UPPER_SHELF_D = SHELF_D * 0.55;
+  const UPPER_SHELF_Z = BACK_WALL_Z + UPPER_SHELF_D/2;   // anchored to back wall
+
+  // Lower shelf: full cabinet depth.
   const LOWER_SHELF_D = SHELF_D;
-  const LOWER_SHELF_Z = UPPER_SHELF_Z;
+  const LOWER_SHELF_Z = BACK_WALL_Z + LOWER_SHELF_D/2;   // = centre of full depth
 
-  // Back wall inner face
-  const BACK_WALL_Z = -MD/2 + WT;   // = -2.35
-
-  // Tray: sits at floor level flush with the front wall
-  const TRAY_DEPTH    = MD * 0.18;   // 0.90
-  const TRAY_Z        = MD/2 - TRAY_DEPTH/2;   // centred near front wall
+  // Tray sits flush at the front of the machine
+  const TRAY_DEPTH    = MD * 0.18;
+  const TRAY_Z        = MD/2 - TRAY_DEPTH/2;
   const TRAY_FRONT_Z  = MD/2;
 
-  // Pusher plates — FULL shelf depth solid platforms.
-  // At rest the pusher sits fully behind the back wall (hidden).
-  // It travels 65% of shelf depth forward before reversing.
-  const U_PUSH_FULLD = SHELF_D;
+  // Upper pusher: matches upper shelf depth, travels 65% forward
+  const U_PUSH_FULLD = UPPER_SHELF_D;
   const U_PUSH_HD    = U_PUSH_FULLD / 2;
-  const U_PUSH_BACK  = BACK_WALL_Z - U_PUSH_HD;          // fully behind back wall at rest
-  const U_PUSH_FRONT = U_PUSH_BACK + SHELF_D * 0.65;     // travels 65% forward
+  const U_PUSH_BACK  = BACK_WALL_Z - U_PUSH_HD;
+  const U_PUSH_FRONT = U_PUSH_BACK + UPPER_SHELF_D * 0.65;
 
-  const L_PUSH_FULLD = SHELF_D;
+  // Lower pusher: matches lower shelf depth, travels 65% forward
+  const L_PUSH_FULLD = LOWER_SHELF_D;
   const L_PUSH_HD    = L_PUSH_FULLD / 2;
   const L_PUSH_BACK  = BACK_WALL_Z - L_PUSH_HD;
-  const L_PUSH_FRONT = L_PUSH_BACK + SHELF_D * 0.65;
+  const L_PUSH_FRONT = L_PUSH_BACK + LOWER_SHELF_D * 0.65;
 
   // Vertical layout (Y from machine bottom = 0)
   const TRAY_FLOOR  = 0.08;
