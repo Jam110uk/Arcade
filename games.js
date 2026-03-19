@@ -11,7 +11,7 @@ export const GAMES = {
   wordle:       { label: '📝 Wordle',          module: './wrd.js',    screen: 'wordle-screen',       init: m => m.init() },
   tetris:       { label: '🧱 Tetris',          module: './tet.js',    screen: 'tetris-screen',       init: () => window.tetInit?.() },
   minesweeper:  { label: '💣 Minesweeper',     module: null,          screen: 'minesweeper-screen',  init: () => {} },
-  solitaire:    { label: '🃏 Solitaire',       module: null,          screen: 'solitaire-screen',    init: () => {} },
+  solitaire:    { label: '🃏 Solitaire',       module: null,          screen: 'solitaire-screen',    init: () => window.solNewGame?.() },
   bubblebreaker:{ label: '🫧 Bubble Breaker',  module: './bb.js',     screen: 'bubblebreaker-screen',init: m => m.newGame?.() },
   puzzlebobble: { label: '🎯 Puzzle Bobble',   module: './pb.js',     screen: 'puzzlebobble-screen', init: m => m.newGame?.() },
   zuma:         { label: '🔴 Zuma',            module: './zm.js',     screen: 'zuma-screen',         init: m => m.init() },
@@ -21,8 +21,8 @@ export const GAMES = {
   bejeweled:    { label: '💎 Bejeweled',        module: './bjw.js',    screen: 'bejeweled-screen',    init: m => m.init() },
   monopoly:     { label: '🏦 Monopoly',         module: './mono.js',   screen: 'monopoly-screen',     init: m => m.init() },
   plinko:       { label: '🪙 Plinko',           module: './plinko.js', screen: 'plinko-screen',       init: m => m.init() },
-  orbit:        { label: '🪐 Orbit',            module: './orbit.js',  screen: 'orbit-screen',        init: m => m.init() },
-  claw:         { label: '🕹 Claw Machine',     module: './claw.js',   screen: 'claw-screen',         init: m => m.init() },
+  orbit:        { label: '🪐 Orbit',            module: './orbit.js',  screen: 'orbit-screen',        init: m => requestAnimationFrame(() => m.init()) },
+  claw:         { label: '🕹 Claw Machine',     module: './claw.js',   screen: 'claw-screen',         init: m => requestAnimationFrame(() => m.init()) },
 
   // ── VS AI games ────────────────────────────────────────────
   poker:        { label: '🃏 Poker',            module: './pkr.js',    screen: 'poker-screen',        init: m => m.initSolo() },
