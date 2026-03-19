@@ -6153,6 +6153,16 @@ function remove(r)    { return window._fbRemove(r); }
 function onValue(r, cb) { return window._fbOnValue(r, cb); }
 function push(r, v)   { return window._fbPush(r, v); }
 function onDisconnect(r) { return window._fbOnDisconnect(r); }
+// Explicitly assign to window so ES modules (hs.js etc.) can access as bare globals
+window.ref = ref;
+window.set = set;
+window.get = get;
+window.update = update;
+window.remove = remove;
+window.onValue = onValue;
+window.push = push;
+function push(r, v)   { return window._fbPush(r, v); }
+function onDisconnect(r) { return window._fbOnDisconnect(r); }
 // db placeholder - passed to ref() but ignored (path goes via _fbRef)
 const db = {};
 

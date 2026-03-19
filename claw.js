@@ -455,8 +455,7 @@ export default (() => {
     canvasEl = document.getElementById('claw-canvas');
     renderer = new THREE.WebGLRenderer({ canvas: canvasEl, antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.enabled = false;
     renderer.setClearColor(0x060010);
 
     scene = new THREE.Scene();
@@ -467,8 +466,7 @@ export default (() => {
 
     scene.add(new THREE.AmbientLight(0x332244, 2.2));
     const spot = new THREE.SpotLight(0xffffff, 5.0, 18, Math.PI / 4, 0.25);
-    spot.position.set(0, 7, 0); spot.castShadow = true;
-    spot.shadow.mapSize.set(1024, 1024); scene.add(spot);
+    spot.position.set(0, 7, 0); scene.add(spot);
 
     const pL = new THREE.PointLight(0xff55ff, 2.2, 14);
     pL.position.set(-2.5, 1, -2); scene.add(pL);
@@ -509,7 +507,7 @@ export default (() => {
   function _initPhysics() {
     world = new C.World({ gravity: new C.Vec3(0, -9.82, 0) });
     world.broadphase = new C.NaiveBroadphase();
-    world.solver.iterations = 14;
+    world.solver.iterations = 8;
     world.defaultContactMaterial.friction = 0.38;
     world.defaultContactMaterial.restitution = 0.20;
   }
@@ -530,7 +528,6 @@ export default (() => {
     // ── Lower play-area floor ──────────────────────────────
     const playFloor = new THREE.Mesh(new THREE.BoxGeometry(MACHINE.w, 0.08, MACHINE.d), floorMat);
     playFloor.position.y = PLAY_FLOOR_Y - 0.04;
-    playFloor.receiveShadow = true;
     scene.add(playFloor);
 
     const floorBody = new C.Body({ mass:0, shape: new C.Plane() });
@@ -870,8 +867,7 @@ export default (() => {
       depthWrite:  false,
     });
 
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(def.radius, 28, 28), mat);
-    mesh.castShadow = true;
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(def.radius, 14, 14), mat);
     mesh.position.set(x, y, z);
     scene.add(mesh);
 
@@ -886,7 +882,7 @@ export default (() => {
 
     // Glow halo
     const halo = new THREE.Mesh(
-      new THREE.SphereGeometry(def.radius * 1.30, 14, 14),
+      new THREE.SphereGeometry(def.radius * 1.30, 8, 8),
       new THREE.MeshBasicMaterial({ color:def.glow, transparent:true, opacity:0.10, side:THREE.BackSide, depthWrite:false })
     );
     mesh.add(halo);
