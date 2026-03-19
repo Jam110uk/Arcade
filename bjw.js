@@ -6,9 +6,10 @@ export default (() => {
 
   const COLS = 8, ROWS = 8;
   const GEM_TYPES = 7;
-  const GEM_COLORS = ['#ff1744','#2979ff','#00e676','#ffd600','#d500f9','#ff6d00','#00e5ff'];
-  const GEM_DARK   = ['#7f0000','#0039cb','#00600a','#c79a00','#6200a8','#bf360c','#006064'];
-  const GEM_LIGHT  = ['#ff8a80','#82b1ff','#b9f6ca','#ffff8d','#ea80fc','#ffab40','#84ffff'];
+  // 7 perceptually distinct gem colours — Red · Blue · Green · Yellow · Purple · Hot-pink · White-ice
+  const GEM_COLORS = ['#ff1744','#2979ff','#00e676','#ffd600','#d500f9','#f50057','#e0f7fa'];
+  const GEM_DARK   = ['#7f0000','#0039cb','#00600a','#c79a00','#6200a8','#880034','#80cbc4'];
+  const GEM_LIGHT  = ['#ff8a80','#82b1ff','#b9f6ca','#ffff8d','#ea80fc','#ff80ab','#ffffff'];
 
   let canvas, ctx, cellSize = 60;
   let gems = [];
@@ -55,9 +56,9 @@ export default (() => {
   let orbitLight   = null;   // moving point light for glint sweeps
   let threeReady   = false;
 
-  // ── Spin phases — each gem rocks independently on X axis ──────
-  let spinPhases = [];   // [r][c] = random 0..2π
-  let spinSpeeds = [];   // [r][c] = radians/ms
+  // Per-gem spin phases (horizontal-axis rock)
+  let spinPhases = [];
+  let spinSpeeds = [];
   function initSpinPhases() {
     spinPhases = Array.from({length:ROWS}, () =>
       Array.from({length:COLS}, () => Math.random() * Math.PI * 2));
@@ -65,45 +66,53 @@ export default (() => {
       Array.from({length:COLS}, () => 0.00055 + Math.random() * 0.00045));
   }
 
-  // ── Icon textures for power-up gems ──────────────────────────
-  // We bake each icon once per cellSize into a CanvasTexture.
-  let iconTextures = {};   // key: special → THREE.CanvasTexture
+  // ── Icon textures for power-up gems (emoji on CanvasTexture) ──
+  let iconTextures = {};
   const SPECIAL_ICONS = { flame:'🔥', star:'⭐', supernova:'💫', hyper:'💣' };
-  const SPECIAL_ICON_COLORS = {
-    flame:    '#ff9900',
-    star:     '#ffe066',
-    supernova:'#cc88ff',
-    hyper:    '#88ddff',
-  };
 
-  function buildIconTexture(special) {
-    const sz = Math.max(64, cellSize * 1.2) | 0;
-    const cv = document.createElement('canvas');
-    cv.width = cv.height = sz;
+  // Convert 6-char hex string to r,g,b integers safely
+  function hexToRgb(hex) {
+    const h = hex.replace('#','');
+    return {
+      r: parseInt(h.substring(0,2), 16),
+      g: parseInt(h.substring(2,4), 16),
+      b: parseInt(h.substring(4,6), 16),
+    };
+  }
+
+  function buildIconTexture(special, gemType) {
+    const sz  = Math.max(64, cellSize * 1.4) | 0;
+    const cv  = document.createElement('canvas');
+    cv.width  = cv.height = sz;
     const cx2 = cv.getContext('2d');
-    // Glow
-    const grd = cx2.createRadialGradient(sz/2,sz/2,0, sz/2,sz/2,sz*0.44);
-    const col = SPECIAL_ICON_COLORS[special] || '#ffffff';
-    grd.addColorStop(0,   col.replace('#','rgba(').replace(/(..)(..)(..)/, (m,r,g,b) =>
-      `${parseInt(r,16)},${parseInt(g,16)},${parseInt(b,16)}`) + ',0.38)');
-    grd.addColorStop(1,   'rgba(0,0,0,0)');
+
+    // Glow ring — use the gem's own colour, parsed safely
+    const hexCol = GEM_COLORS[gemType] || '#ffffff';
+    const {r,g,b} = hexToRgb(hexCol);
+    const grd = cx2.createRadialGradient(sz/2, sz/2, 0, sz/2, sz/2, sz * 0.48);
+    grd.addColorStop(0,   `rgba(${r},${g},${b},0.45)`);
+    grd.addColorStop(0.6, `rgba(${r},${g},${b},0.12)`);
+    grd.addColorStop(1,   `rgba(${r},${g},${b},0)`);
     cx2.fillStyle = grd;
     cx2.fillRect(0, 0, sz, sz);
-    // Emoji icon
+
+    // Emoji icon centred
     cx2.textAlign    = 'center';
     cx2.textBaseline = 'middle';
-    cx2.font         = `${(sz * 0.52)|0}px serif`;
-    cx2.shadowColor  = col;
-    cx2.shadowBlur   = sz * 0.18;
-    cx2.fillText(SPECIAL_ICONS[special] || '?', sz/2, sz/2);
+    cx2.font         = `${(sz * 0.54)|0}px serif`;
+    cx2.shadowColor  = `rgba(${r},${g},${b},0.9)`;
+    cx2.shadowBlur   = sz * 0.15;
+    cx2.fillText(SPECIAL_ICONS[special] || '?', sz / 2, sz / 2);
+
     const tex = new THREE.CanvasTexture(cv);
     tex.needsUpdate = true;
     return tex;
   }
 
-  function getIconTexture(special) {
-    if (!iconTextures[special]) iconTextures[special] = buildIconTexture(special);
-    return iconTextures[special];
+  function getIconTexture(special, gemType) {
+    const key = `${special}-${gemType}`;
+    if (!iconTextures[key]) iconTextures[key] = buildIconTexture(special, gemType);
+    return iconTextures[key];
   }
 
   function disposeIconTextures() {
@@ -111,7 +120,7 @@ export default (() => {
     iconTextures = {};
   }
 
-  // ── Gem geometry — classic diamond cut LatheGeometry ─────────
+  // ── Gem geometry — classic diamond LatheGeometry ──────────────
   function makeGemGeometry(radius) {
     const r = radius;
     const pts = [
@@ -129,8 +138,6 @@ export default (() => {
   }
 
   // ── Materials ─────────────────────────────────────────────────
-  // Normal gems: solid faceted crystal
-  // Special gems: transparent glass tinted with the gem's colour + icon overlay
   function makeGemMaterial(type, special) {
     if (!THREE) return null;
     const baseCol  = new THREE.Color(GEM_COLORS[type] || '#ffffff');
@@ -138,12 +145,10 @@ export default (() => {
     const lightCol = new THREE.Color(GEM_LIGHT[type]  || '#ffffff');
 
     if (special) {
-      // Glass body — transparent, highly specular, tinted with gem colour
-      const glassCol = baseCol.clone().lerp(new THREE.Color('#ffffff'), 0.55);
-      const emissive = baseCol.clone().multiplyScalar(0.18);
+      // Glass body — transparent, tinted with gem's own colour
       return new THREE.MeshPhongMaterial({
-        color:       glassCol,
-        emissive,
+        color:       baseCol.clone().lerp(new THREE.Color('#ffffff'), 0.5),
+        emissive:    baseCol.clone().multiplyScalar(0.15),
         specular:    new THREE.Color('#ffffff'),
         shininess:   900,
         transparent: true,
@@ -153,22 +158,22 @@ export default (() => {
       });
     }
 
-    // Normal solid gem — faceted with strong specular for glint spin
+    // Normal solid gem — high shininess for glint spin
     return new THREE.MeshPhongMaterial({
       color:       baseCol,
-      emissive:    darkCol.clone().multiplyScalar(0.30),
-      specular:    lightCol.clone().lerp(new THREE.Color('#ffffff'), 0.5),
+      emissive:    darkCol.clone().multiplyScalar(0.28),
+      specular:    lightCol.clone().lerp(new THREE.Color('#ffffff'), 0.4),
       shininess:   700,
       transparent: true,
-      opacity:     0.90,
+      opacity:     0.92,
       side:        THREE.DoubleSide,
       flatShading: true,
     });
   }
 
-  function makeIconMaterial(special) {
+  function makeIconMaterial(special, gemType) {
     return new THREE.MeshBasicMaterial({
-      map:         getIconTexture(special),
+      map:         getIconTexture(special, gemType),
       transparent: true,
       depthWrite:  false,
       side:        THREE.DoubleSide,
@@ -211,22 +216,18 @@ export default (() => {
     threeCamera.position.set(0, 0, 200);
     threeCamera.lookAt(0, 0, 0);
 
-    // Ambient — low, keeps shadow side visible
     ambientLight = new THREE.AmbientLight(0xffffff, 0.30);
     threeScene.add(ambientLight);
 
-    // Key directional — upper-left, strong, gives clear facet contrast
     dirLight1 = new THREE.DirectionalLight(0xffffff, 1.10);
     dirLight1.position.set(-W * 0.4, H * 0.6, 300);
     threeScene.add(dirLight1);
 
-    // Fill directional — lower-right, cooler colour
     dirLight2 = new THREE.DirectionalLight(0xb0ccff, 0.50);
     dirLight2.position.set(W * 0.5, -H * 0.4, 200);
     threeScene.add(dirLight2);
 
-    // Orbital point light — sweeps around the board, triggers moving specular glints
-    // Positioned far forward in Z so it sweeps across all gems
+    // Orbital point light — sweeps across board creating moving specular glints
     orbitLight = new THREE.PointLight(0xffffff, 1.8, W * 3);
     orbitLight.position.set(0, 0, 260);
     threeScene.add(orbitLight);
@@ -244,7 +245,7 @@ export default (() => {
     threeCamera.updateProjectionMatrix();
     if (dirLight1) dirLight1.position.set(-W*0.4, H*0.6, 300);
     if (dirLight2) dirLight2.position.set( W*0.5,-H*0.4, 200);
-    disposeIconTextures();   // rebuild at new size
+    disposeIconTextures();
     rebuildGemMeshes();
   }
 
@@ -252,7 +253,10 @@ export default (() => {
     Object.values(gemMeshPool).forEach(entry => {
       threeScene.remove(entry.body);
       entry.body.material.dispose();
-      if (entry.icon) { threeScene.remove(entry.icon); entry.icon.material.dispose(); }
+      if (entry.icon) {
+        threeScene.remove(entry.icon);
+        entry.icon.material.dispose();
+      }
     });
     gemMeshPool = {};
   }
@@ -260,23 +264,22 @@ export default (() => {
   function rebuildGemMeshes() {
     if (!threeReady) return;
     clearGemMeshes();
-    const radius = cellSize * 0.40;
-    const geo = makeGemGeometry(radius);
-    const iconSize = cellSize * 0.72;
-    const iconGeo  = new THREE.PlaneGeometry(iconSize, iconSize);
+    const radius  = cellSize * 0.40;
+    const geo     = makeGemGeometry(radius);
+    const iconSz  = cellSize * 0.72;
+    const iconGeo = new THREE.PlaneGeometry(iconSz, iconSz);
 
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
         const mat  = new THREE.MeshPhongMaterial({ color:0xffffff, transparent:true, opacity:0 });
         const body = new THREE.Mesh(geo, mat);
-        body.visible = false;
+        body.visible     = false;
         body.renderOrder = 1;
         threeScene.add(body);
 
-        // Icon sprite (only shown for power-up gems; hidden by default)
         const imat = new THREE.MeshBasicMaterial({ transparent:true, opacity:0, depthWrite:false });
         const icon = new THREE.Mesh(iconGeo, imat);
-        icon.visible = false;
+        icon.visible     = false;
         icon.renderOrder = 2;
         threeScene.add(icon);
 
@@ -289,14 +292,13 @@ export default (() => {
   function syncGemMeshes(ts) {
     if (!threeReady) return;
 
-    // Orbit the point light in a wide ellipse across the board
-    // One full loop every ~6 s — creates glint sweeps across all gems
-    const orbitT = ts * 0.00105;
+    // Orbit the point light — slow ellipse, ~6 s per loop
+    const ot = ts * 0.00105;
     const W = canvas.width, H = canvas.height;
     orbitLight.position.set(
-      Math.cos(orbitT) * W * 0.72,
-      Math.sin(orbitT * 0.7) * H * 0.55,
-      220 + Math.sin(orbitT * 1.3) * 60
+      Math.cos(ot)        * W * 0.72,
+      Math.sin(ot * 0.7)  * H * 0.55,
+      220 + Math.sin(ot * 1.3) * 60
     );
 
     for (let r = 0; r < ROWS; r++) {
@@ -306,14 +308,14 @@ export default (() => {
         if (!entry) continue;
         const { body, icon } = entry;
 
-        const g = gems[r] && gems[r][c];
+        const g = gems[r]?.[c];
         if (!g || g.type < 0) {
           body.visible = false;
           if (icon) icon.visible = false;
           continue;
         }
 
-        // ── Animation offsets (canvas-space) ──
+        // Animation offsets (canvas-space: positive Y = down the screen)
         let ox = 0, oyScreen = 0, oyDrop = 0, scale = 1, alpha = 1;
 
         // Bob
@@ -330,7 +332,7 @@ export default (() => {
           else if (r===r2&&c===c2) { ox=(c1-c2)*cellSize*p; oyScreen+=(r1-r2)*cellSize*p; }
         }
 
-        // Drop — start above, fall into place
+        // Drop — positive = start above rest, falls to 0
         if (dropOffsets?.[r]?.[c]) {
           oyDrop = dropOffsets[r][c] * (1 - easeOut(dropProgress));
         }
@@ -348,6 +350,8 @@ export default (() => {
         }
 
         // World position
+        // oyScreen: canvas-down → Three-up negated → subtract
+        // oyDrop:   starts above (larger wy) → add
         const wx = (c + 0.5) * cellSize - W / 2 + ox;
         const wy = -(r + 0.5) * cellSize + H / 2 - oyScreen + oyDrop;
 
@@ -355,43 +359,40 @@ export default (() => {
         body.scale.setScalar(scale);
         body.visible = alpha > 0.02;
 
-        // ── Horizontal-axis rock spin (X rotation) ──
-        // Each gem independently rocks forward/back revealing different facets.
-        // The LatheGeometry axis is Y, so rotation.x tilts the crown toward/away.
-        const sp = spinPhases[r]?.[c] ?? 0;
-        const ss = spinSpeeds[r]?.[c] ?? 0.0007;
-        const spinAmp = g.special ? 0.22 : 0.28;   // specials rock a little less
+        // Horizontal-axis rock spin — each gem has its own phase/speed
+        const sp      = spinPhases[r]?.[c] ?? 0;
+        const ss      = spinSpeeds[r]?.[c] ?? 0.0007;
+        const spinAmp = g.special ? 0.20 : 0.28;
         const rockX   = Math.sin(ts * ss + sp) * spinAmp;
         const rockZ   = Math.cos(ts * ss * 0.61 + sp) * (spinAmp * 0.35);
 
-        if (selGlow > 0) {
-          // On selection: tilt toward camera more dramatically
-          body.rotation.set(rockX + selGlow * 0.30, selGlow * 0.15, rockZ);
-        } else {
-          body.rotation.set(rockX, 0, rockZ);
-        }
+        body.rotation.set(
+          rockX + selGlow * 0.28,
+          selGlow * 0.14,
+          rockZ
+        );
 
-        // ── Material update ──
+        // Material — update only when gem type/special changes
         const matKey = `${g.type}-${g.special || 'n'}`;
         if (body._bjwMatKey !== matKey) {
           body.material.dispose();
           body.material   = makeGemMaterial(g.type, g.special);
           body._bjwMatKey = matKey;
         }
-        body.material.opacity = (g.special ? 0.38 : 0.90) + selGlow * 0.08;
+        body.material.opacity = (g.special ? 0.38 : 0.92) + selGlow * 0.07;
 
-        // ── Icon overlay for power-up gems ──
+        // Icon overlay for power-up gems
         if (g.special && icon) {
-          const imatKey = g.special;
-          if (icon._bjwMatKey !== imatKey) {
+          const iKey = `${g.special}-${g.type}`;
+          if (icon._bjwMatKey !== iKey) {
             icon.material.dispose();
-            icon.material   = makeIconMaterial(g.special);
-            icon._bjwMatKey = imatKey;
+            icon.material   = makeIconMaterial(g.special, g.type);
+            icon._bjwMatKey = iKey;
           }
           icon.position.set(wx, wy, cellSize * 0.55);
-          icon.rotation.set(rockX * 0.4, 0, rockZ * 0.4);
+          icon.rotation.set(rockX * 0.35, 0, rockZ * 0.35);
           icon.scale.setScalar(scale);
-          icon.material.opacity = Math.min(1, (0.80 + selGlow * 0.18) * alpha);
+          icon.material.opacity = Math.min(1, 0.88 * alpha + selGlow * 0.1);
           icon.visible = alpha > 0.02;
         } else if (icon) {
           icon.visible = false;
@@ -400,7 +401,7 @@ export default (() => {
     }
   }
 
-  // Render Three.js scene to offscreen canvas, then composite onto game canvas
+  // Render Three.js scene then composite onto 2D canvas
   function renderThreeGems(ts) {
     if (!threeReady || !threeRenderer) return;
     syncGemMeshes(ts);
@@ -1267,7 +1268,6 @@ export default (() => {
     do { buildBoard(); _tries++; } while ((findMatches().hit.length>0||!anyValidMove())&&_tries<100);
     initBobPhases();
     initSpinPhases();
-    // Reset Three.js mesh keys so all gems re-skin on new game
     Object.values(gemMeshPool).forEach(entry => {
       entry.body._bjwMatKey = null;
       if (entry.icon) entry.icon._bjwMatKey = null;
