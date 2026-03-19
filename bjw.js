@@ -55,66 +55,130 @@ export default (() => {
   let pointLightPool = [];
   let threeReady    = false;
 
-  // Hex color string → THREE.Color
-  function hex2three(hex) {
-    return new THREE.Color(hex);
-  }
+  // (position and colour helpers are inlined)
 
-  // Build a faceted gem LatheGeometry (octahedral diamond-ish)
-  function makeGemGeometry(radius) {
-    // Define the silhouette profile of a gemstone (rotated around Y axis)
-    // Points are [x, y] where x = distance from axis, y = height
+  // Build gem geometry — shape varies by special type for visual distinction
+  // normal:    classic diamond cut (octagonal lathe, balanced crown/pavilion)
+  // flame:     squat wide gem — broad girdle, short pavilion, prominent facets
+  // star:      tall spiky gem — elongated crown point, narrow waist
+  // supernova: large bold gem — wide girdle, thick body, assertive presence
+  // hyper:     deep teardrop — very elongated pavilion, almost spherical crown
+  function makeGemGeometry(radius, special) {
     const r = radius;
-    const points = [
-      new THREE.Vector2(0,         r * 0.72),   // top crown point
-      new THREE.Vector2(r * 0.55,  r * 0.35),   // upper crown edge
-      new THREE.Vector2(r * 0.88,  r * 0.08),   // girdle top
-      new THREE.Vector2(r * 0.88, -r * 0.08),   // girdle bottom
-      new THREE.Vector2(r * 0.55, -r * 0.40),   // pavilion upper
-      new THREE.Vector2(r * 0.18, -r * 0.78),   // pavilion lower
-      new THREE.Vector2(0,        -r * 0.88),    // culet (bottom point)
-    ];
-    return new THREE.LatheGeometry(points, 8); // 8 segments = octagonal facets
+    let points;
+
+    if (special === 'flame') {
+      // Squat, wide — like a cushion cut. Broad girdle, short pointed bottom.
+      points = [
+        new THREE.Vector2(0,         r * 0.48),
+        new THREE.Vector2(r * 0.68,  r * 0.25),
+        new THREE.Vector2(r * 0.96,  r * 0.05),
+        new THREE.Vector2(r * 0.96, -r * 0.05),
+        new THREE.Vector2(r * 0.72, -r * 0.38),
+        new THREE.Vector2(r * 0.22, -r * 0.68),
+        new THREE.Vector2(0,        -r * 0.75),
+      ];
+    } else if (special === 'star') {
+      // Tall and spiky — elongated crown, narrow waist, long pavilion.
+      points = [
+        new THREE.Vector2(0,         r * 1.05),
+        new THREE.Vector2(r * 0.42,  r * 0.55),
+        new THREE.Vector2(r * 0.78,  r * 0.10),
+        new THREE.Vector2(r * 0.78, -r * 0.05),
+        new THREE.Vector2(r * 0.46, -r * 0.48),
+        new THREE.Vector2(r * 0.14, -r * 0.85),
+        new THREE.Vector2(0,        -r * 0.95),
+      ];
+    } else if (special === 'supernova') {
+      // Large and bold — extra-wide girdle, thick body, assertive mass.
+      points = [
+        new THREE.Vector2(0,         r * 0.82),
+        new THREE.Vector2(r * 0.62,  r * 0.48),
+        new THREE.Vector2(r * 1.05,  r * 0.10),
+        new THREE.Vector2(r * 1.05, -r * 0.10),
+        new THREE.Vector2(r * 0.65, -r * 0.50),
+        new THREE.Vector2(r * 0.20, -r * 0.88),
+        new THREE.Vector2(0,        -r * 1.00),
+      ];
+    } else if (special === 'hyper') {
+      // Teardrop — domed crown, very elongated pointed pavilion.
+      points = [
+        new THREE.Vector2(0,         r * 0.60),
+        new THREE.Vector2(r * 0.58,  r * 0.28),
+        new THREE.Vector2(r * 0.82,  r * 0.00),
+        new THREE.Vector2(r * 0.78, -r * 0.18),
+        new THREE.Vector2(r * 0.40, -r * 0.70),
+        new THREE.Vector2(r * 0.12, -r * 1.05),
+        new THREE.Vector2(0,        -r * 1.15),
+      ];
+    } else {
+      // Normal diamond cut
+      points = [
+        new THREE.Vector2(0,         r * 0.72),
+        new THREE.Vector2(r * 0.55,  r * 0.35),
+        new THREE.Vector2(r * 0.88,  r * 0.08),
+        new THREE.Vector2(r * 0.88, -r * 0.08),
+        new THREE.Vector2(r * 0.55, -r * 0.40),
+        new THREE.Vector2(r * 0.18, -r * 0.78),
+        new THREE.Vector2(0,        -r * 0.88),
+      ];
+    }
+
+    const geo = new THREE.LatheGeometry(points, 8);
+    geo.computeVertexNormals();
+    return geo;
   }
 
-  // Flat-shading helper — recompute normals for faceted look
+  // Flat-shading helper — kept for API compatibility
   function facetGeometry(geo) {
     geo.computeVertexNormals();
     return geo;
   }
 
-  // Material per gem type
+  // Material per gem — colour always derived from gem's own type.
+  // Special gems get a boosted emissive of their own hue to look distinct.
   function makeGemMaterial(type, special) {
     if (!THREE) return null;
-    let color, emissive, specular, shininess, opacity = 0.82, transparent = true;
 
-    if (special === 'hyper') {
-      color    = new THREE.Color('#1a1a2e');
-      emissive = new THREE.Color('#330066');
-      specular = new THREE.Color('#ffffff');
-      shininess = 400;
-      opacity = 0.95;
-      transparent = false;
-    } else if (special === 'star') {
-      color    = new THREE.Color('#ffd600');
-      emissive = new THREE.Color('#cc8800');
-      specular = new THREE.Color('#ffffff');
+    const baseCol  = new THREE.Color(GEM_COLORS[type] || '#ffffff');
+    const darkCol  = new THREE.Color(GEM_DARK[type]   || '#222222');
+    const lightCol = new THREE.Color(GEM_LIGHT[type]  || '#ffffff');
+
+    let color, emissive, specular, shininess, opacity = 0.82;
+
+    if (special === 'flame') {
+      // Warm glow version of gem colour — fire-kissed
+      color     = baseCol.clone().lerp(new THREE.Color('#ffffff'), 0.15);
+      emissive  = baseCol.clone().multiplyScalar(0.55);
+      specular  = lightCol.clone().lerp(new THREE.Color('#ffcc44'), 0.5);
       shininess = 600;
+      opacity   = 0.90;
+    } else if (special === 'star') {
+      // Brilliant, almost overexposed — very bright specular of gem colour
+      color     = baseCol.clone().lerp(new THREE.Color('#ffffff'), 0.25);
+      emissive  = baseCol.clone().multiplyScalar(0.40);
+      specular  = new THREE.Color('#ffffff');
+      shininess = 900;
+      opacity   = 0.88;
     } else if (special === 'supernova') {
-      color    = new THREE.Color('#e040fb');
-      emissive = new THREE.Color('#7b1fa2');
-      specular = new THREE.Color('#ffffff');
+      // Deep saturated, intense inner glow — like a gem that's about to explode
+      color     = baseCol.clone().lerp(darkCol, 0.20);
+      emissive  = baseCol.clone().multiplyScalar(0.70);
+      specular  = lightCol.clone();
       shininess = 700;
-      opacity = 0.92;
-    } else if (special === 'flame') {
-      color    = hex2three(GEM_COLORS[type] || '#ff6d00');
-      emissive = new THREE.Color('#441100');
-      specular = new THREE.Color('#ffffff');
+      opacity   = 0.95;
+    } else if (special === 'hyper') {
+      // Dark void version of gem colour — deep, mysterious, powerful
+      color     = darkCol.clone().multiplyScalar(0.6);
+      emissive  = baseCol.clone().multiplyScalar(0.25);
+      specular  = baseCol.clone().lerp(new THREE.Color('#ffffff'), 0.4);
       shininess = 500;
+      opacity   = 0.95;
     } else {
-      color    = hex2three(GEM_COLORS[type] || '#ffffff');
-      emissive = hex2three(GEM_DARK[type]   || '#222222').multiplyScalar(0.35);
-      specular = new THREE.Color(GEM_LIGHT[type] || '#ffffff');
+      // Normal gem
+      color     = baseCol.clone();
+      emissive  = darkCol.clone().multiplyScalar(0.35);
+      specular  = lightCol.clone();
       shininess = 480;
     }
 
@@ -123,7 +187,7 @@ export default (() => {
       emissive,
       specular,
       shininess,
-      transparent,
+      transparent: true,
       opacity,
       side: THREE.DoubleSide,
       flatShading: true,
@@ -207,7 +271,7 @@ export default (() => {
   function clearGemMeshes() {
     Object.values(gemMeshPool).forEach(mesh => {
       threeScene.remove(mesh);
-      mesh.geometry.dispose();
+      // Geometry is shared — do NOT dispose it here (rebuildGemMeshes handles that)
       mesh.material.dispose();
     });
     gemMeshPool = {};
@@ -217,25 +281,30 @@ export default (() => {
     if (!threeReady) return;
     clearGemMeshes();
     const radius = cellSize * 0.40;
-    const geo = facetGeometry(makeGemGeometry(radius));
+
+    // Pre-build one geometry per special type (shared across all gems of that type)
+    const geoNormal    = makeGemGeometry(radius, null);
+    const geoFlame     = makeGemGeometry(radius, 'flame');
+    const geoStar      = makeGemGeometry(radius, 'star');
+    const geoSupernova = makeGemGeometry(radius, 'supernova');
+    const geoHyper     = makeGemGeometry(radius, 'hyper');
+    const GEO_MAP = { flame: geoFlame, star: geoStar, supernova: geoSupernova, hyper: geoHyper };
 
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
+        // Start with normal geometry; will be swapped when gem special changes
         const mat = new THREE.MeshPhongMaterial({ color: 0xffffff, flatShading: true, transparent: true, opacity: 0 });
-        const mesh = new THREE.Mesh(geo, mat);
+        const mesh = new THREE.Mesh(geoNormal, mat);
         mesh.visible = false;
+        mesh._bjwGeoMap = GEO_MAP;
+        mesh._bjwGeoNormal = geoNormal;
         threeScene.add(mesh);
         gemMeshPool[`${r},${c}`] = mesh;
       }
     }
   }
 
-  // Convert grid cell to Three.js world coords (Y flipped — Three uses +Y up)
-  function cellToWorld(r, c, ox, oy) {
-    const wx = (c + 0.5) * cellSize - canvas.width  / 2 + ox;
-    const wy = -(r + 0.5) * cellSize + canvas.height / 2 - oy;
-    return { wx, wy };
-  }
+  // (position calculation is inlined in syncGemMeshes)
 
   // Update all gem meshes from current game state + anim offsets
   function syncGemMeshes(ts) {
@@ -253,26 +322,29 @@ export default (() => {
           continue;
         }
 
-        // Compute offsets from animation states
-        let ox = 0, oy = 0, scale = 1, alpha = 1;
+        // ox: canvas-space horizontal offset (positive = right). Same sign in Three.js world.
+        // oyScreen: canvas-space vertical (positive = DOWN). Negate for Three.js (positive = UP).
+        // oyDrop: gems start ABOVE rest position and fall down.
+        //         "Above" in Three.js = larger wy, so ADD this to wy.
+        let ox = 0, oyScreen = 0, oyDrop = 0, scale = 1, alpha = 1;
 
-        // Bob
+        // Bob — tiny symmetric float
         if (phase === 'playing' && !busy && bobPhases[r] && bobPhases[r][c] !== undefined) {
           const spd = bobSpeeds[r]?.[c] ?? 0.0014;
-          oy = Math.sin(ts * spd + bobPhases[r][c]) * cellSize * 0.018;
+          oyScreen = Math.sin(ts * spd + bobPhases[r][c]) * cellSize * 0.018;
           scale = 1 + Math.sin(ts * spd * 0.7 + bobPhases[r][c] + 1) * 0.006;
         }
 
-        // Swap anim
+        // Swap anim — canvas-space (positive r-delta = moving down screen)
         if (swapAnim) {
           const {r1,c1,r2,c2,p} = swapAnim;
-          if (r===r1&&c===c1) { ox=(c2-c1)*cellSize*p; oy+=(r2-r1)*cellSize*p; }
-          else if (r===r2&&c===c2) { ox=(c1-c2)*cellSize*p; oy+=(r1-r2)*cellSize*p; }
+          if (r===r1&&c===c1) { ox=(c2-c1)*cellSize*p; oyScreen+=(r2-r1)*cellSize*p; }
+          else if (r===r2&&c===c2) { ox=(c1-c2)*cellSize*p; oyScreen+=(r1-r2)*cellSize*p; }
         }
 
-        // Drop
+        // Drop — pixel distance above rest position, decays to 0 as gem falls into place
         if (dropOffsets && dropOffsets[r] && dropOffsets[r][c]) {
-          oy += dropOffsets[r][c] * (1 - easeOut(dropProgress));
+          oyDrop = dropOffsets[r][c] * (1 - easeOut(dropProgress));
         }
 
         // Match explode
@@ -287,43 +359,34 @@ export default (() => {
           selGlow = 0.5 + 0.5 * Math.sin(ts / 250);
         }
 
-        const { wx, wy } = cellToWorld(r, c, ox, oy);
+        // World position: negate oyScreen (canvas-down → Three-up negated), add oyDrop (above = +wy)
+        const wx = (c + 0.5) * cellSize - canvas.width  / 2 + ox;
+        const wy = -(r + 0.5) * cellSize + canvas.height / 2 - oyScreen + oyDrop;
+
         mesh.position.set(wx, wy, 0);
         mesh.scale.setScalar(scale);
         mesh.visible = alpha > 0.02;
 
-        // Update material if gem changed type/special
+        // Update geometry AND material if gem changed type/special
         const matKey = `${g.type}-${g.special || 'n'}`;
         if (mesh._bjwMatKey !== matKey) {
+          // Swap geometry to match special shape
+          const newGeo = g.special ? (mesh._bjwGeoMap[g.special] || mesh._bjwGeoNormal) : mesh._bjwGeoNormal;
+          if (mesh.geometry !== newGeo) mesh.geometry = newGeo;
           mesh.material.dispose();
           mesh.material = makeGemMaterial(g.type, g.special);
           mesh._bjwMatKey = matKey;
         }
-        mesh.material.opacity = (g.special === 'hyper' || g.special === 'supernova') ?
-          (mesh.material.opacity) : 0.80 + selGlow * 0.18;
-        if (g.special !== 'hyper') mesh.material.transparent = true;
+        mesh.material.opacity = 0.82 + selGlow * 0.15;
+        mesh.material.transparent = true;
 
-        // Tilt gems slightly on hover/select
-        const tiltX = selGlow * 0.18;
-        mesh.rotation.set(tiltX, selGlow * 0.12, ts * 0.0004 + bobPhases[r]?.[c] * 0.3 || 0);
+        // No idle spinning — slight tilt only on selection
+        mesh.rotation.set(selGlow * 0.18, selGlow * 0.12, 0);
 
-        // Add emissive boost on selection
+        // Emissive boost on selection
         if (selGlow > 0) {
           mesh.material.emissiveIntensity = selGlow * 0.5;
         }
-      }
-    }
-
-    // Rotate special gems continuously
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
-        const g = gems[r] && gems[r][c];
-        if (!g || !g.special) continue;
-        const mesh = gemMeshPool[`${r},${c}`];
-        if (!mesh || !mesh.visible) continue;
-        const speed = g.special === 'hyper' ? 0.0018 : g.special === 'supernova' ? 0.0014 : 0.0009;
-        mesh.rotation.y = ts * speed;
-        mesh.rotation.z = Math.sin(ts * speed * 0.5) * 0.2;
       }
     }
   }
