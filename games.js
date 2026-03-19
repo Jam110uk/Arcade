@@ -13,7 +13,7 @@ export const GAMES = {
   minesweeper:  { label: '💣 Minesweeper',     module: null,          screen: 'minesweeper-screen',  init: () => {} },
   solitaire:    { label: '🃏 Solitaire',       module: null,          screen: 'solitaire-screen',    init: () => {} },
   bubblebreaker:{ label: '🫧 Bubble Breaker',  module: './bb.js',     screen: 'bubblebreaker-screen',init: m => m.newGame?.() },
-  puzzlebobble: { label: '🎯 Puzzle Bobble',   module: './pb.js',     screen: 'puzzlebobble-screen', init: m => m.init?.() },
+  puzzlebobble: { label: '🎯 Puzzle Bobble',   module: './pb.js',     screen: 'puzzlebobble-screen', init: m => m.newGame?.() },
   zuma:         { label: '🔴 Zuma',            module: './zm.js',     screen: 'zuma-screen',         init: m => m.init() },
   racer:        { label: '🚗 Road Rage',        module: './rc.js',     screen: 'racer-screen',        init: m => m.init() },
   pacman:       { label: '🟡 Pac-Man',          module: './pac.js',    screen: 'pacman-screen',       init: m => m.init() },
@@ -81,7 +81,8 @@ export async function loadGame(gameKey) {
   }
 
   // No module = handled entirely by index.html (multiplayer lobbies etc.)
-  if (!def.module) return;
+  // Still call init() so games like solitaire can auto-start.
+  if (!def.module) { def.init({}); return; }
 
   // Return cached module if already loaded
   if (_cache[gameKey]) {
