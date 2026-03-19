@@ -107,8 +107,7 @@ export default (() => {
 
     try {
       const path = `highscores/${pendingGame}`;
-      const dbRef = window._fbRef(path);
-      const snap = await window._fbGet(dbRef);
+      const snap = await window._fbGet(window._fbRef(path));
       const existing = snap.exists() ? snap.val() : {};
 
       // Keep top 20 entries
