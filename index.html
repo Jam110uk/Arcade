@@ -6064,8 +6064,8 @@
 <script type="importmap">
 {
   "imports": {
-    "firebase/app": "./vendor/firebase/firebase-app.js",
-    "firebase/database": "./vendor/firebase/firebase-database.js"
+    "firebase/app": "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js",
+    "firebase/database": "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js"
   }
 }
 </script>
@@ -6083,24 +6083,51 @@ const firebaseConfig = {
   appId: "1:892335397111:web:d4b1bc8a6a3767bc379bf2"
 };
 
-const _app = initializeApp(firebaseConfig);
-const db = getDatabase(_app);
+function _fbInit(app) {
+  const db = getDatabase(app);
+  window._fbRef    = (path) => _ref(db, path);
+  window._fbSet    = (r, v) => _set(r, v);
+  window._fbGet    = (r)    => _get(r);
+  window._fbUpdate = (r, v) => _update(r, v);
+  window._fbRemove = (r)    => _remove(r);
+  window._fbPush   = (r, v) => _push(r, v);
+  window._fbOnDisconnect = (r) => _onDisconnect(r);
+  window._fbOn     = (r, cb) => { _onValue(r, cb); return () => {}; };
+  window._fbOnValue = (r, cb) => { const unsub = _onValue(r, cb); return unsub; };
+  window._firebaseReady = true;
+  window.dispatchEvent(new Event('firebaseReady'));
+}
 
-// Expose Firebase ops globally so the regular script below can call them
-window._fbRef    = (path) => _ref(db, path);
-window._fbSet    = (r, v) => _set(r, v);
-window._fbGet    = (r)    => _get(r);
-window._fbUpdate = (r, v) => _update(r, v);
-window._fbRemove = (r)    => _remove(r);
-window._fbPush   = (r, v) => _push(r, v);
-window._fbOnDisconnect = (r) => _onDisconnect(r);
-window._fbOn     = (r, cb) => { _onValue(r, cb); return () => {}; };
-window._fbOnValue = (r, cb) => {
-  const unsub = _onValue(r, cb);
-  return unsub;
-};
-window._firebaseReady = true;
-window.dispatchEvent(new Event('firebaseReady'));
+// Delete any stale IndexedDB state that can cause "Service database not available"
+// This is the root cause of Firebase failing in non-incognito Chrome
+async function _clearFbCache() {
+  try {
+    const dbs = await indexedDB.databases();
+    for (const d of dbs) {
+      if (d.name && (d.name.includes('firebase') || d.name.includes('firebaseLocalStorage'))) {
+        indexedDB.deleteDatabase(d.name);
+      }
+    }
+  } catch (_) {}
+}
+
+try {
+  await _clearFbCache();
+  const _app = initializeApp(firebaseConfig);
+  _fbInit(_app);
+} catch (e) {
+  console.warn('[Firebase] Init failed, retrying...', e);
+  setTimeout(() => {
+    try {
+      const _app2 = initializeApp(firebaseConfig, 'app2');
+      _fbInit(_app2);
+    } catch (e2) {
+      console.error('[Firebase] Init failed permanently:', e2);
+      window._firebaseReady = true;
+      window.dispatchEvent(new Event('firebaseReady'));
+    }
+  }, 500);
+}
 </script>
 <script>
 // Thin wrappers used throughout the game code
