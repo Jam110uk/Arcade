@@ -190,10 +190,10 @@ export default (() => {
     });
   }
 
-  // Sad descending tones — missed grab
+  // Soft descending whistle — slipped off / dropped it / so close
   function _playMiss() {
-    [400, 300, 200].forEach((f, i) => {
-      setTimeout(() => _playTone(f, 'sawtooth', 0.18, 0.15, 0.01, 0.15), i * 70);
+    [520, 400, 300].forEach((f, i) => {
+      setTimeout(() => _playTone(f, 'triangle', 0.3, 0.05, 0.02, 0.28), i * 90);
     });
   }
 
@@ -224,10 +224,10 @@ export default (() => {
     const ac = _getAudio(); if (!ac) return;
     const o = ac.createOscillator();
     const g = ac.createGain();
-    o.type = 'sawtooth';
-    o.frequency.setValueAtTime(600, ac.currentTime);
-    o.frequency.exponentialRampToValueAtTime(220, ac.currentTime + 0.5);
-    g.gain.setValueAtTime(0.03, ac.currentTime);
+    o.type = 'sine';
+    o.frequency.setValueAtTime(320, ac.currentTime);
+    o.frequency.exponentialRampToValueAtTime(80, ac.currentTime + 0.5);
+    g.gain.setValueAtTime(0.07, ac.currentTime);
     g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.55);
     o.connect(g); g.connect(ac.destination);
     o.start(); o.stop(ac.currentTime + 0.6);
@@ -427,7 +427,16 @@ export default (() => {
     const pts = document.getElementById('claw-go-pts');
     if (go) go.classList.remove('hidden');
     if (pts) pts.textContent = score;
-    _playTone(220, 'sawtooth', 0.6, 0.2, 0.01, 0.55);
+    // Soft sad jingle — descending minor phrase with a gentle fade
+    const SAD = [
+      { f: 392, t: 0,   dur: 0.5,  vol: 0.09 },  // G4
+      { f: 349, t: 400, dur: 0.5,  vol: 0.08 },  // F4
+      { f: 311, t: 800, dur: 0.6,  vol: 0.07 },  // Eb4
+      { f: 261, t: 1300, dur: 1.0, vol: 0.06 },  // C4 — long final note fades out
+    ];
+    SAD.forEach(({ f, t, dur, vol }) => {
+      setTimeout(() => _playTone(f, 'triangle', dur, vol, 0.04, dur * 0.85), t);
+    });
     window._clawSubmitHS = () => {
       if (!window.HS) return;
       // Clear stored PB so promptSubmit always shows (it gates on new personal best)
