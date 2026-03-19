@@ -43,6 +43,32 @@ export const GAMES = {
 // Cache of already-loaded modules (avoid re-importing)
 const _cache = {};
 
+// Short aliases used by inline onclick handlers in index.html
+// e.g. BJW.newGame(), ZM.init(), RC.restart() etc.
+const SHORT_ALIASES = {
+  bejeweled:    'BJW',
+  bubblebreaker:'BB',
+  puzzlebobble: 'PB',
+  zuma:         'ZM',
+  racer:        'RC',
+  pacman:       'PAC',
+  snake:        'SNK',
+  wordle:       'WRD',
+  tetris:       'TET',
+  poker:        'PKR',
+  hangman:      'HM',
+  connectfour:  'C4',
+  guesswho:     'GW',
+  pokemon:      'PKM',
+  monopoly:     'MONO',
+  tron:         'TRON',
+  orbit:        'ORBIT',
+  claw:         'CLAW',
+  chess:        'CHESS',
+  plinko:       'PLINKO',
+  uno:          'UNO',
+};
+
 /**
  * Load a game module and call its init function.
  * Returns a promise that resolves when the game is ready.
@@ -68,8 +94,10 @@ export async function loadGame(gameKey) {
     // Support both `export default` (object) and named exports
     const api = mod.default ?? mod;
     _cache[gameKey] = api;
-    // Expose module as a global (e.g. window.ZM, window.SNK) so HTML button
-    // wrappers like zmNewGame = () => window.ZM?.newGame() work after load
+    // Expose as both the short alias (e.g. window.BJW) that inline onclick
+    // handlers in index.html reference, and the long-form (e.g. window.BEJEWELED)
+    const shortKey = SHORT_ALIASES[gameKey];
+    if (shortKey) window[shortKey] = api;
     window[gameKey.toUpperCase()] = api;
     // Run any post-load setup hooks registered by index.html
     const setupFn = window[`_setup${gameKey.toUpperCase()}`];
