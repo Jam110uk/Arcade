@@ -32,7 +32,14 @@ export default (() => {
   let viewUnsub    = null;
   let _postCloseAction = null; // fires after submit or skip (used for mid-game exit)
 
-  // ?? Submit modal ?????????????????????????????
+  // Helpers — use window._fb* so this ES module can reach Firebase
+  // without relying on the non-module globals (ref, get, set) from index.html
+  function _ref(path)       { return window._fbRef(path); }
+  function _get(r)          { return window._fbGet(r); }
+  function _set(r, v)       { return window._fbSet(r, v); }
+  function _onValue(r, cb)  { return window._fbOnValue(r, cb); }
+
+  // ── Submit modal ──────────────────────────────────────────
   function promptSubmit(gameKey, score, scoreLabel) {
     if (!window._firebaseReady) return;
     const game = GAMES.find(g => g.key === gameKey);
@@ -107,7 +114,8 @@ export default (() => {
 
     try {
       const path = `highscores/${pendingGame}`;
-      const snap = await get(ref(null, path));
+      // FIX: use window._fb* instead of bare ref/get/set (not in scope for ES modules)
+      const snap = await _get(_ref(path));
       const existing = snap.exists() ? snap.val() : {};
 
       // Keep top 20 entries
@@ -119,7 +127,7 @@ export default (() => {
       const obj = {};
       top20.forEach((e, i) => { obj[i] = e; });
 
-      await set(ref(null, path), obj);
+      await _set(_ref(path), obj);
 
       // Save new personal best
       const pbKey = `hs-pb-${pendingGame}`;
@@ -144,7 +152,7 @@ export default (() => {
     if (typeof cb === 'function') cb();
   }
 
-  // ?? View leaderboard ?????????????????????????
+  // ── View leaderboard ──────────────────────────────────────
   function viewOpen(startTab) {
     currentTab = startTab || GAMES[0].key;
     buildTabs();
@@ -180,8 +188,9 @@ export default (() => {
       return;
     }
 
-    const r = ref(null, `highscores/${key}`);
-    viewUnsub = window._fbOnValue(r, snap => {
+    // FIX: use window._fbRef instead of bare ref() (not in scope for ES modules)
+    const r = _ref(`highscores/${key}`);
+    viewUnsub = _onValue(r, snap => {
       const game = GAMES.find(g => g.key === key);
       if (!snap.exists()) {
         content.innerHTML = `<div class="hs-empty">NO SCORES YET<br><span style="font-size:0.6rem;opacity:0.5">Be the first to submit!</span></div>`;
@@ -224,8 +233,9 @@ export default (() => {
     if (!window._firebaseReady) { cb(null); return () => {}; }
     const game = GAMES.find(g => g.key === key);
     if (!game) { cb(null); return () => {}; }
-    const r = ref(null, `highscores/${key}`);
-    const unsub = window._fbOnValue(r, snap => {
+    // FIX: use window._fbRef instead of bare ref() (not in scope for ES modules)
+    const r = _ref(`highscores/${key}`);
+    const unsub = _onValue(r, snap => {
       if (!snap.exists()) { cb(null); return; }
       const entries = Object.values(snap.val());
       entries.sort((a, b) => game.lowerBetter ? a.score - b.score : b.score - a.score);
