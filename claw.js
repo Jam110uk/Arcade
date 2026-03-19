@@ -190,10 +190,10 @@ export default (() => {
     });
   }
 
-  // Sad descending tones — missed grab
+  // Soft descending whistle — slipped off / dropped it / so close
   function _playMiss() {
-    [400, 300, 200].forEach((f, i) => {
-      setTimeout(() => _playTone(f, 'sawtooth', 0.18, 0.15, 0.01, 0.15), i * 70);
+    [520, 400, 300].forEach((f, i) => {
+      setTimeout(() => _playTone(f, 'triangle', 0.3, 0.05, 0.02, 0.28), i * 90);
     });
   }
 
@@ -224,10 +224,10 @@ export default (() => {
     const ac = _getAudio(); if (!ac) return;
     const o = ac.createOscillator();
     const g = ac.createGain();
-    o.type = 'sawtooth';
-    o.frequency.setValueAtTime(600, ac.currentTime);
-    o.frequency.exponentialRampToValueAtTime(220, ac.currentTime + 0.5);
-    g.gain.setValueAtTime(0.03, ac.currentTime);
+    o.type = 'sine';
+    o.frequency.setValueAtTime(320, ac.currentTime);
+    o.frequency.exponentialRampToValueAtTime(80, ac.currentTime + 0.5);
+    g.gain.setValueAtTime(0.07, ac.currentTime);
     g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.55);
     o.connect(g); g.connect(ac.destination);
     o.start(); o.stop(ac.currentTime + 0.6);
