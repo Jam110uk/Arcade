@@ -11,6 +11,12 @@ export default (() => {
   let C = null;
   let audioCtx = null;
 
+  // Load cannon-es immediately when the module is first imported (before init is called)
+  // so the download completes in the background while the user sees the game screen.
+  const _cannonReady = import('https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js')
+    .then(mod => { C = mod; })
+    .catch(() => { C = window.CANNON; });
+
   // ── State ──────────────────────────────────────────────────
   let renderer, scene, camera, world;
   let clawGroup, clawWire;
@@ -99,10 +105,11 @@ export default (() => {
   async function init() {
     screenEl = document.getElementById('claw-screen');
     if (!screenEl) return;
-    if (!C) {
-      try { C = await import('https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js'); }
-      catch(e) { C = window.CANNON; }
-    }
+    // Close any HS modal left open from a previous game
+    if (window.HS && window.HS.submitClose) window.HS.submitClose();
+    // Wait for cannon-es (download started at module load time, usually already done)
+    await _cannonReady;
+    if (!C) C = window.CANNON; // last-resort fallback
     screenEl.innerHTML = '';
     _buildUI();
     _initThree();
@@ -124,6 +131,8 @@ export default (() => {
     _stopMoveSound();
     if (animId) cancelAnimationFrame(animId);
     if (renderer) { renderer.dispose(); renderer = null; }
+    // Remove all emoji planes from scene before clearing
+    prizes.forEach(p => { if (p.emojiPlane && scene) scene.remove(p.emojiPlane); });
     scene = null; world = null;
     prizes = []; meshBodies = [];
   }
@@ -753,8 +762,8 @@ export default (() => {
     mesh.position.set(x, y, z);
     scene.add(mesh);
 
-    // Emoji billboard — sits at sphere centre, faces camera each frame.
-    // polygonOffset pushes it in front of the sphere surface so it's always visible.
+    // Emoji billboard — added directly to scene (not as child) so lookAt works in world space.
+    // Position is synced to the ball centre every frame in _animateScene.
     const emojiTex = _makeEmojiTexture(def.emoji);
     const emojiMat = new THREE.MeshBasicMaterial({
       map: emojiTex,
@@ -762,16 +771,14 @@ export default (() => {
       side: THREE.DoubleSide,
       depthWrite: false,
       depthTest: true,
-      polygonOffset: true,
-      polygonOffsetFactor: -4,
-      polygonOffsetUnits:  -4,
     });
     const emojiPlane = new THREE.Mesh(
-      new THREE.PlaneGeometry(def.radius * 1.6, def.radius * 1.6),
+      new THREE.PlaneGeometry(def.radius * 1.8, def.radius * 1.8),
       emojiMat
     );
     emojiPlane.renderOrder = 2;
-    mesh.add(emojiPlane);
+    emojiPlane.position.copy(mesh.position);
+    scene.add(emojiPlane);
 
     // Glow halo
     const halo = new THREE.Mesh(
@@ -873,8 +880,8 @@ export default (() => {
     dropY = 0; clawOpen = 1.0; dropTimer = 0;
     _dropChanceChecked = false;
     _grabAttempted = false;
-    // Roll instant-miss (40%) — claw opens immediately on contact, no grab
-    _instantMissRoll = (Math.random() < 0.40);
+    // Roll instant-miss (20%) — claw opens immediately on contact, no grab
+    _instantMissRoll = (Math.random() < 0.20);
     // Randomise the height at which a grabbed ball is dropped (5%–95% of retraction)
     _dropChanceThreshold = 0.05 + Math.random() * 0.90;
     // Give the cable a little downward-kick sway when dropping
@@ -1027,7 +1034,7 @@ export default (() => {
         // 70% chance to drop — checked once when retraction passes the random threshold
         if (!_dropChanceChecked && dropY < maxDrop * _dropChanceThreshold) {
           _dropChanceChecked = true;
-          if (Math.random() < 0.70) {
+          if (Math.random() < 0.40) {
             grabbed.body.type = C.Body.DYNAMIC;
             grabbed.body.velocity.set((Math.random()-0.5)*2.0, -1.5 - Math.random(), (Math.random()-0.5)*2.0);
             grabbed.body.wakeUp();
@@ -1193,6 +1200,7 @@ export default (() => {
         _playWin();
         setTimeout(() => {
           scene.remove(p.mesh);
+          if (p.emojiPlane) scene.remove(p.emojiPlane);
           world.removeBody(p.body);
           prizes     = prizes.filter(x => x !== p);
           meshBodies = meshBodies.filter(x => x.body !== p.body);
@@ -1213,7 +1221,12 @@ export default (() => {
 
   function _animateScene(now) {
     prizes.forEach(p => {
-      if (p.emojiPlane) p.emojiPlane.lookAt(camera.position);
+      if (p.emojiPlane) {
+        // Sync billboard to ball's world position
+        p.emojiPlane.position.copy(p.mesh.position);
+        // Face the camera in world space (plane is a scene child, not mesh child)
+        p.emojiPlane.lookAt(camera.position);
+      }
       if (!p.scored) {
         const intensity = 0.16 + 0.13 * Math.sin(now * 0.0017 + p.mesh.position.x * 3.2);
         p.mesh.material.emissiveIntensity = intensity;
