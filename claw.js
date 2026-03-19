@@ -60,18 +60,29 @@ export default (() => {
 
   // ── Prize defs ─────────────────────────────────────────────
   const PRIZE_DEFS = [
+    // High value orbs
     { emoji:'🦄', label:'Unicorn Orb',  color:0xdd66ff, pts:100, glow:0xcc00ff, radius:0.21 },
-    { emoji:'⭐', label:'Star Orb',     color:0xffdd22, pts: 75, glow:0xffaa00, radius:0.20 },
-    { emoji:'🐸', label:'Frog Orb',     color:0x22dd66, pts: 60, glow:0x00bb44, radius:0.21 },
-    { emoji:'🔥', label:'Fire Orb',     color:0xff5511, pts: 80, glow:0xff2200, radius:0.20 },
     { emoji:'💎', label:'Diamond Orb',  color:0x44ccff, pts: 90, glow:0x00aaff, radius:0.19 },
-    { emoji:'🐙', label:'Octopus Orb',  color:0xaa55ff, pts: 70, glow:0x8800ff, radius:0.22 },
     { emoji:'🌈', label:'Rainbow Orb',  color:0xff77bb, pts: 85, glow:0xff2299, radius:0.20 },
-    { emoji:'🐻', label:'Bear Plush',   color:0xbb6633, pts: 50, glow:0x774422, radius:0.24 },
-    { emoji:'🐱', label:'Cat Plush',    color:0xffbb66, pts: 40, glow:0xdd7700, radius:0.23 },
-    { emoji:'🐶', label:'Dog Plush',    color:0xcc9944, pts: 45, glow:0xaa6622, radius:0.23 },
+    { emoji:'🔥', label:'Fire Orb',     color:0xff5511, pts: 80, glow:0xff2200, radius:0.20 },
+    { emoji:'⭐', label:'Star Orb',     color:0xffdd22, pts: 75, glow:0xffaa00, radius:0.20 },
+    { emoji:'🐙', label:'Octopus Orb',  color:0xaa55ff, pts: 70, glow:0x8800ff, radius:0.22 },
+    { emoji:'🐸', label:'Frog Orb',     color:0x22dd66, pts: 60, glow:0x00bb44, radius:0.21 },
     { emoji:'🍀', label:'Clover Orb',   color:0x33bb55, pts: 55, glow:0x008833, radius:0.18 },
+    // Mid value plush
+    { emoji:'🐻', label:'Bear Plush',   color:0xbb6633, pts: 50, glow:0x774422, radius:0.24 },
+    { emoji:'🐶', label:'Dog Plush',    color:0xcc9944, pts: 45, glow:0xaa6622, radius:0.23 },
+    { emoji:'🐱', label:'Cat Plush',    color:0xffbb66, pts: 40, glow:0xdd7700, radius:0.23 },
     { emoji:'🎀', label:'Bow Plush',    color:0xff4499, pts: 35, glow:0xdd0066, radius:0.20 },
+    // Low value cheap toys
+    { emoji:'🐧', label:'Penguin Toy',  color:0x88bbff, pts: 25, glow:0x4488ff, radius:0.20 },
+    { emoji:'🦆', label:'Rubber Duck',  color:0xffee44, pts: 20, glow:0xddcc00, radius:0.20 },
+    { emoji:'🐮', label:'Cow Toy',      color:0xddddaa, pts: 18, glow:0xaaaaaa, radius:0.22 },
+    { emoji:'🐷', label:'Piggy Toy',    color:0xffaaaa, pts: 15, glow:0xff7788, radius:0.21 },
+    { emoji:'🎾', label:'Tennis Ball',  color:0xaaee44, pts: 12, glow:0x88cc22, radius:0.18 },
+    { emoji:'🔮', label:'Crystal Ball', color:0xaaddff, pts: 10, glow:0x66aaff, radius:0.17 },
+    { emoji:'🍭', label:'Lollipop',     color:0xff88cc, pts:  8, glow:0xff44aa, radius:0.17 },
+    { emoji:'🎲', label:'Lucky Dice',   color:0xffffff, pts:  5, glow:0xcccccc, radius:0.17 },
   ];
 
   // ── Init ───────────────────────────────────────────────────
@@ -170,14 +181,14 @@ export default (() => {
     });
   }
 
-  // Servo whine loop while claw moves
+  // Servo whine loop while claw moves — very soft
   function _startMoveSound() {
     const ac = _getAudio(); if (!ac || movingSoundNode) return;
     const o = ac.createOscillator();
     const g = ac.createGain();
-    o.type = 'sawtooth';
-    o.frequency.setValueAtTime(620, ac.currentTime);
-    g.gain.setValueAtTime(0.04, ac.currentTime);
+    o.type = 'sine';
+    o.frequency.setValueAtTime(180, ac.currentTime);
+    g.gain.setValueAtTime(0.006, ac.currentTime);
     o.connect(g); g.connect(ac.destination);
     o.start();
     movingSoundNode = { o, g };
@@ -237,6 +248,10 @@ export default (() => {
         <div class="claw-stat"><span class="claw-stat-label">SCORE</span><span id="claw-score">0</span></div>
         <div class="claw-stat"><span class="claw-stat-label">TRIES</span><span id="claw-tries">20</span></div>
       </div>
+      <div id="claw-prize-chart">
+        <div class="claw-chart-title">🏆 PRIZE LIST</div>
+        <div id="claw-chart-rows"></div>
+      </div>
       <div id="claw-prize-toast"></div>
       <div id="claw-controls-panel">
         <div class="claw-ctrl-title">🎮 CONTROLS</div>
@@ -266,6 +281,14 @@ export default (() => {
         .claw-stat{background:rgba(0,0,0,0.65);border:1px solid rgba(200,80,255,0.45);border-radius:8px;padding:8px 22px;text-align:center;backdrop-filter:blur(4px);}
         .claw-stat-label{display:block;font-size:9px;letter-spacing:3px;color:#aa55ff;margin-bottom:2px;}
         #claw-score,#claw-tries{font-size:26px;font-weight:900;color:#fff;text-shadow:0 0 14px #cc33ff;}
+        #claw-prize-chart{position:fixed;left:10px;top:50%;transform:translateY(-50%);background:rgba(0,0,0,0.75);border:1px solid rgba(200,80,255,0.35);border-radius:10px;padding:10px 12px;z-index:9999;pointer-events:none;backdrop-filter:blur(5px);max-width:170px;max-height:90vh;overflow:hidden;}
+        .claw-chart-title{font-size:9px;letter-spacing:2px;color:#cc66ff;margin-bottom:8px;text-align:center;}
+        .claw-chart-row{display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:10px;color:#ddd;}
+        .claw-chart-emoji{font-size:14px;width:20px;text-align:center;}
+        .claw-chart-label{flex:1;font-size:9px;color:#bbb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+        .claw-chart-pts{font-size:10px;font-weight:700;color:#ffdd44;min-width:32px;text-align:right;}
+        .claw-chart-bar{height:3px;background:rgba(255,200,50,0.25);border-radius:2px;margin-top:1px;}
+        .claw-chart-bar-fill{height:3px;border-radius:2px;background:linear-gradient(90deg,#cc33ff,#ffdd44);}
         #claw-prize-toast{position:absolute;top:88px;left:50%;transform:translateX(-50%);z-index:20;pointer-events:none;}
         .claw-toast{background:rgba(0,0,0,0.85);border:1px solid rgba(255,200,40,0.7);border-radius:10px;padding:10px 26px;color:#ffe040;font-size:15px;font-weight:700;letter-spacing:2px;text-align:center;margin-bottom:6px;animation:ct-in 0.3s ease,ct-out 0.4s ease 1.8s forwards;white-space:nowrap;}
         @keyframes ct-in{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
@@ -292,6 +315,28 @@ export default (() => {
       document.head.appendChild(lnk);
     }
     screenEl.appendChild(ui);
+    _buildPrizeChart();
+  }
+
+  function _buildPrizeChart() {
+    const container = document.getElementById('claw-chart-rows');
+    if (!container) return;
+    const maxPts = Math.max(...PRIZE_DEFS.map(d => d.pts));
+    const sorted = [...PRIZE_DEFS].sort((a,b) => b.pts - a.pts);
+    container.innerHTML = sorted.map(d => `
+      <div class="claw-chart-row">
+        <span class="claw-chart-emoji">${d.emoji}</span>
+        <div style="flex:1;min-width:0;">
+          <div style="display:flex;align-items:center;gap:4px;">
+            <span class="claw-chart-label">${d.label}</span>
+            <span class="claw-chart-pts">${d.pts}</span>
+          </div>
+          <div class="claw-chart-bar">
+            <div class="claw-chart-bar-fill" style="width:${Math.round(d.pts/maxPts*100)}%"></div>
+          </div>
+        </div>
+      </div>
+    `).join('');
   }
 
   function _updateUI() {
@@ -649,7 +694,7 @@ export default (() => {
 
   // ── Prizes ─────────────────────────────────────────────────
   function _spawnPrizes() {
-    for (let i = 0; i < 18; i++) _spawnOnePrize(PRIZE_DEFS[i % PRIZE_DEFS.length]);
+    for (let i = 0; i < 36; i++) _spawnOnePrize(PRIZE_DEFS[i % PRIZE_DEFS.length]);
   }
 
   function _spawnOnePrize(def) {
@@ -789,6 +834,7 @@ export default (() => {
     _updateUI();
     gameState = 'dropping';
     dropY = 0; clawOpen = 1.0; dropTimer = 0;
+    _dropChanceChecked = false;
     _playDrop();
     _playTone(440, 'square', 0.10, 0.12, 0.01, 0.08);
   }
@@ -895,13 +941,33 @@ export default (() => {
       dropY = Math.max(0, dropY - dt * 2.0);
       _updateClawPose();
       if (grabbed) {
-        const tipY = (CLAW_REST_Y - dropY) - 0.42;
-        grabbed.mesh.position.set(clawX, tipY, clawZ);
-        grabbed.body.position.set(clawX, tipY, clawZ);
-        grabbed.body.velocity.set(0,0,0);
-        grabbed.body.angularVelocity.set(0,0,0);
+        // 30% chance to drop the ball partway up (checked once at ~half height)
+        const maxDrop = CLAW_REST_Y - DROP_BOTTOM;
+        if (!_dropChanceChecked && dropY < maxDrop * 0.55) {
+          _dropChanceChecked = true;
+          if (Math.random() < 0.30) {
+            // Drop it — open claw and release ball back into play area
+            grabbed.body.type = C.Body.DYNAMIC;
+            grabbed.body.velocity.set((Math.random()-0.5)*1.5, -2.0, (Math.random()-0.5)*1.5);
+            grabbed.body.wakeUp();
+            grabbed.grabbed = false;
+            grabbed = null;
+            clawOpen = 1.0;
+            _showToast('💨 Slipped away!');
+            _playMiss();
+          }
+        }
+        if (grabbed) {
+          const hubY = CLAW_REST_Y - dropY;
+          const tipY = hubY - 0.68;
+          grabbed.mesh.position.set(clawX, tipY, clawZ);
+          grabbed.body.position.set(clawX, tipY, clawZ);
+          grabbed.body.velocity.set(0,0,0);
+          grabbed.body.angularVelocity.set(0,0,0);
+        }
       }
       if (dropY <= 0) {
+        _dropChanceChecked = false;
         if (grabbed) {
           gameState = 'delivering';
           dropTimer = 0;
@@ -932,7 +998,8 @@ export default (() => {
       }
       _updateClawPose();
       if (grabbed) {
-        const tipY = CLAW_REST_Y - 0.42;
+        const hubY = CLAW_REST_Y;
+        const tipY = hubY - 0.68;
         grabbed.mesh.position.set(clawX, tipY, clawZ);
         grabbed.body.position.set(clawX, tipY, clawZ);
         grabbed.body.velocity.set(0,0,0);
@@ -985,7 +1052,7 @@ export default (() => {
 
   function _tryGrab() {
     const tipX = clawX;
-    const tipY  = (CLAW_REST_Y - dropY) - 0.42;
+    const tipY  = (CLAW_REST_Y - dropY) - 0.68;
     const tipZ  = clawZ;
 
     let best = null, bestDist = GRAB_RADIUS;
@@ -999,13 +1066,20 @@ export default (() => {
     });
 
     if (best) {
+      // 60% chance of missing even if in range
+      if (Math.random() < 0.60) {
+        // Miss — nudge the ball and return null
+        best.body.velocity.set((Math.random()-0.5)*2.0, Math.random()*1.5, (Math.random()-0.5)*2.0);
+        _playMiss();
+        return null;
+      }
       best.grabbed = true;
       best.body.type = C.Body.KINEMATIC;
       best.body.velocity.set(0,0,0);
       return best;
     }
 
-    // Nudge nearby balls
+    // Nudge nearby balls even on complete miss
     prizes.forEach(p => {
       if (p.grabbed || p.scored) return;
       const dx = p.mesh.position.x - tipX;
@@ -1015,6 +1089,9 @@ export default (() => {
     });
     return null;
   }
+
+  // 30% chance of dropping the ball back during retraction
+  let _dropChanceChecked = false;
 
   function _checkScoringZone() {
     const cx = MACHINE.w/2 - 0.38, cz = MACHINE.d/2 - 0.38;
