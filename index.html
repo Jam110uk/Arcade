@@ -13023,6 +13023,63 @@ const FX = (() => {
 
 
 // ╔══════════════════════════════════════════════════════════════╗
+// ║  BATTLESHIPS 3D — lazy-load Three.js visual engine        ║
+// ║  Replaces 2D SVG/canvas layer with Three.js renders.      ║
+// ║  All existing game logic (state, Firebase, grids) is      ║
+// ║  untouched — only window.BSVisuals / bsVisuals are swapped.║
+// ╚══════════════════════════════════════════════════════════════╝
+(function patchBattleships3D() {
+  let _loaded = false;
+
+  function load3D() {
+    if (_loaded) return;
+    _loaded = true;
+    import('./bs3d.js').then(mod => {
+      // bs3d.js self-installs onto window.BSVisuals and window.bsVisuals
+      // in its own install() call, so nothing extra needed here.
+      // Hide the old 2D missile canvas so it doesn't render over the 3D layer.
+      const mc = document.getElementById('bs-missile-canvas');
+      if (mc) mc.style.display = 'none';
+    }).catch(err => {
+      console.warn('[bs3d] Could not load 3D engine, keeping 2D visuals:', err);
+    });
+  }
+
+  // ── Intercept the existing selectGame chain ───────────────────
+  // There are two wrappers already (original + trivia patch). We add
+  // a third wrapper that fires load3D() when battleships is selected.
+  const _prevSelectGame = window.selectGame;
+  window.selectGame = function(game) {
+    if (game === 'battleships') load3D();
+    return _prevSelectGame(game);
+  };
+
+  // ── After startGame() builds the grids, sync ship overlays ───
+  // startGame() calls buildGameGrids() then npcPlaceShips() (NPC mode).
+  // We need to call BSVisuals.redrawAllShipOverlays() after both are done.
+  const _origStartGame = window.startGame || function(){};
+  // startGame is a local function not on window yet at this point,
+  // so we hook via the game-screen activation observer instead.
+  const _gsEl = document.getElementById('game-screen');
+  if (_gsEl) {
+    new MutationObserver(() => {
+      if (_gsEl.classList.contains('active')) {
+        // Hide stale 2D missile canvas on every game start
+        const mc = document.getElementById('bs-missile-canvas');
+        if (mc) mc.style.display = 'none';
+        // Give grids + npcPlaceShips() time to finish, then sync 3D ships
+        setTimeout(() => {
+          if (window.BSVisuals && window.BSVisuals.redrawAllShipOverlays) {
+            window.BSVisuals.redrawAllShipOverlays();
+          }
+        }, 700);
+      }
+    }).observe(_gsEl, { attributes: true, attributeFilter: ['class'] });
+  }
+})();
+
+
+// ╔══════════════════════════════════════════════════════════════╗
 // ║  GAME SELECT — CARD CLICK PARTICLES                        ║
 // ╚══════════════════════════════════════════════════════════════╝
 (function patchGameSelect() {
