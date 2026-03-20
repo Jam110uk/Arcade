@@ -448,11 +448,13 @@ export default (function () {
     // Two black eyes on the curved top dome, visible from the tilted camera
     // Positioned left/right, up on the hemisphere, behind the mouth opening
     const eyeGeo = new T.SphereGeometry(0.07, 12, 12);
-    const eyeMatBlack = new T.MeshStandardMaterial({ color: 0x000000, roughness: 0.8 });
+    const eyeMatBlack = new T.MeshStandardMaterial({ color: 0x000000, roughness: 0.8, emissive: 0x000000 });
     const eyeL = new T.Mesh(eyeGeo, eyeMatBlack);
     const eyeR = new T.Mesh(eyeGeo, eyeMatBlack);
-    eyeL.position.set(-0.20, R * 0.62, -R * 0.28);
-    eyeR.position.set( 0.20, R * 0.62, -R * 0.28);
+    // Front-face of dome: high up on sphere, pushed toward -Z (mouth side)
+    // so visible from the slightly-above-and-behind camera angle
+    eyeL.position.set(-0.18, R * 0.55,  R * 0.65);
+    eyeR.position.set( 0.18, R * 0.55,  R * 0.65);
     topGroup.add(eyeL);
     topGroup.add(eyeR);
 
@@ -557,7 +559,7 @@ export default (function () {
         const topGroup = pacMesh.userData.topGroup;
         if (topGroup) {
           // mouthAngle 0→0.35 maps to jaw open angle 0→0.52 radians (~30°)
-          topGroup.rotation.x = -pac.mouthAngle * 1.5;
+          topGroup.rotation.x = -pac.mouthAngle * 2.2;
         }
         pacMesh.position.y = 0.18;
       } else {
