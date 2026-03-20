@@ -297,12 +297,13 @@ export default (function () {
     scene = new T.Scene();
     // No fog — full maze must be visible at all times
 
-    // ── Perspective camera: 10° tilt — full maze always in frame ──
-    // FOV=40°, height=81, Z-offset=14 → tilt ~9.8°, guaranteed coverage of
-    // all 28×31 tiles. lookAt slightly forward to centre the tilted view.
-    camera = new T.PerspectiveCamera(40, COLS / ROWS, 0.1, 300);
-    camera.position.set(0, 81, 14);
-    camera.lookAt(0, 0, 2);
+    // ── Follow camera — close perspective that tracks Pac-Man ──
+    // Sits ~14 tiles above and ~6 tiles behind Pac, looking at him.
+    // Position updated every frame in update3D() to follow pac.
+    camera = new T.PerspectiveCamera(55, COLS / ROWS, 0.1, 300);
+    // Initial position — will be overridden immediately in update3D
+    camera.position.set(0, 14, 8);
+    camera.lookAt(0, 0, 0);
 
     // Controlled lighting for MeshStandardMaterial with slight tilt camera.
     // Ambient keeps corridors visible; key light from slightly above-front
@@ -485,6 +486,28 @@ export default (function () {
     if (pacMesh) {
       pacMesh.position.x = worldX(pac.x);
       pacMesh.position.z = worldZ(pac.y);
+
+      // ── Follow camera ─────────────────────────────────────────
+      // Camera sits above-and-behind Pac, always looking at him.
+      // "Behind" means opposite to pac's direction of travel so the
+      // player always sees what's ahead of Pac-Man.
+      const px = worldX(pac.x);
+      const pz = worldZ(pac.y);
+      // Offset camera behind pac's travel direction
+      const camOffX = -(pac.dx) * 3.5;
+      const camOffZ = -(pac.dy) * 3.5;
+      const targetCamX = px + camOffX;
+      const targetCamZ = pz + camOffZ + 5.5; // extra Z for tilt perspective
+      const targetCamY = 13;
+      // Smooth lerp so camera glides rather than snapping
+      const lerpSpeed = 0.10;
+      camera.position.x += (targetCamX - camera.position.x) * lerpSpeed;
+      camera.position.y += (targetCamY - camera.position.y) * lerpSpeed;
+      camera.position.z += (targetCamZ - camera.position.z) * lerpSpeed;
+      // Always look slightly ahead of pac so action is centred
+      const lookX = px + pac.dx * 2;
+      const lookZ = pz + pac.dy * 2;
+      camera.lookAt(lookX, 0, lookZ);
 
       // Face direction of travel
       if (pac.dx === 1)       pacMesh.rotation.y = -Math.PI/2;
@@ -719,8 +742,8 @@ export default (function () {
       // Render at actual pixel size for sharpness
       renderer.setSize(w, h);
     }
-    if (camera && camera.isPerspectiveCamera) {
-      camera.aspect = mazeAspect;
+    if (camera) {
+      camera.aspect = COLS / ROWS;
       camera.updateProjectionMatrix();
     }
   }
