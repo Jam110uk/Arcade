@@ -297,22 +297,27 @@ export default (function () {
     scene = new T.Scene();
     // No fog — full maze must be visible at all times
 
-    // ── Orthographic top-down camera ──────────────────────────
-    // Frustum sized to the exact 28×31 world with a small margin.
-    const halfW = COLS / 2 + 0.5;
-    const halfH = ROWS / 2 + 0.5;
-    camera = new T.OrthographicCamera(-halfW, halfW, halfH, -halfH, 0.1, 200);
-    camera.position.set(0, 50, 0);  // directly above centre
-    camera.lookAt(0, 0, 0);         // straight down
+    // ── Perspective camera: slight tilt to show wall depth ─────
+    // High enough and narrow FOV enough that the full 28×31 maze fits.
+    // Offset Z slightly so walls have a visible front face.
+    camera = new T.PerspectiveCamera(32, COLS / ROWS, 0.1, 300);
+    camera.position.set(0, 48, 7);   // mostly above, slight forward offset
+    camera.lookAt(0, 0, 1.5);        // look at maze centre, slightly forward
 
-    // Single low ambient — MeshBasicMaterial is used for all game geometry
-    // so lighting doesn't affect colours; this light is only for any Standard meshes
-    const ambient = new T.AmbientLight(0xffffff, 0.3);
+    // Controlled lighting for MeshStandardMaterial with slight tilt camera.
+    // Ambient keeps corridors visible; key light from slightly above-front
+    // so wall top faces are bright, front faces are mid, giving clear 3D depth.
+    const ambient = new T.AmbientLight(0x112244, 2.5);
     scene.add(ambient);
+    const key = new T.DirectionalLight(0xffffff, 1.2);
+    key.position.set(0, 10, 8);  // from slightly above and in front
+    scene.add(key);
+    const rim = new T.DirectionalLight(0x2233ff, 0.4);
+    rim.position.set(0, 5, -10); // blue rim from behind
+    scene.add(rim);
 
-    // Floor — plain dark colour, MeshBasicMaterial so lighting can't wash it out
     const floorGeo = new T.PlaneGeometry(COLS + 2, ROWS + 2);
-    const floorMat = new T.MeshBasicMaterial({ color: 0x000010 });
+    const floorMat = new T.MeshStandardMaterial({ color: 0x000008, roughness: 1, metalness: 0 });
     floorMesh = new T.Mesh(floorGeo, floorMat);
     floorMesh.rotation.x = -Math.PI/2;
     scene.add(floorMesh);
@@ -330,19 +335,20 @@ export default (function () {
     wallMeshes.forEach(m => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); });
     wallMeshes = [];
 
-    // MeshBasicMaterial = unaffected by lighting, always shows exact colour
-    const wallMat = new T.MeshBasicMaterial({ color: 0x1a3fff });
-    const doorMat = new T.MeshBasicMaterial({ color: 0xff88ff });
+    const wallMat = new T.MeshStandardMaterial({ color: 0x1a3fff, roughness: 0.6, metalness: 0.1,
+      emissive: 0x050a44, emissiveIntensity: 1.0 });
+    const doorMat = new T.MeshStandardMaterial({ color: 0xff88ff, roughness: 0.5, metalness: 0,
+      emissive: 0x330033, emissiveIntensity: 0.5 });
 
     const curMap = ALL_MAZES[currentMazeIdx];
     for (let row = 0; row < ROWS; row++) {
       for (let col = 0; col < COLS; col++) {
         const cell = curMap[row][col];
         if (cell === 1 || cell === 4) {
-          const geo = new T.BoxGeometry(1, cell===4?0.12:0.8, cell===4?0.08:1);
+          const geo = new T.BoxGeometry(1, cell===4?0.12:1.1, cell===4?0.08:1);
           const mat = cell===4 ? doorMat : wallMat;
           const mesh = new T.Mesh(geo, mat);
-          mesh.position.set(tileWorldX(col), cell===4?0.06:0.4, tileWorldZ(row));
+          mesh.position.set(tileWorldX(col), cell===4?0.06:0.55, tileWorldZ(row));
           scene.add(mesh);
           wallMeshes.push(mesh);
         }
@@ -358,9 +364,11 @@ export default (function () {
     dotMeshes={}; pelletMeshes={};
 
     const dotGeo = new T.SphereGeometry(0.16, 8, 8);
-    const dotMat = new T.MeshBasicMaterial({ color: 0xffddaa });
+    const dotMat = new T.MeshStandardMaterial({ color: 0xffd090,
+      emissive: 0xff6600, emissiveIntensity: 0.9, roughness: 0.4 });
     const pelGeo = new T.SphereGeometry(0.32, 12, 12);
-    const pelMat = new T.MeshBasicMaterial({ color: 0xffee00 });
+    const pelMat = new T.MeshStandardMaterial({ color: 0xffee00,
+      emissive: 0xff9900, emissiveIntensity: 1.5, roughness: 0.2 });
 
     for (let row=0; row<ROWS; row++) {
       for (let col=0; col<COLS; col++) {
@@ -389,15 +397,16 @@ export default (function () {
 
     // Body — yellow sphere
     const bodyGeo = new T.SphereGeometry(0.46, 24, 16);
-    const bodyMat = new T.MeshBasicMaterial({ color: 0xffe600 });
+    const bodyMat = new T.MeshStandardMaterial({ color: 0xffe600,
+      emissive: 0xdd8800, emissiveIntensity: 0.6, roughness: 0.3, metalness: 0.1 });
     pacBodyMesh = new T.Mesh(bodyGeo, bodyMat);
-    pacBodyMesh.scale.y = 0.72;
+    pacBodyMesh.scale.y = 0.55;
 
     pacMesh.add(pacBodyMesh);
 
     // Eye
     const eyeGeo = new T.SphereGeometry(0.07, 8, 8);
-    const eyeMat = new T.MeshBasicMaterial({ color:0x000000 });
+    const eyeMat = new T.MeshStandardMaterial({ color:0x000000, roughness:1 });
     const eye = new T.Mesh(eyeGeo, eyeMat);
     eye.position.set(0.22, 0.28, -0.28);
     pacMesh.add(eye);
@@ -421,7 +430,8 @@ export default (function () {
 
       // Body — capsule-like: sphere top + cylinder bottom
       const topGeo = new T.SphereGeometry(0.42, 20, 12, 0, Math.PI*2, 0, Math.PI/2);
-      const bodyMat = new T.MeshBasicMaterial({ color: GHOST_HEX[i] });
+      const bodyMat = new T.MeshStandardMaterial({ color: GHOST_HEX[i],
+        emissive: GHOST_EMI[i], emissiveIntensity: 0.8, roughness: 0.4, metalness: 0 });
       const top = new T.Mesh(topGeo, bodyMat);
       top.position.y = 0.28;
       group.add(top);
@@ -444,13 +454,13 @@ export default (function () {
       for (let side=0; side<2; side++) {
         const wx = side===0 ? -0.16 : 0.16;
         const wGeo = new T.SphereGeometry(0.10, 10, 10);
-        const wMat = new T.MeshBasicMaterial({ color:0xffffff });
+        const wMat = new T.MeshStandardMaterial({ color:0xffffff, emissive:0xaaaaaa, emissiveIntensity:0.5 });
         const white = new T.Mesh(wGeo, wMat);
         white.position.set(wx, 0.32, -0.33);
         group.add(white);
 
         const pGeo = new T.SphereGeometry(0.055, 8, 8);
-        const pMat = new T.MeshBasicMaterial({ color:0x0000ff });
+        const pMat = new T.MeshStandardMaterial({ color:0x1111ff, emissive:0x0000cc, emissiveIntensity:0.5 });
         const pupil = new T.Mesh(pGeo, pMat);
         pupil.position.set(wx, 0.32, -0.38);
         group.add(pupil);
@@ -553,6 +563,7 @@ export default (function () {
 
       if (gm.bodyMat) {
         gm.bodyMat.color.setHex(bodyColor);
+        if (gm.bodyMat.emissive) gm.bodyMat.emissive.setHex(emiColor);
       }
     }
 
@@ -592,6 +603,7 @@ export default (function () {
       const fl = Math.floor(now/220)%2===0;
       wallMeshes.forEach(m => {
         m.material.color.setHex(fl ? 0xffffff : 0x1a3fff);
+        if (m.material.emissive) m.material.emissive.setHex(fl ? 0x888888 : 0x050a44);
       });
     }
   }
@@ -723,7 +735,10 @@ export default (function () {
     // Reset ghost mesh visuals
     ghostMeshes.forEach(gm => {
       gm.group.children.forEach(c=>{ c.visible=true; });
-      if (gm.bodyMat) { gm.bodyMat.color.setHex(GHOST_HEX[gm.idx]); }
+      if (gm.bodyMat) {
+        gm.bodyMat.color.setHex(GHOST_HEX[gm.idx]);
+        if (gm.bodyMat.emissive) gm.bodyMat.emissive.setHex(GHOST_EMI[gm.idx]);
+      }
     });
   }
 
