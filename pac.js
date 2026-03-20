@@ -58,11 +58,10 @@ export default (function() {
 
   // ── State ─────────────────────────────────────────────────
   let canvas, ctx, raf = null;
-  let map, score, highScore = 0, level, lives;
+  let map, score, highScore = parseInt(localStorage.getItem('hs-pb-pacman') || '0', 10), level, lives;
   let totalDots, dotsEaten;
   let paused = false, gameRunning = false;
   let ghostEatenCount = 0;
-  let flashTimer = null;
   let levelTransition = false;
   // Cached DOM refs
   let elPacOverlay, elPacOvTitle, elPacOvSub, elPacOvScore;
@@ -176,15 +175,6 @@ export default (function() {
   function tileOf(px) { return Math.floor(px / TILE); }
   function centreOf(t) { return t * TILE + TILE / 2; }
 
-  // Snap to axis if close enough to grid centre
-  function snapToGrid(val, dir) {
-    const t = tileOf(val);
-    const centre = centreOf(t);
-    const threshold = PAC_BASE_SPEED * TILE * 4;
-    if (Math.abs(val - centre) < threshold) return centre;
-    return val;
-  }
-
   function canMove(px, py, dx, dy, radius) {
     const speed = TILE * PAC_BASE_SPEED;
     const nx = px + dx * speed;
@@ -204,27 +194,95 @@ export default (function() {
   }
 
   // ── Update pac ────────────────────────────────────────────
+  // TURN SNAPPING: arcade Pac-Man lets you queue a turn early. When Pac is
+  // travelling along one axis and the player wants to turn perpendicular, we
+  // look ahead along the current direction to find the nearest tile centre
+  // where that turn is open. If it's within TURN_WINDOW pixels, we snap Pac
+  // to that centre and commit the turn — no pixel-perfect timing required.
+  const TURN_WINDOW = TILE * 0.55; // generous: just over half a tile ahead
+
+  function canTurnAt(tileCol, tileRow, dx, dy) {
+    const nc = ((tileCol + dx) % COLS + COLS) % COLS;
+    const nr = tileRow + dy;
+    return !isWall(nc, nr);
+  }
+
   function updatePac(dt) {
     if (pac.dead) return;
     const speed = TILE * PAC_BASE_SPEED * (dt / 16);
 
-    // Try queued direction first
-    if ((pac.qx !== 0 || pac.qy !== 0) && canMove(pac.x, pac.y, pac.qx, pac.qy, PAC_R)) {
-      pac.dx = pac.qx; pac.dy = pac.qy;
+    const hasQueue = pac.qx !== 0 || pac.qy !== 0;
+
+    if (hasQueue) {
+      // ── Case 1: same direction as current — just clear queue ──────────
+      if (pac.qx === pac.dx && pac.qy === pac.dy) {
+        pac.qx = 0; pac.qy = 0;
+
+      // ── Case 2: exact reverse — always allow immediately ───────────────
+      } else if (pac.qx === -pac.dx && pac.qy === -pac.dy) {
+        pac.dx = pac.qx; pac.dy = pac.qy;
+        pac.qx = 0; pac.qy = 0;
+
+      // ── Case 3: perpendicular turn ─────────────────────────────────────
+      } else {
+        // Can we turn right now from current position?
+        const curCol = tileOf(pac.x);
+        const curRow = tileOf(pac.y);
+        const cx = centreOf(curCol);
+        const cy = centreOf(curRow);
+
+        // How far is Pac from the centre of the current tile?
+        const offAxis = (pac.qx !== 0) ? Math.abs(pac.y - cy) : Math.abs(pac.x - cx);
+
+        if (offAxis <= TURN_WINDOW && canTurnAt(curCol, curRow, pac.qx, pac.qy)) {
+          // Snap to the tile centre on the perpendicular axis and turn
+          if (pac.qx !== 0) pac.y = cy; // turning left/right: snap Y
+          else               pac.x = cx; // turning up/down:   snap X
+          pac.dx = pac.qx; pac.dy = pac.qy;
+          pac.qx = 0; pac.qy = 0;
+        } else {
+          // Look ahead: find the next tile centre along current travel direction
+          // that has an open path in the queued direction. If it's within
+          // TURN_WINDOW pixels ahead, snap there and take the turn.
+          let lookCol = curCol + pac.dx;
+          let lookRow = curRow + pac.dy;
+          const lookCx = centreOf(((lookCol % COLS) + COLS) % COLS);
+          const lookCy = centreOf(lookRow);
+
+          // Distance from Pac to the next tile centre ahead
+          const distAhead = (pac.dx !== 0)
+            ? (pac.dx > 0 ? lookCx - pac.x : pac.x - lookCx)
+            : (pac.dy > 0 ? lookCy - pac.y : pac.y - lookCy);
+
+          if (distAhead >= 0 && distAhead <= TURN_WINDOW &&
+              canTurnAt(((lookCol % COLS) + COLS) % COLS, lookRow, pac.qx, pac.qy) &&
+              !isWall(((lookCol % COLS) + COLS) % COLS, lookRow)) {
+            // Snap to that tile centre and commit the turn
+            if (pac.dx !== 0) pac.x = lookCx;
+            else               pac.y = lookCy;
+            if (pac.qx !== 0) pac.y = centreOf(lookRow);
+            else               pac.x = lookCx;
+            pac.dx = pac.qx; pac.dy = pac.qy;
+            pac.qx = 0; pac.qy = 0;
+          }
+          // If still not possible, hold the queue — it will be retried next frame
+        }
+      }
     }
 
+    // Move in current direction
     if (canMove(pac.x, pac.y, pac.dx, pac.dy, PAC_R)) {
       pac.x += pac.dx * speed;
       pac.y += pac.dy * speed;
     } else {
-      // Snap to grid centre to prevent wall clip
+      // Hit a wall — snap to tile centre to prevent clipping
       if (pac.dx !== 0) pac.x = centreOf(tileOf(pac.x + pac.dx * 0.5));
       if (pac.dy !== 0) pac.y = centreOf(tileOf(pac.y + pac.dy * 0.5));
     }
 
     // Tunnel wrap
-    if (pac.x < -TILE) pac.x = COLS * TILE;
-    if (pac.x > COLS * TILE) pac.x = -TILE;
+    if (pac.x < -TILE / 2) pac.x = COLS * TILE;
+    if (pac.x > COLS * TILE) pac.x = -TILE / 2;
 
     // Mouth animation
     if (pac.dx !== 0 || pac.dy !== 0) {
@@ -456,16 +514,14 @@ export default (function() {
   // ── Game over ─────────────────────────────────────────────
   function triggerGameOver() {
     gameRunning = false;
-    if (score > highScore) highScore = score;
-    const ovTitle = document.getElementById('pac-ov-title');
-    const ovSub   = document.getElementById('pac-ov-sub');
-    const ovScore = document.getElementById('pac-ov-score');
-    const overlay = document.getElementById('pac-overlay');
-    ovTitle.textContent = 'GAME OVER';
-    ovTitle.className = 'pac-ov-title gameover';
-    ovSub.textContent = 'Better luck next time!';
-    ovScore.textContent = `SCORE: ${score}  |  HIGH: ${highScore}`;
-    overlay.classList.add('active');
+    if (score > highScore) {
+      highScore = score;
+      localStorage.setItem('hs-pb-pacman', highScore);
+    }
+    if (elPacOvTitle) { elPacOvTitle.textContent = 'GAME OVER'; elPacOvTitle.className = 'pac-ov-title gameover'; }
+    if (elPacOvSub)   elPacOvSub.textContent = 'Better luck next time!';
+    if (elPacOvScore) elPacOvScore.textContent = `SCORE: ${score}  |  HIGH: ${highScore}`;
+    if (elPacOverlay) elPacOverlay.classList.add('active');
     updateHUD();
     if (score > 0 && window.HS) setTimeout(() => HS.promptSubmit('pacman', score, score.toLocaleString()), 400);
   }
@@ -498,6 +554,7 @@ export default (function() {
     const wallInner   = flashLight ? '#aaaaff' : '#0000cc';
     const dotColor    = '#ffb8ae';
     const pelletColor = '#ffe600';
+    const now = performance.now(); // cache once — used for pellet pulse
 
     for (let row = 0; row < ROWS; row++) {
       for (let col = 0; col < COLS; col++) {
@@ -516,8 +573,7 @@ export default (function() {
           ctx.fillStyle = dotColor;
           ctx.fill();
         } else if (cell === 3) {
-          const t = performance.now();
-          const pulse = 0.7 + 0.3 * Math.sin(t / 250);
+          const pulse = 0.7 + 0.3 * Math.sin(now / 250);
           ctx.beginPath();
           ctx.arc(x + TILE/2, y + TILE/2,Math.max(0,5 * pulse), 0, Math.PI * 2);
           ctx.fillStyle = pelletColor;
@@ -696,8 +752,6 @@ export default (function() {
 
   // ── Main loop ─────────────────────────────────────────────
   let lastTime = 0;
-  let flashState = false;
-  let flashToggle = 0;
 
   function loop(now) {
     if (!gameRunning) return;
@@ -718,8 +772,8 @@ export default (function() {
     // Un-eaten reset
     ghosts.forEach(g => {
       if (g.eaten) {
-        const dc = Math.abs((g.tileCol || tileOf(g.x)) - 14);
-        const dr = Math.abs((g.tileRow || tileOf(g.y)) - 13);
+        const dc = Math.abs((g.tileCol ?? tileOf(g.x)) - 14);
+        const dr = Math.abs((g.tileRow ?? tileOf(g.y)) - 13);
         if (dc + dr < 1) {
           g.eaten = false; g.scared = false;
           g.inHouse = true; g.leaveTimer = 3000;
@@ -811,7 +865,7 @@ export default (function() {
     if (!gameRunning) return;
     paused = !paused;
     if (elPacPauseBtn) elPacPauseBtn.textContent = paused ? '▶ RESUME' : '⏸ PAUSE';
-    if (!paused) { lastTime = performance.now(); raf = requestAnimationFrame(loop); }
+    if (!paused) lastTime = performance.now(); // loop is self-registering; don't start a second RAF
   }
 
   function destroy() {
@@ -822,5 +876,5 @@ export default (function() {
     window.removeEventListener('keydown', onKey);
   }
 
-  return { init, startGame, newGame, togglePause, destroy, queueDir };
+  return { init, startGame, newGame, togglePause, isPaused: () => paused, destroy, queueDir };
 })();
