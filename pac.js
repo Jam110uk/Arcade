@@ -280,7 +280,7 @@ export default (function () {
     const oldCanvas = document.getElementById('pac-canvas');
     threeCanvas = document.createElement('canvas');
     threeCanvas.id = 'pac-canvas';
-    threeCanvas.width  = COLS * TILE;
+    threeCanvas.width  = COLS * TILE;   // initial size, resize() will correct
     threeCanvas.height = ROWS * TILE;
     if (oldCanvas && oldCanvas.parentNode) {
       oldCanvas.parentNode.replaceChild(threeCanvas, oldCanvas);
@@ -291,7 +291,7 @@ export default (function () {
     renderer = new T.WebGLRenderer({ canvas: threeCanvas, antialias: true, alpha: false });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = false;
-    renderer.setSize(COLS * TILE, ROWS * TILE);
+    renderer.setSize(COLS * TILE, ROWS * TILE); // resize() corrects this after build
     renderer.setClearColor(0x000005);
 
     scene = new T.Scene();
@@ -655,6 +655,7 @@ export default (function () {
     overlayCanvas = document.createElement('canvas');
     overlayCanvas.width  = COLS * TILE;
     overlayCanvas.height = ROWS * TILE;
+    // Actual display size set by resize()
     Object.assign(overlayCanvas.style, {
       position:'absolute', top:'0', left:'0', width:'100%', height:'100%',
       pointerEvents:'none', zIndex:'2',
@@ -692,16 +693,36 @@ export default (function () {
   // ── Resize ────────────────────────────────────────────────
   function resize() {
     const wrap = document.querySelector('.pac-canvas-wrap');
-    if (!threeCanvas || !wrap) return;
-    const maxW = Math.min(wrap.clientWidth, 560);
-    const maxH = wrap.clientHeight || window.innerHeight * 0.7;
-    const scale = Math.min(maxW/(COLS*TILE), maxH/(ROWS*TILE), 1.5);
-    const w = COLS*TILE*scale, h = ROWS*TILE*scale;
-    threeCanvas.style.width  = w + 'px';
-    threeCanvas.style.height = h + 'px';
-    if (overlayCanvas) { overlayCanvas.style.width=w+'px'; overlayCanvas.style.height=h+'px'; }
-    if (renderer) renderer.setSize(COLS*TILE, ROWS*TILE, false);
-    // Orthographic camera — frustum is fixed to maze size, no aspect update needed
+    if (!wrap) return;
+    // Fill the full available wrap area — no arbitrary caps
+    const availW = wrap.clientWidth  || window.innerWidth;
+    const availH = wrap.clientHeight || window.innerHeight * 0.88;
+    // Maintain maze aspect ratio (COLS:ROWS), scale to fill as much as possible
+    const mazeAspect = COLS / ROWS;
+    let w, h;
+    if (availW / availH > mazeAspect) {
+      h = availH;
+      w = Math.round(h * mazeAspect);
+    } else {
+      w = availW;
+      h = Math.round(w / mazeAspect);
+    }
+    if (threeCanvas) {
+      threeCanvas.style.width  = w + 'px';
+      threeCanvas.style.height = h + 'px';
+    }
+    if (overlayCanvas) {
+      overlayCanvas.style.width  = w + 'px';
+      overlayCanvas.style.height = h + 'px';
+    }
+    if (renderer) {
+      // Render at actual pixel size for sharpness
+      renderer.setSize(w, h);
+    }
+    if (camera && camera.isPerspectiveCamera) {
+      camera.aspect = mazeAspect;
+      camera.updateProjectionMatrix();
+    }
   }
 
   // ── Map helpers ───────────────────────────────────────────
