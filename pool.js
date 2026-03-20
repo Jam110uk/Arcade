@@ -1801,40 +1801,18 @@ function poolBallsToData(includeVelocities) {
 }
 
 function poolBallsFromData(data, liveCorrection) {
-  // liveCorrection=true  → position-correction only; preserve vx/vy/spin so local
-  //                         physics keeps running smoothly between Firebase ticks.
-  // liveCorrection=false → full authoritative snap (final positions, initial load).
-  const existing = {};
-  if (POOL.balls) POOL.balls.forEach(b => { existing[b.id] = b; });
-  POOL.balls = data.map(b => {
-    const ex = existing[b.id];
-    if (liveCorrection && ex && !b.potted) {
-      // Gently nudge position toward the authoritative value (light lerp to avoid jank)
-      // but keep the local velocity so physics continues without stutter.
-      const lerpAmt = 0.35;
-      return {
-        id: b.id,
-        x: ex.x + (b.x - ex.x) * lerpAmt,
-        y: ex.y + (b.y - ex.y) * lerpAmt,
-        vx: ex.vx || 0,
-        vy: ex.vy || 0,
-        potted: b.potted,
-        angle: ex.angle || b.angle || 0,
-        spin: ex.spin || 0,
-        sliding: ex.sliding || false,
-      };
-    }
-    // Full snap
-    return {
-      id: b.id,
-      x: b.x, y: b.y,
-      vx: b.vx || 0, vy: b.vy || 0,
-      potted: b.potted,
-      angle: b.angle || 0,
-      spin: b.spin || 0,
-      sliding: b.sliding || false,
-    };
-  });
+  // liveCorrection is now ignored for position — local physics is authoritative.
+  // We keep the parameter for call-site compatibility but always do a full snap.
+  // The liveCorrection path was causing glitching by fighting local physics.
+  POOL.balls = data.map(b => ({
+    id: b.id,
+    x: b.x, y: b.y,
+    vx: b.vx || 0, vy: b.vy || 0,
+    potted: b.potted,
+    angle: b.angle || 0,
+    spin: b.spin || 0,
+    sliding: b.sliding || false,
+  }));
   POOL.cueBall = POOL.balls.find(b => b.id === 0);
 }
 
@@ -2336,9 +2314,11 @@ function poolListenToGame() {
     const isNewShot = isOpponentShot && incomingSeq > (POOL._lastObservedSeq || 0);
 
     if (isNewShot) {
-      // New opponent shot — run local physics replay so observer sees full animation.
+      // Mark this seq as observed immediately so shotSettled in a later snapshot
+      // (not this same tick) can process it.
       POOL._lastObservedSeq = incomingSeq;
       POOL._observingShot = incomingSeq;
+      POOL._settledProcessed = false; // reset settled flag for this new shot
       POOL.myTurn = false;
       POOL.oppCue = null;
       poolUpdateTurnIndicator();
@@ -2350,10 +2330,10 @@ function poolListenToGame() {
         POOL._observerPhysicsRaf = null;
       }
 
-      // Restore pre-shot ball positions
+      // Restore pre-shot ball positions from the broadcaster's snapshot
       if (shot.balls) poolBallsFromData(shot.balls, false);
 
-      // Apply cue velocity exactly as shooter did
+      // Apply the exact same cue velocity the shooter used
       const cb = POOL.cueBall;
       if (cb) {
         cb.vx = Math.cos(shot.angle) * shot.speed;
@@ -2367,8 +2347,8 @@ function poolListenToGame() {
       POOL.isMoving = true;
       POOL._observerIsReplaying = true;
 
-      // Pure physics+render loop — no onDone foul/turn logic (shooter handles that).
-      // Stops when balls settle OR when shotSettled snaps us to final positions.
+      // Pure physics + render loop only — no foul/turn logic (shooter owns that).
+      // Killed externally by shotSettled or naturally when all balls stop.
       (function observerPhysicsLoop() {
         if (!POOL._observerIsReplaying) return;
         poolPhysicsStep();
@@ -2381,6 +2361,10 @@ function poolListenToGame() {
           POOL._observerPhysicsRaf = requestAnimationFrame(observerPhysicsLoop);
         }
       })();
+
+      // IMPORTANT: return here so shotSettled block below cannot run in this
+      // same synchronous callback. It will be processed on the next Firebase snapshot.
+      return;
     }
 
     // Ghost cue: only show while idle (no shot in flight)
@@ -2394,11 +2378,18 @@ function poolListenToGame() {
     // NOTE: liveBalls updates are handled by a dedicated sub-path listener below.
     // The parent listener only handles shot start detection, cue aim, and settlement.
 
-    // ?? SHOT SETTLED: opponent's shot finished — apply final positions and hand off turn ??
-    // The shooter's onDone callback handles their own turn logic; they must NOT process this.
+    // ── SHOT SETTLED ─────────────────────────────────────────────────────────
+    // Shooter writes shotSettled after their onDone fires. Observer applies final
+    // positions and hands off the turn. Guard: only process each seq once, and
+    // only when it was an opponent shot (shotWasMine = skip, this client handles own).
     const shotWasMine = room.lastShot && room.lastShot.playerNum === POOL.playerNum;
-    if (room.shotSettled === incomingSeq && !shotWasMine) {
-      // Stop observer physics loop cleanly
+    const settledMatchesObserved = room.shotSettled > 0
+      && room.shotSettled === POOL._observingShot
+      && !POOL._settledProcessed;
+
+    if (settledMatchesObserved && !shotWasMine) {
+      POOL._settledProcessed = true; // only process once per shot
+      // Stop observer physics loop
       POOL._observerIsReplaying = false;
       POOL.isMoving = false;
       if (POOL._observerPhysicsRaf) {
@@ -2406,27 +2397,18 @@ function poolListenToGame() {
         POOL._observerPhysicsRaf = null;
       }
       _stopObserverRender();
-      // Snap to shooter's authoritative final positions
-      if (room.balls) { poolBallsFromData(room.balls, false); }
+      // Apply authoritative final positions
+      if (room.balls) poolBallsFromData(room.balls, false);
       if (room.ballTypes) {
-        const myKey = `p${POOL.playerNum}`;
-        POOL.myBallType = room.ballTypes[myKey];
+        POOL.myBallType = room.ballTypes[`p${POOL.playerNum}`];
         POOL.opponentBallType = room.ballTypes[`p${POOL.playerNum === 1 ? 2 : 1}`];
       }
-      // Sync potted ball counts from shooter's authoritative state
       if (room.pottedCounts) {
-        const myKey = `p${POOL.playerNum}`;
-        const oppKey = `p${POOL.playerNum === 1 ? 2 : 1}`;
-        POOL.myPotted  = room.pottedCounts[myKey]  || 0;
-        POOL.oppPotted = room.pottedCounts[oppKey] || 0;
+        POOL.myPotted  = room.pottedCounts[`p${POOL.playerNum}`]  || 0;
+        POOL.oppPotted = room.pottedCounts[`p${POOL.playerNum === 1 ? 2 : 1}`] || 0;
       }
-      // Rebuild the tube from authoritative potted ball list (balls with potted:true)
-      // This is idempotent — safe to call multiple times, never duplicates.
-      if (room.balls && window.poolTubeRebuild) {
-        poolTubeRebuild(room.balls);
-      }
-      // Show foul log if applicable
-      if (room.lastFoul) { poolLog(`⚠️ ${room.lastFoul}`, 'miss'); }
+      if (room.balls && window.poolTubeRebuild) poolTubeRebuild(room.balls);
+      if (room.lastFoul) poolLog(`⚠️ ${room.lastFoul}`, 'miss');
       if (room.turn === POOL.playerNum) {
         POOL.twoShotsOwed = !!(room.twoShots && room.twoShots === POOL.playerNum);
         if (POOL.twoShotsOwed) poolLog('🎱 2 SHOTS — free table on first shot', 'hit');
@@ -2449,20 +2431,18 @@ function poolListenToGame() {
     const data = snap.val();
     if (data && data.balls) {
       if (POOL._observerIsReplaying) {
-        // Observer physics running locally — gently nudge positions toward authoritative
-        // values without zeroing velocities (preserves smooth local simulation).
-        poolBallsFromData(data.balls, true);
-      } else {
-        // Fallback: liveBalls arrived before isNewShot fired (race condition).
-        // Snap positions and start a simple render loop until shotSettled arrives.
-        poolBallsFromData(data.balls, true);
-        POOL.isMoving = true;
-        if (!POOL._observingShot) POOL._observingShot = -1;
-        if (!POOL._observerRendering) _startObserverRender();
+        // Local physics is running — ignore liveBalls positions entirely.
+        // Applying them would fight the simulation and cause glitching.
+        return;
       }
+      // Fallback: isNewShot hasn't fired yet (race) or this is a slow device.
+      // Snap directly and use a simple render loop as the display driver.
+      poolBallsFromData(data.balls, false);
+      POOL.isMoving = true;
+      if (!POOL._observingShot) POOL._observingShot = -1;
+      if (!POOL._observerRendering) _startObserverRender();
     } else {
-      // balls:null — shooter animation done. Only stop if NOT mid-replay
-      // (replay will finish naturally via poolAllStopped or shotSettled).
+      // balls:null — shooter done. Stop fallback render loop if one was running.
       if (!POOL._observerIsReplaying) {
         POOL._observingShot = 0;
         POOL.isMoving = false;
