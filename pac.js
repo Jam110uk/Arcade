@@ -297,12 +297,14 @@ export default (function () {
     scene = new T.Scene();
     // No fog — full maze must be visible at all times
 
-    // ── Follow camera — close perspective that tracks Pac-Man ──
-    // Sits ~14 tiles above and ~6 tiles behind Pac, looking at him.
-    // Position updated every frame in update3D() to follow pac.
-    camera = new T.PerspectiveCamera(55, COLS / ROWS, 0.1, 300);
-    // Initial position — will be overridden immediately in update3D
-    camera.position.set(0, 14, 8);
+    // ── Follow camera — fixed tilt, scrolls in XZ only ──────────
+    // FOV 52°, positioned 16 up + 7 back from pac centre.
+    // The camera NEVER rotates — only XZ position changes per frame.
+    // Initial lookAt sets the permanent tilt angle.
+    camera = new T.PerspectiveCamera(52, COLS / ROWS, 0.1, 300);
+    camera.position.set(0, 16, 7);
+    // Point camera at a spot ~7 units in front of and below its position
+    // This gives ~66° down-angle — dramatic but clearly shows wall depth
     camera.lookAt(0, 0, 0);
 
     // Controlled lighting for MeshStandardMaterial with slight tilt camera.
@@ -360,8 +362,13 @@ export default (function () {
   function buildDots() {
     const T = THREE_LIB;
     // Remove old dots
-    Object.values(dotMeshes).forEach(m=>{scene.remove(m);m.geometry.dispose();m.material.dispose();});
-    Object.values(pelletMeshes).forEach(m=>{scene.remove(m);m.geometry.dispose();m.material.dispose();});
+    // Remove from scene and dispose shared geo/mat once
+    const dotVals = Object.values(dotMeshes);
+    const pelVals = Object.values(pelletMeshes);
+    dotVals.forEach(m => scene.remove(m));
+    pelVals.forEach(m => scene.remove(m));
+    if (dotVals.length)  { dotVals[0].geometry.dispose(); dotVals[0].material.dispose(); }
+    if (pelVals.length)  { pelVals[0].geometry.dispose(); pelVals[0].material.dispose(); }
     dotMeshes={}; pelletMeshes={};
 
     const dotGeo = new T.SphereGeometry(0.16, 8, 8);
@@ -487,27 +494,21 @@ export default (function () {
       pacMesh.position.x = worldX(pac.x);
       pacMesh.position.z = worldZ(pac.y);
 
-      // ── Follow camera ─────────────────────────────────────────
-      // Camera sits above-and-behind Pac, always looking at him.
-      // "Behind" means opposite to pac's direction of travel so the
-      // player always sees what's ahead of Pac-Man.
+      // ── Follow camera — pure XZ scroll, fixed tilt, no rotation ──
+      // Camera keeps a fixed offset above+behind pac in world space.
+      // Only X and Z translate to follow pac; Y and rotation never change.
       const px = worldX(pac.x);
       const pz = worldZ(pac.y);
-      // Offset camera behind pac's travel direction
-      const camOffX = -(pac.dx) * 3.5;
-      const camOffZ = -(pac.dy) * 3.5;
-      const targetCamX = px + camOffX;
-      const targetCamZ = pz + camOffZ + 5.5; // extra Z for tilt perspective
-      const targetCamY = 13;
-      // Smooth lerp so camera glides rather than snapping
-      const lerpSpeed = 0.10;
-      camera.position.x += (targetCamX - camera.position.x) * lerpSpeed;
-      camera.position.y += (targetCamY - camera.position.y) * lerpSpeed;
-      camera.position.z += (targetCamZ - camera.position.z) * lerpSpeed;
-      // Always look slightly ahead of pac so action is centred
-      const lookX = px + pac.dx * 2;
-      const lookZ = pz + pac.dy * 2;
-      camera.lookAt(lookX, 0, lookZ);
+      // Fixed offset: 16 units up, 7 units back (south) for the tilt look
+      const targetX = px;
+      const targetY = 16;
+      const targetZ = pz + 7;
+      // Smooth lerp — fast enough to feel responsive
+      const lp = 0.12;
+      camera.position.x += (targetX - camera.position.x) * lp;
+      camera.position.y += (targetY - camera.position.y) * lp;
+      camera.position.z += (targetZ - camera.position.z) * lp;
+      // lookAt is called ONCE at buildScene and never again — camera doesn't rotate
 
       // Face direction of travel
       if (pac.dx === 1)       pacMesh.rotation.y = -Math.PI/2;
@@ -595,17 +596,15 @@ export default (function () {
       const [c,r] = key.split(',').map(Number);
       if (map[r] && map[r][c] === 0) {
         scene.remove(dotMeshes[key]);
-        dotMeshes[key].geometry.dispose();
-        dotMeshes[key].material.dispose();
+        // Don't dispose geometry/material — they are shared across all dots
         delete dotMeshes[key];
       }
     }
     for (const key in pelletMeshes) {
       const [c,r] = key.split(',').map(Number);
       if (map[r] && map[r][c] === 0) {
-        const pm = pelletMeshes[key];
-        if (pm.userData.light) scene.remove(pm.userData.light);
-        scene.remove(pm); pm.geometry.dispose(); pm.material.dispose();
+        scene.remove(pelletMeshes[key]);
+        // Don't dispose shared material/geometry here
         delete pelletMeshes[key];
       }
     }
@@ -795,7 +794,9 @@ export default (function () {
   // ── New game / level ──────────────────────────────────────
   function newGame() {
     level=1; score=0; lives=3; currentMazeIdx=0;
-    updateHUD(); startLevel(); sfxIntro();
+    updateHUD();
+    startLevel();
+    sfxIntro();
   }
   function startLevel() {
     currentMazeIdx = pickMaze(level);
@@ -803,8 +804,11 @@ export default (function () {
     dotsEaten=0; scaredEnd=0; ghostEatenCount=0; levelTransition=false;
     stopScaredSfx();
     initPac(); initGhosts(); updateHUD();
-    // Rebuild 3D scene geometry for new maze
-    if (THREE_LIB) { buildMazeGeometry(); buildDots(); }
+    // Only rebuild 3D geometry if the scene is already fully built
+    if (THREE_LIB && scene && wallMeshes !== undefined) {
+      buildMazeGeometry();
+      buildDots();
+    }
   }
 
   // ── Movement helpers ──────────────────────────────────────
@@ -1048,10 +1052,16 @@ export default (function () {
     const wrap = document.querySelector('.pac-canvas-wrap');
     if (wrap) wrap.style.position = 'relative';
 
-    newGame(); // sets up game state before Three.js loads
+    // Initialise game state only (no 3D yet — THREE_LIB is null here)
+    level=1; score=0; lives=3; currentMazeIdx=0;
+    currentMazeIdx = pickMaze(level);
+    map = cloneMap(); countDots();
+    dotsEaten=0; scaredEnd=0; ghostEatenCount=0; levelTransition=false;
+    initPac();
 
     loadThree(() => {
       THREE_LIB = window.THREE;
+      // buildScene does full build: maze, dots, pac, ghosts
       buildScene();
       buildOverlayCanvas();
       resize();
@@ -1067,7 +1077,12 @@ export default (function () {
 
   function startGame(){
     if(elPacOverlay)elPacOverlay.classList.remove('active');
-    newGame();gameRunning=true;lastTime=performance.now();
+    // Reset game state fully
+    level=1; score=0; lives=3; currentMazeIdx=0;
+    updateHUD();
+    startLevel();   // rebuilds maze geometry + dots cleanly
+    sfxIntro();
+    gameRunning=true; lastTime=performance.now();
     raf=requestAnimationFrame(loop);
     if(elPacPauseBtn)elPacPauseBtn.textContent='⏸ PAUSE';
   }
