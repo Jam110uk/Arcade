@@ -69,9 +69,9 @@ export default (() => {
 
   // Camera — tilted perspective, narrow FOV reduces distortion
   // Sits at (0, H, Z) looking at origin; pitch = atan(Z/H)
-  const CAM_H   = 18;    // height above ground
-  const CAM_Z   = 6;     // back from centre (toward viewer)
-  const CAM_FOV = 30;    // degrees — narrow keeps cells nearly uniform
+  const CAM_H   = 14;    // height above ground — lower = more tilt visible
+  const CAM_Z   = 9;     // further back = more pitch angle (~33°)
+  const CAM_FOV = 32;    // slightly wider to keep full grid in view
 
   // Water colour: deep navy
   const WATER_COL = 0x041828;
@@ -136,13 +136,18 @@ export default (() => {
   }
 
   function _buildLights() {
-    _scene.add(new THREE.AmbientLight(0x3355aa, 1.8));
-    const d = new THREE.DirectionalLight(0x8899cc, 1.2);
-    d.position.set(4, 20, 8);
+    _scene.add(new THREE.AmbientLight(0x223366, 1.2));
+    // Main directional light — from upper-front for ship body shading
+    const d = new THREE.DirectionalLight(0xaabbdd, 2.0);
+    d.position.set(2, 16, 10);
     _scene.add(d);
-    // Cyan neon fill
-    const f = new THREE.PointLight(0x00f5ff, 0.6, 80);
-    f.position.set(0, 20, 0);
+    // Back fill — soften harsh shadows
+    const b = new THREE.DirectionalLight(0x334466, 0.5);
+    b.position.set(-3, 8, -8);
+    _scene.add(b);
+    // Neon cyan point — arcade glow
+    const f = new THREE.PointLight(0x00f5ff, 0.8, 80);
+    f.position.set(0, 18, 0);
     _scene.add(f);
   }
 
@@ -220,7 +225,9 @@ export default (() => {
   }
 
   // ══════════════════════════════════════════════════════════════
-  // OCEAN PLANE — one per grid, sized to cover exact cell area
+  // OCEAN PLANE — one per grid
+  // Projects grid corners to find world centre, builds a subdivided
+  // PlaneGeometry there for wave displacement.
   // ══════════════════════════════════════════════════════════════
   function buildOceanForGrid(gridId) {
     const gridEl = document.getElementById(gridId);
@@ -228,67 +235,65 @@ export default (() => {
 
     // Remove old
     const old = _grids[gridId]._ocean;
-    if (old) { _scene.remove(old); _oceanMeshes = _oceanMeshes.filter(o => o.mesh !== old); }
+    if (old) {
+      _scene.remove(old);
+      _oceanMeshes = _oceanMeshes.filter(o => o.mesh !== old);
+      old.geometry.dispose();
+    }
 
-    // Project the four corners of the 10×10 play area to world space
+    // Project the four play-area corners to world Y=0
     const full = gridEl.getBoundingClientRect();
-    const l = full.left + LABEL_PX, t = full.top  + LABEL_PX;
-    const r = full.right,           b = full.bottom;
-
-    const tl = screenToWorld(l, t);
-    const tr = screenToWorld(r, t);
-    const br = screenToWorld(r, b);
-    const bl = screenToWorld(l, b);
+    const l = full.left + LABEL_PX, t = full.top + LABEL_PX;
+    const r = full.right, b = full.bottom;
+    const tl = screenToWorld(l, t), tr = screenToWorld(r, t);
+    const br = screenToWorld(r, b), bl = screenToWorld(l, b);
     if (!tl || !tr || !br || !bl) return;
 
-    // Build a quad geometry from the four projected corners
-    const geo = new THREE.BufferGeometry();
-    const verts = new Float32Array([
-      tl.x, 0, tl.z,
-      tr.x, 0, tr.z,
-      bl.x, 0, bl.z,
-      tr.x, 0, tr.z,
-      br.x, 0, br.z,
-      bl.x, 0, bl.z,
-    ]);
-    geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
-    // UVs for wave sampling
-    geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array([
-      0,1, 1,1, 0,0, 1,1, 1,0, 0,0
-    ]), 2));
-    geo.computeVertexNormals();
+    // World-space bounds + margin
+    const xs = [tl.x, tr.x, br.x, bl.x];
+    const zs = [tl.z, tr.z, br.z, bl.z];
+    const minX = Math.min(...xs) - 1.5, maxX = Math.max(...xs) + 1.5;
+    const minZ = Math.min(...zs) - 1.5, maxZ = Math.max(...zs) + 1.5;
+    const W = maxX - minX, H = maxZ - minZ;
+    const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
 
+    const geo = new THREE.PlaneGeometry(W, H, 28, 28);
     const mat = new THREE.MeshPhongMaterial({
       color:       WATER_COL,
-      shininess:   90,
+      shininess:   100,
       specular:    new THREE.Color(0x0066cc),
       transparent: true,
-      opacity:     0.78,
+      opacity:     0.82,
       depthWrite:  false,
       side:        THREE.DoubleSide,
     });
 
     const mesh = new THREE.Mesh(geo, mat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(cx, -0.02, cz);
     mesh.renderOrder = -1;
     _scene.add(mesh);
     _grids[gridId]._ocean = mesh;
 
-    // Store base positions for wave animation
-    const base = new Float32Array(verts);
-    _oceanMeshes.push({ mesh, base, geo, tl, tr, br, bl, gridId });
+    // Cache base Z for wave animation
+    const pos = geo.attributes.position;
+    const base = new Float32Array(pos.count);
+    for (let i = 0; i < pos.count; i++) base[i] = pos.getZ(i);
+    _oceanMeshes.push({ mesh, base, geo });
   }
 
   function _animateOcean() {
     const t = _oceanTime;
     for (const o of _oceanMeshes) {
       const pos = o.geo.attributes.position;
-      const arr = pos.array;
-      // Each vertex: apply wave offset in Y
+      // PlaneGeometry before rotation.x: X=X, Y=Y (height), Z=0 for flat
+      // Animate Y (which becomes world-Y after rotation)
       for (let i = 0; i < pos.count; i++) {
-        const bx = o.base[i*3], bz = o.base[i*3+2];
-        arr[i*3+1] = Math.sin(bx * 0.8 + t * 0.7) * 0.04
-                   + Math.sin(bz * 0.6 + t * 0.9) * 0.028
-                   + Math.sin((bx - bz) * 0.4 + t * 0.55) * 0.018;
+        const x = pos.getX(i), y = pos.getY(i);
+        const wave = Math.sin(x * 0.8 + t * 0.7) * 0.04
+                   + Math.sin(y * 0.6 + t * 0.9) * 0.028
+                   + Math.sin((x - y) * 0.4 + t * 0.55) * 0.018;
+        pos.setZ(i, o.base[i] + wave);
       }
       pos.needsUpdate = true;
       o.geo.computeVertexNormals();
