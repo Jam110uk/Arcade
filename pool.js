@@ -1752,6 +1752,10 @@ function poolStartGame() {
   POOL.shotSeq = 0;
   POOL._lastObservedSeq = 0;
   POOL._observingShot = 0;
+  POOL._lastSettledSeq = 0;
+  POOL._settledProcessed = true;
+  POOL._lastSettledSeq = 0;
+  POOL._settledProcessed = true; // start true so first snapshot can't spuriously fire
 
   showScreen('pool-screen');
 
@@ -2318,7 +2322,7 @@ function poolListenToGame() {
       // (not this same tick) can process it.
       POOL._lastObservedSeq = incomingSeq;
       POOL._observingShot = incomingSeq;
-      POOL._settledProcessed = false; // reset settled flag for this new shot
+      POOL._settledProcessed = false; // reset so shotSettled can fire for this shot
       POOL.myTurn = false;
       POOL.oppCue = null;
       poolUpdateTurnIndicator();
@@ -2379,16 +2383,17 @@ function poolListenToGame() {
     // The parent listener only handles shot start detection, cue aim, and settlement.
 
     // ── SHOT SETTLED ─────────────────────────────────────────────────────────
-    // Shooter writes shotSettled after their onDone fires. Observer applies final
-    // positions and hands off the turn. Guard: only process each seq once, and
-    // only when it was an opponent shot (shotWasMine = skip, this client handles own).
+    // Shooter writes shotSettled + turn after their animation completes.
+    // Both clients hear this — shooter skips it (handles own turn in onDone callback).
+    // Observer uses it to apply final positions and hand off the turn.
     const shotWasMine = room.lastShot && room.lastShot.playerNum === POOL.playerNum;
-    const settledMatchesObserved = room.shotSettled > 0
-      && room.shotSettled === POOL._observingShot
-      && !POOL._settledProcessed;
+    // Process if: there's a settled seq, it's newer than last we processed, not our shot
+    const shouldProcessSettled = room.shotSettled > 0
+      && room.shotSettled > (POOL._lastSettledSeq || 0)
+      && !shotWasMine;
 
-    if (settledMatchesObserved && !shotWasMine) {
-      POOL._settledProcessed = true; // only process once per shot
+    if (shouldProcessSettled) {
+      POOL._lastSettledSeq = room.shotSettled; // mark as processed
       // Stop observer physics loop
       POOL._observerIsReplaying = false;
       POOL.isMoving = false;
