@@ -120,13 +120,13 @@ export default (function () {
   const MAZE_FORTRESS = [
     [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
     [1,2,2,2,2,2,2,2,2,2,2,2,2,1,1,2,2,2,2,2,2,2,2,2,2,2,2,1],
-    [1,2,1,1,1,1,1,1,1,1,1,1,2,1,1,2,1,1,1,1,1,1,1,1,1,1,2,1],
-    [1,3,1,1,1,1,1,1,1,1,1,1,2,1,1,2,1,1,1,1,1,1,1,1,1,1,3,1],
-    [1,2,1,1,2,2,2,2,2,2,2,1,2,1,1,2,1,2,2,2,2,2,2,2,1,1,2,1],
-    [1,2,2,2,2,1,1,1,1,1,2,2,2,2,2,2,2,2,1,1,1,1,1,2,2,2,2,1],
-    [1,2,1,1,2,1,2,2,2,1,2,1,1,1,1,1,1,2,1,2,2,2,1,2,1,1,2,1],
-    [1,2,1,1,2,1,2,1,2,1,2,1,1,1,1,1,1,2,1,2,1,2,1,2,1,1,2,1],
-    [1,2,2,2,2,1,2,2,2,2,2,2,2,1,1,2,2,2,2,2,2,2,1,2,2,2,2,1],
+    [1,2,1,1,1,1,1,1,2,1,1,1,2,1,1,2,1,1,1,2,1,1,1,1,1,1,2,1],
+    [1,3,1,1,1,1,1,1,2,1,1,1,2,1,1,2,1,1,1,2,1,1,1,1,1,1,3,1],
+    [1,2,1,1,1,1,1,1,2,1,1,1,2,1,1,2,1,1,1,2,1,1,1,1,1,1,2,1],
+    [1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1],
+    [1,2,1,1,2,1,1,2,1,1,1,2,1,1,1,1,2,1,1,1,2,1,1,2,1,1,2,1],
+    [1,2,1,1,2,1,1,2,1,1,1,2,1,1,1,1,2,1,1,1,2,1,1,2,1,1,2,1],
+    [1,2,2,2,2,1,1,2,2,2,2,2,2,1,1,2,2,2,2,2,2,2,1,1,2,2,2,1],
     [1,1,1,1,1,1,2,1,1,1,1,1,0,1,1,0,1,1,1,1,1,2,1,1,1,1,1,1],
     [1,1,1,1,1,1,2,1,1,1,1,1,0,1,1,0,1,1,1,1,1,2,1,1,1,1,1,1],
     [1,1,1,1,1,1,2,1,1,0,0,0,0,0,0,0,0,0,0,1,1,2,1,1,1,1,1,1],
@@ -138,20 +138,27 @@ export default (function () {
     [1,1,1,1,1,1,2,1,1,0,0,0,0,0,0,0,0,0,0,1,1,2,1,1,1,1,1,1],
     [1,1,1,1,1,1,2,1,1,0,1,1,1,1,1,1,1,1,0,1,1,2,1,1,1,1,1,1],
     [1,1,1,1,1,1,2,1,1,0,1,1,1,1,1,1,1,1,0,1,1,2,1,1,1,1,1,1],
-    [1,2,2,2,2,2,2,2,2,2,1,2,2,1,1,2,2,1,2,2,2,2,2,2,2,2,2,1],
-    [1,2,1,1,1,1,2,1,1,2,1,2,1,1,1,1,2,1,2,1,1,2,1,1,1,1,2,1],
-    [1,2,1,1,1,1,2,1,1,2,1,2,1,1,1,1,2,1,2,1,1,2,1,1,1,1,2,1],
-    [1,3,2,2,2,2,2,2,2,2,1,2,2,0,0,2,2,1,2,2,2,2,2,2,2,2,3,1],
-    [1,1,1,2,1,2,1,1,1,2,1,1,1,1,1,1,1,1,2,1,1,1,2,1,2,1,1,1],
-    [1,1,1,2,1,2,1,1,1,2,1,1,1,1,1,1,1,1,2,1,1,1,2,1,2,1,1,1],
-    [1,2,2,2,1,2,2,1,1,2,2,2,2,1,1,2,2,2,2,1,1,2,2,1,2,2,2,1],
-    [1,2,1,1,1,1,1,1,1,1,1,1,2,1,1,2,1,1,1,1,1,1,1,1,1,1,2,1],
-    [1,2,1,1,1,1,1,1,1,1,1,1,2,1,1,2,1,1,1,1,1,1,1,1,1,1,2,1],
+    [1,2,2,2,2,2,2,2,2,2,2,2,2,1,1,2,2,2,2,2,2,2,2,2,2,2,2,1],
+    [1,2,1,1,1,2,1,1,1,1,1,1,2,1,1,2,1,1,1,1,1,1,2,1,1,1,2,1],
+    [1,2,1,1,1,2,1,1,1,1,1,1,2,1,1,2,1,1,1,1,1,1,2,1,1,1,2,1],
+    [1,3,2,2,2,2,2,2,2,2,2,2,2,0,0,2,2,2,2,2,2,2,2,2,2,2,3,1],
+    [1,1,1,2,1,1,2,1,1,2,1,1,1,1,1,1,1,1,2,1,1,2,1,1,2,1,1,1],
+    [1,1,1,2,1,1,2,1,1,2,1,1,1,1,1,1,1,1,2,1,1,2,1,1,2,1,1,1],
+    [1,2,2,2,2,2,2,1,1,2,2,2,2,1,1,2,2,2,2,1,1,2,2,2,2,2,2,1],
+    [1,2,1,1,1,1,1,1,2,1,1,1,2,1,1,2,1,1,1,2,1,1,1,1,1,1,2,1],
+    [1,2,1,1,1,1,1,1,2,1,1,1,2,1,1,2,1,1,1,2,1,1,1,1,1,1,2,1],
     [1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1],
     [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-  ];
+  ]
 
   const ALL_MAZES = [MAZE_CLASSIC, MAZE_GRID, MAZE_COMB, MAZE_FORTRESS];
+  // Per-maze: wall colour, wall emissive, floor colour
+  const MAZE_COLORS = [
+    { wall: 0x1a3fff, emi: 0x050a44, floor: 0x000010 }, // Classic  — blue
+    { wall: 0x118833, emi: 0x022208, floor: 0x000804 }, // Grid     — green
+    { wall: 0x881199, emi: 0x220033, floor: 0x060008 }, // Comb     — purple
+    { wall: 0xcc3300, emi: 0x330800, floor: 0x090100 }, // Fortress — red
+  ];
   let currentMazeIdx = 0;
 
   function pickMaze(lvl) {
@@ -320,10 +327,14 @@ export default (function () {
     scene.add(rim);
 
     const floorGeo = new T.PlaneGeometry(COLS + 2, ROWS + 2);
-    const floorMat = new T.MeshStandardMaterial({ color: 0x000008, roughness: 1, metalness: 0 });
-    floorMesh = new T.Mesh(floorGeo, floorMat);
-    floorMesh.rotation.x = -Math.PI/2;
-    scene.add(floorMesh);
+    const floorMat = new T.MeshStandardMaterial({ color: (MAZE_COLORS[currentMazeIdx]||MAZE_COLORS[0]).floor, roughness: 1, metalness: 0 });
+    if (floorMesh) {
+      floorMesh.material.color.setHex((MAZE_COLORS[currentMazeIdx]||MAZE_COLORS[0]).floor);
+    } else {
+      floorMesh = new T.Mesh(floorGeo, floorMat);
+      floorMesh.rotation.x = -Math.PI/2;
+      scene.add(floorMesh);
+    }
 
     buildMazeGeometry();
     buildDots();
@@ -338,8 +349,9 @@ export default (function () {
     wallMeshes.forEach(m => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); });
     wallMeshes = [];
 
-    const wallMat = new T.MeshStandardMaterial({ color: 0x1a3fff, roughness: 0.6, metalness: 0.1,
-      emissive: 0x050a44, emissiveIntensity: 1.0 });
+    const mc = MAZE_COLORS[currentMazeIdx] || MAZE_COLORS[0];
+    const wallMat = new T.MeshStandardMaterial({ color: mc.wall, roughness: 0.6, metalness: 0.1,
+      emissive: mc.emi, emissiveIntensity: 1.0 });
     const doorMat = new T.MeshStandardMaterial({ color: 0xff88ff, roughness: 0.5, metalness: 0,
       emissive: 0x330033, emissiveIntensity: 0.5 });
 
@@ -659,9 +671,10 @@ export default (function () {
     // Level flash — tint walls
     if (levelTransition) {
       const fl = Math.floor(now/220)%2===0;
+      const mc2 = MAZE_COLORS[currentMazeIdx] || MAZE_COLORS[0];
       wallMeshes.forEach(m => {
-        m.material.color.setHex(fl ? 0xffffff : 0x1a3fff);
-        if (m.material.emissive) m.material.emissive.setHex(fl ? 0x888888 : 0x050a44);
+        m.material.color.setHex(fl ? 0xffffff : mc2.wall);
+        if (m.material.emissive) m.material.emissive.setHex(fl ? 0x888888 : mc2.emi);
       });
     }
   }
