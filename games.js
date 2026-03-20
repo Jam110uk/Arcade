@@ -30,7 +30,13 @@ export const GAMES = {
 
   // ── Multiplayer / lobby games (no module — handled by index.html) ──
   battleships:  { label: '🚢 Battleships',      module: null,          screen: 'lobby-screen',        init: () => {} },
-  pool:         { label: '🎱 Pool',              module: null,          screen: 'pool-lobby-screen',   init: () => {} },
+  pool:         { label: '🎱 Pool',              module: null,          screen: 'pool-lobby-screen',   init: () => {
+    // pool.js uses plain globals (not an ES module) so load via script tag
+    if (document.querySelector('script[src="./pool.js"]')) return; // already loading/loaded
+    const s = document.createElement('script');
+    s.src = './pool.js';
+    document.head.appendChild(s);
+  } },
   scrabble:     { label: '🔤 Scrabble',          module: null,          screen: 'scrabble-lobby-screen', init: () => {} },
   trivia:       { label: '🧠 Trivia',            module: null,          screen: 'trivia-lobby-screen', init: () => {} },
   hangman:      { label: '🪢 Hangman',           module: './hm.js',     screen: 'hangman-screen',      init: m => m.initSolo() },
