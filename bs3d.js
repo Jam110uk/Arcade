@@ -55,6 +55,11 @@ export default (() => {
     #game-screen .grid-cell:not(.hit):not(.miss):not(.sunk):not(.sunk-ship) {
       background: transparent !important;
     }
+    /* Remove green cell borders from player ships — 3D models replace them */
+    #game-screen #my-grid .grid-cell.ship-cell {
+      border-color: var(--grid-line) !important;
+      background: transparent !important;
+    }
     /* Hit / miss cells keep their colours but let glow bleed through */
     #game-screen .grid-cell.hit  { background: rgba(30,4,0,0.55) !important; }
     #game-screen .grid-cell.miss { background: rgba(0,10,30,0.35) !important; }
@@ -285,18 +290,10 @@ export default (() => {
   function _animateOcean() {
     const t = _oceanTime;
     for (const o of _oceanMeshes) {
-      const pos = o.geo.attributes.position;
-      // PlaneGeometry before rotation.x: X=X, Y=Y (height), Z=0 for flat
-      // Animate Y (which becomes world-Y after rotation)
-      for (let i = 0; i < pos.count; i++) {
-        const x = pos.getX(i), y = pos.getY(i);
-        const wave = Math.sin(x * 0.8 + t * 0.7) * 0.04
-                   + Math.sin(y * 0.6 + t * 0.9) * 0.028
-                   + Math.sin((x - y) * 0.4 + t * 0.55) * 0.018;
-        pos.setZ(i, o.base[i] + wave);
-      }
-      pos.needsUpdate = true;
-      o.geo.computeVertexNormals();
+      // Keep geometry flat — no vertex displacement.
+      // Animate material opacity slightly for a gentle shimmer effect.
+      o.mesh.material.opacity = 0.78 + Math.sin(t * 0.6) * 0.04
+                                     + Math.sin(t * 1.1) * 0.02;
     }
   }
 
