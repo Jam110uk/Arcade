@@ -402,111 +402,64 @@ export default (function () {
     if (pacMesh) { scene.remove(pacMesh); }
     pacMesh = new T.Group();
 
-    const R   = 0.46;   // radius
-    const DEP = 0.30;   // depth (thickness of the disc)
-
-    // ── Yellow body: extruded pac-man shape ───────────────────────
-    // We build the shape as a closed arc (full circle minus mouth wedge).
-    // mouthAngle is driven by game state, but the GEOMETRY is fixed at max-open
-    // so the mouth gap is always visible. We animate by rotating the whole mesh.
-    // Actually: build the shape once (mouth fully open = 40°) and just rotate
-    // the group. The mouth opening angle is fixed in geometry; "chomping" is
-    // done by scaling the wedge open/closed via a separate inner plane.
-    //
-    // Simpler and more reliable: build a cylinder arc for the body
-    // (CylinderGeometry with thetaLength < 2PI leaves the mouth gap open),
-    // add a pink plane inside for the mouth interior,
-    // animate by rotating upper/lower halves.
+    const R = 0.46;
 
     const yellowMat = new T.MeshStandardMaterial({
-      color: 0xffe600, emissive: 0xdd8800, emissiveIntensity: 0.55,
-      roughness: 0.25, metalness: 0.05, side: T.DoubleSide,
+      color: 0xffe600, emissive: 0xcc7700, emissiveIntensity: 0.5,
+      roughness: 0.25, metalness: 0.05,
     });
     const pinkMat = new T.MeshStandardMaterial({
-      color: 0xff6688, emissive: 0xcc1144, emissiveIntensity: 0.7,
-      roughness: 0.4, side: T.DoubleSide,
+      color: 0xff4477, emissive: 0xdd0044, emissiveIntensity: 0.9,
+      roughness: 0.3, side: T.DoubleSide,
     });
-    const darkMat = new T.MeshStandardMaterial({
-      color: 0x111111, emissive: 0x000000, emissiveIntensity: 0,
-      roughness: 1, side: T.DoubleSide,
+    const eyeMat = new T.MeshStandardMaterial({
+      color: 0x111111, roughness: 1,
     });
 
-    // ── Build pac body using Shape + ExtrudeGeometry ──────────────
-    // Shape: full circle minus a mouth wedge. The wedge is parameterised
-    // by mouthHalfAngle — we rebuild geometry each frame would be expensive,
-    // so instead: build upper-half and lower-half as separate extruded shapes,
-    // each pivoting from the centre. This gives the classic chomping look.
-    //
-    // Upper half: arc from mouthAngle to PI  (top semicircle)
-    // Lower half: arc from PI to 2PI-mouthAngle (bottom semicircle)
-    // Both halves pivot at their flat edge (the centre of the pac).
+    // ── Bottom hemisphere (fixed, never moves) ────────────────────
+    // SphereGeometry(r, wSeg, hSeg, phiStart, phiLen, thetaStart, thetaLen)
+    // thetaStart=PI/2, thetaLen=PI/2 → bottom hemisphere
+    const botGeo = new T.SphereGeometry(R, 32, 16, 0, Math.PI*2, Math.PI/2, Math.PI/2);
+    const botHemi = new T.Mesh(botGeo, yellowMat);
+    pacMesh.add(botHemi);
 
-    function makePacHalf(startAngle, endAngle) {
-      const shape = new T.Shape();
-      shape.moveTo(0, 0);
-      shape.absarc(0, 0, R, startAngle, endAngle, false);
-      shape.lineTo(0, 0);
-      const geo = new T.ExtrudeGeometry(shape, {
-        depth: DEP, bevelEnabled: false,
-      });
-      // Centre the extrusion depth so pac sits flat on y=0
-      geo.translate(0, 0, -DEP / 2);
-      return geo;
-    }
+    // Pink disc on TOP flat face of bottom hemisphere (y=0 equator plane)
+    // Sits just above y=0 so it's visible inside the mouth gap
+    const pinkDiscGeo = new T.CircleGeometry(R * 0.97, 48);
+    const pinkDiscBot = new T.Mesh(pinkDiscGeo, pinkMat);
+    pinkDiscBot.rotation.x = -Math.PI / 2; // face up
+    pinkDiscBot.position.y = 0.002;
+    pacMesh.add(pinkDiscBot);
 
-    // Upper jaw: from +mouthHalf to PI+mouthHalf  (right side to left side via top)
-    // Lower jaw: from PI+mouthHalf to 2PI+mouthHalf (left to right via bottom)
-    // We start with mouth half-open (0.3 rad each side = ~17°)
-    const MOUTH_MAX = 0.38; // max half-angle of mouth opening in radians
+    // ── Top hemisphere group (pivots around y=0 equator) ─────────
+    // The entire top group rotates around its own X axis at y=0
+    const topGroup = new T.Group();
+    pacMesh.add(topGroup);
+    pacMesh.userData.topGroup = topGroup;
 
-    const upperGeo = makePacHalf(MOUTH_MAX, Math.PI * 2 - MOUTH_MAX);
-    pacBodyMesh = new T.Mesh(upperGeo, yellowMat);
-    // Rotate so the flat mouth edge faces forward (toward -Z in Three.js = front)
-    // ExtrudeGeometry is built in XY plane, we need it in XZ plane facing camera
-    pacBodyMesh.rotation.x = Math.PI / 2;
-    pacMesh.add(pacBodyMesh);
-    // Store reference and pivot info
-    pacMesh.userData.upperJaw = pacBodyMesh;
+    // Top hemisphere: thetaStart=0, thetaLen=PI/2 → top half
+    const topGeo = new T.SphereGeometry(R, 32, 16, 0, Math.PI*2, 0, Math.PI/2);
+    const topHemi = new T.Mesh(topGeo, yellowMat);
+    topGroup.add(topHemi);
 
-    // ── Pink mouth interior ───────────────────────────────────────
-    // A flat triangle/fan plane filling the mouth wedge interior
-    // This sits just inside the pac body so it's visible as the pink interior
-    const mouthShape = new T.Shape();
-    mouthShape.moveTo(0, 0);
-    mouthShape.absarc(0, 0, R * 0.96, -MOUTH_MAX, MOUTH_MAX, false);
-    mouthShape.lineTo(0, 0);
-    const mouthGeo = new T.ShapeGeometry(mouthShape);
-    const mouthPlane = new T.Mesh(mouthGeo, pinkMat);
-    mouthPlane.rotation.x = Math.PI / 2;
-    mouthPlane.position.y = 0.001;  // slightly above floor so it shows
-    pacMesh.add(mouthPlane);
-    pacMesh.userData.mouthPlane = mouthPlane;
+    // Pink disc on UNDERSIDE flat face of top hemisphere (y=0, facing down)
+    const pinkDiscTop = new T.Mesh(pinkDiscGeo, pinkMat);
+    pinkDiscTop.rotation.x = Math.PI / 2;  // face down
+    pinkDiscTop.position.y = -0.002;
+    topGroup.add(pinkDiscTop);
 
-    // Bottom mouth plane (mirrors top, slightly below)
-    const mouthPlane2 = new T.Mesh(mouthGeo, pinkMat);
-    mouthPlane2.rotation.x = Math.PI / 2;
-    mouthPlane2.position.y = -DEP * 0.5 - 0.001;
-    pacMesh.add(mouthPlane2);
+    // Two eyes on the top hemisphere — sit on the flat underside face,
+    // slightly embedded so they face forward/down toward the camera
+    const eyeGeo = new T.SphereGeometry(0.07, 12, 12);
+    const eyeL = new T.Mesh(eyeGeo, eyeMat);
+    const eyeR = new T.Mesh(eyeGeo, eyeMat);
+    // Position: forward of centre (toward -Z = mouth direction), left/right
+    eyeL.position.set(-0.16, 0.04, -R * 0.52);
+    eyeR.position.set( 0.16, 0.04, -R * 0.52);
+    topGroup.add(eyeL);
+    topGroup.add(eyeR);
 
-    // ── Two eyes ─────────────────────────────────────────────────
-    const eyeGeo = new T.SphereGeometry(0.068, 12, 12);
-    const eyeL = new T.Mesh(eyeGeo, darkMat);
-    const eyeR = new T.Mesh(eyeGeo, darkMat);
-    // Position on the top face, left and right of centre, forward of mid
-    eyeL.position.set(-0.16, DEP * 0.5 + 0.07, -R * 0.45);
-    eyeR.position.set( 0.16, DEP * 0.5 + 0.07, -R * 0.45);
-    pacMesh.add(eyeL);
-    pacMesh.add(eyeR);
-    pacMesh.userData.eyeL = eyeL;
-    pacMesh.userData.eyeR = eyeR;
-
-    // Store geometry builder for chomp animation rebuild
-    pacMesh.userData.makePacHalf   = makePacHalf;
-    pacMesh.userData.yellowMat     = yellowMat;
-    pacMesh.userData.MOUTH_MAX     = MOUTH_MAX;
-    pacMesh.userData.DEP           = DEP;
-    pacMesh.userData.R             = R;
-
+    pacMesh.userData.light = null;
     pacMesh.position.set(worldX(pac.x), 0.18, worldZ(pac.y));
     scene.add(pacMesh);
   }
@@ -602,29 +555,19 @@ export default (function () {
       else if (pac.dy === -1) pacMesh.rotation.y =  0;
       else if (pac.dy === 1)  pacMesh.rotation.y =  Math.PI;
 
-      // Mouth: rebuild body geometry each frame with current mouth angle
+      // Mouth: rotate top hemisphere group upward to open, back down to close
       if (!pac.dead) {
-        const ud = pacMesh.userData;
-        if (ud && ud.makePacHalf && pacBodyMesh) {
-          // Map mouthAngle (0→0.35) to mouth half-angle (0.05→MOUTH_MAX)
-          const halfAngle = 0.05 + pac.mouthAngle * (ud.MOUTH_MAX / 0.35);
-          // Dispose old geometry and build new one
-          pacBodyMesh.geometry.dispose();
-          pacBodyMesh.geometry = ud.makePacHalf(halfAngle, Math.PI * 2 - halfAngle);
-          // Update mouth interior plane scale to match opening
-          if (ud.mouthPlane) {
-            ud.mouthPlane.scale.x = halfAngle / ud.MOUTH_MAX;
-          }
+        const topGroup = pacMesh.userData.topGroup;
+        if (topGroup) {
+          // mouthAngle 0→0.35 maps to jaw open angle 0→0.52 radians (~30°)
+          topGroup.rotation.x = -pac.mouthAngle * 1.5;
         }
         pacMesh.position.y = 0.18;
       } else {
-        // Death: sink and spin
+        // Death: spin and flatten
         pacMesh.position.y = Math.max(-0.1, 0.18 * (1 - pac.deathAnim));
         pacMesh.rotation.y = pac.deathAnim * Math.PI * 3;
-        if (pacBodyMesh) {
-          const s = Math.max(0.01, 1 - pac.deathAnim * 0.95);
-          pacBodyMesh.scale.set(1 + pac.deathAnim * 0.4, s, 1 + pac.deathAnim * 0.4);
-        }
+        pacMesh.scale.y    = Math.max(0.01, 1 - pac.deathAnim * 0.95);
       }
 
 
@@ -857,7 +800,12 @@ export default (function () {
     pac = { x:14*TILE, y:23*TILE+TILE/2, dx:0, dy:0, qx:0, qy:0,
             mouthAngle:0, mouthDir:1, dead:false, deathAnim:0 };
     if (pacBodyMesh) { pacBodyMesh.scale.set(1,1,1); }
-    if (pacMesh) { pacMesh.rotation.set(0,0,0); pacMesh.position.y=0.18; }
+    if (pacMesh) {
+      pacMesh.rotation.set(0,0,0);
+      pacMesh.scale.set(1,1,1);
+      pacMesh.position.y=0.18;
+      if (pacMesh.userData.topGroup) pacMesh.userData.topGroup.rotation.x = 0;
+    }
   }
   function initGhosts() {
     const sp=[{col:14,row:11},{col:13,row:14},{col:14,row:14},{col:15,row:14}];
