@@ -297,12 +297,12 @@ export default (function () {
     scene = new T.Scene();
     // No fog — full maze must be visible at all times
 
-    // ── Perspective camera: slight tilt to show wall depth ─────
-    // High enough and narrow FOV enough that the full 28×31 maze fits.
-    // Offset Z slightly so walls have a visible front face.
-    camera = new T.PerspectiveCamera(32, COLS / ROWS, 0.1, 300);
-    camera.position.set(0, 48, 7);   // mostly above, slight forward offset
-    camera.lookAt(0, 0, 1.5);        // look at maze centre, slightly forward
+    // ── Perspective camera: 10° tilt — full maze always in frame ──
+    // FOV=40°, height=81, Z-offset=14 → tilt ~9.8°, guaranteed coverage of
+    // all 28×31 tiles. lookAt slightly forward to centre the tilted view.
+    camera = new T.PerspectiveCamera(40, COLS / ROWS, 0.1, 300);
+    camera.position.set(0, 81, 14);
+    camera.lookAt(0, 0, 2);
 
     // Controlled lighting for MeshStandardMaterial with slight tilt camera.
     // Ambient keeps corridors visible; key light from slightly above-front
