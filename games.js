@@ -76,9 +76,23 @@ const SHORT_ALIASES = {
 };
 
 /**
- * Load a game module and call its init function.
- * Returns a promise that resolves when the game is ready.
+ * Preload a game module without calling its init function.
+ * Used by multiplayer lobbies to ensure the module is ready before launch.
  */
+export async function preloadGame(gameKey) {
+  const def = GAMES[gameKey];
+  if (!def || !def.module || _cache[gameKey]) return;
+  try {
+    const mod = await import(def.module);
+    const api = mod.default ?? mod;
+    _cache[gameKey] = api;
+    const shortKey = SHORT_ALIASES[gameKey];
+    if (shortKey) window[shortKey] = api;
+    window[gameKey.toUpperCase()] = api;
+  } catch (err) {
+    console.error(`[games] Failed to preload ${gameKey}:`, err);
+  }
+}
 export async function loadGame(gameKey) {
   const def = GAMES[gameKey];
   if (!def) {

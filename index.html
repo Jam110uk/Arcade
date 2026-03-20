@@ -10721,6 +10721,9 @@ window.openMultiLobby = function(game) {
   ML.unsubs.forEach(u => typeof u === 'function' && u());
   ML.unsubs = [];
 
+  // Preload the game module now so it's ready when the match launches
+  import('./games.js').then(({ preloadGame }) => preloadGame(game)).catch(() => {});
+
   const meta = GAME_META[game];
   document.getElementById('main-title').textContent    = meta.icon + ' ' + meta.name;
   document.getElementById('main-subtitle').textContent = meta.name + ' — MULTIPLAYER';
@@ -10946,7 +10949,11 @@ function mlLaunch(lobby) {
   SL.playerName  = myName;
   SL.code        = null;
 
-  slLaunchGame(game, room);
+  // Ensure the game module is loaded before launching (it was preloaded in
+  // openMultiLobby but we wait here in case it's still in flight)
+  import('./games.js').then(({ preloadGame }) => preloadGame(game)).then(() => {
+    slLaunchGame(game, room);
+  }).catch(() => slLaunchGame(game, room));
 }
 
 // ── Back ──────────────────────────────────────────────────────
