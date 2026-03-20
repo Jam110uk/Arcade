@@ -274,12 +274,23 @@ export default (function () {
   function buildScene() {
     const T = THREE_LIB;
 
-    // Renderer — attach to existing pac-canvas element
-    threeCanvas = document.getElementById('pac-canvas');
+    // Replace the existing pac-canvas with a brand-new element.
+    // A canvas that already has a '2d' context (from a prior session) will
+    // silently fail WebGL context creation. Replacing the node guarantees a clean slate.
+    const oldCanvas = document.getElementById('pac-canvas');
+    threeCanvas = document.createElement('canvas');
+    threeCanvas.id = 'pac-canvas';
+    threeCanvas.width  = COLS * TILE;
+    threeCanvas.height = ROWS * TILE;
+    if (oldCanvas && oldCanvas.parentNode) {
+      oldCanvas.parentNode.replaceChild(threeCanvas, oldCanvas);
+    } else {
+      const wrap = document.querySelector('.pac-canvas-wrap');
+      if (wrap) wrap.appendChild(threeCanvas);
+    }
     renderer = new T.WebGLRenderer({ canvas: threeCanvas, antialias: true, alpha: false });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = T.PCFSoftShadowMap;
+    renderer.shadowMap.enabled = false;
     renderer.setSize(COLS * TILE, ROWS * TILE);
     renderer.setClearColor(0x000005);
 
@@ -294,36 +305,16 @@ export default (function () {
     camera.position.set(0, 50, 0);  // directly above centre
     camera.lookAt(0, 0, 0);         // straight down
 
-    // Strong ambient so corridors are evenly lit from above
-    const ambient = new T.AmbientLight(0x223366, 1.4);
+    // Single low ambient — MeshBasicMaterial is used for all game geometry
+    // so lighting doesn't affect colours; this light is only for any Standard meshes
+    const ambient = new T.AmbientLight(0xffffff, 0.3);
     scene.add(ambient);
 
-    // Overhead blue fill
-    const fill = new T.DirectionalLight(0x4466ff, 0.7);
-    fill.position.set(0, 40, 0);
-    scene.add(fill);
-
-    // Slightly angled key light for subtle wall shading; shadow camera covers full maze
-    const key = new T.DirectionalLight(0xffeedd, 0.8);
-    key.position.set(0, 40, 4);
-    key.castShadow = true;
-    key.shadow.mapSize.set(2048, 2048);
-    key.shadow.camera.near   = 1;
-    key.shadow.camera.far    = 100;
-    key.shadow.camera.left   = -(COLS/2 + 2);
-    key.shadow.camera.right  =  (COLS/2 + 2);
-    key.shadow.camera.top    =  (ROWS/2 + 2);
-    key.shadow.camera.bottom = -(ROWS/2 + 2);
-    scene.add(key);
-
-    // Floor — dark glossy plane with grid lines
-    const floorGeo = new T.PlaneGeometry(COLS, ROWS);
-    const floorMat = new T.MeshStandardMaterial({
-      color: 0x00000a, roughness: 0.1, metalness: 0.8,
-    });
+    // Floor — plain dark colour, MeshBasicMaterial so lighting can't wash it out
+    const floorGeo = new T.PlaneGeometry(COLS + 2, ROWS + 2);
+    const floorMat = new T.MeshBasicMaterial({ color: 0x000010 });
     floorMesh = new T.Mesh(floorGeo, floorMat);
     floorMesh.rotation.x = -Math.PI/2;
-    floorMesh.receiveShadow = true;
     scene.add(floorMesh);
 
     buildMazeGeometry();
@@ -339,18 +330,9 @@ export default (function () {
     wallMeshes.forEach(m => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); });
     wallMeshes = [];
 
-    // Merge all wall tiles into a single geometry for performance
-    const wallGeo = new T.BoxGeometry(1, 1.2, 1);
-    const wallMat = new T.MeshStandardMaterial({
-      color: 0x0a1fff, roughness: 0.3, metalness: 0.7,
-      emissive: 0x000844, emissiveIntensity: 0.4,
-    });
-
-    // Ghost house door material
-    const doorMat = new T.MeshStandardMaterial({
-      color: 0xffaaff, roughness: 0.5, metalness: 0.3,
-      emissive: 0x440044, emissiveIntensity: 0.5,
-    });
+    // MeshBasicMaterial = unaffected by lighting, always shows exact colour
+    const wallMat = new T.MeshBasicMaterial({ color: 0x1a3fff });
+    const doorMat = new T.MeshBasicMaterial({ color: 0xff88ff });
 
     const curMap = ALL_MAZES[currentMazeIdx];
     for (let row = 0; row < ROWS; row++) {
@@ -361,8 +343,6 @@ export default (function () {
           const mat = cell===4 ? doorMat : wallMat;
           const mesh = new T.Mesh(geo, mat);
           mesh.position.set(tileWorldX(col), cell===4?0.06:0.4, tileWorldZ(row));
-          mesh.castShadow = true;
-          mesh.receiveShadow = true;
           scene.add(mesh);
           wallMeshes.push(mesh);
         }
@@ -377,14 +357,10 @@ export default (function () {
     Object.values(pelletMeshes).forEach(m=>{scene.remove(m);m.geometry.dispose();m.material.dispose();});
     dotMeshes={}; pelletMeshes={};
 
-    const dotGeo = new T.SphereGeometry(0.18, 8, 8);
-    const dotMat = new T.MeshStandardMaterial({
-      color:0xffddcc, emissive:0xff8844, emissiveIntensity:1.8, roughness:0.3
-    });
-    const pelGeo = new T.SphereGeometry(0.36, 14, 14);
-    const pelMat = new T.MeshStandardMaterial({
-      color:0xffff00, emissive:0xffcc00, emissiveIntensity:2.5, roughness:0.1, metalness:0.1
-    });
+    const dotGeo = new T.SphereGeometry(0.16, 8, 8);
+    const dotMat = new T.MeshBasicMaterial({ color: 0xffddaa });
+    const pelGeo = new T.SphereGeometry(0.32, 12, 12);
+    const pelMat = new T.MeshBasicMaterial({ color: 0xffee00 });
 
     for (let row=0; row<ROWS; row++) {
       for (let col=0; col<COLS; col++) {
@@ -397,10 +373,6 @@ export default (function () {
         } else if (cell === 3) {
           const m = new T.Mesh(pelGeo, pelMat);
           m.position.set(tileWorldX(col), 0.36, tileWorldZ(row));
-          // Give pellets a point light for local glow
-          const pl = new T.PointLight(0xffcc00, 2.0, 2.5);
-          pl.position.copy(m.position);
-          scene.add(pl); m.userData.light = pl;
           scene.add(m);
           pelletMeshes[`${col},${row}`] = m;
         }
@@ -417,27 +389,20 @@ export default (function () {
 
     // Body — yellow sphere
     const bodyGeo = new T.SphereGeometry(0.46, 24, 16);
-    const bodyMat = new T.MeshStandardMaterial({
-      color:0xffe600, emissive:0xffaa00, emissiveIntensity:0.5,
-      roughness:0.2, metalness:0.1,
-    });
+    const bodyMat = new T.MeshBasicMaterial({ color: 0xffe600 });
     pacBodyMesh = new T.Mesh(bodyGeo, bodyMat);
     pacBodyMesh.scale.y = 0.72;
-    pacBodyMesh.castShadow = true;
+
     pacMesh.add(pacBodyMesh);
 
     // Eye
     const eyeGeo = new T.SphereGeometry(0.07, 8, 8);
-    const eyeMat = new T.MeshStandardMaterial({ color:0x000000 });
+    const eyeMat = new T.MeshBasicMaterial({ color:0x000000 });
     const eye = new T.Mesh(eyeGeo, eyeMat);
     eye.position.set(0.22, 0.28, -0.28);
     pacMesh.add(eye);
 
-    // Point light emanating from Pac
-    const pl = new T.PointLight(0xffe600, 2.5, 4.5);
-    pl.position.set(0, 0.3, 0);
-    pacMesh.add(pl);
-    pacMesh.userData.light = pl;
+    pacMesh.userData.light = null;
 
     pacMesh.position.set(worldX(pac.x), 0.28, worldZ(pac.y));
     scene.add(pacMesh);
@@ -456,10 +421,7 @@ export default (function () {
 
       // Body — capsule-like: sphere top + cylinder bottom
       const topGeo = new T.SphereGeometry(0.42, 20, 12, 0, Math.PI*2, 0, Math.PI/2);
-      const bodyMat = new T.MeshStandardMaterial({
-        color: GHOST_HEX[i], emissive: GHOST_EMI[i], emissiveIntensity: 0.6,
-        roughness: 0.3, metalness: 0.0,
-      });
+      const bodyMat = new T.MeshBasicMaterial({ color: GHOST_HEX[i] });
       const top = new T.Mesh(topGeo, bodyMat);
       top.position.y = 0.28;
       group.add(top);
@@ -482,42 +444,28 @@ export default (function () {
       for (let side=0; side<2; side++) {
         const wx = side===0 ? -0.16 : 0.16;
         const wGeo = new T.SphereGeometry(0.10, 10, 10);
-        const wMat = new T.MeshStandardMaterial({ color:0xffffff, emissive:0xaaaaaa, emissiveIntensity:0.3 });
+        const wMat = new T.MeshBasicMaterial({ color:0xffffff });
         const white = new T.Mesh(wGeo, wMat);
         white.position.set(wx, 0.32, -0.33);
         group.add(white);
 
         const pGeo = new T.SphereGeometry(0.055, 8, 8);
-        const pMat = new T.MeshStandardMaterial({ color:0x2222ff, emissive:0x0000aa, emissiveIntensity:0.5 });
+        const pMat = new T.MeshBasicMaterial({ color:0x0000ff });
         const pupil = new T.Mesh(pGeo, pMat);
         pupil.position.set(wx, 0.32, -0.38);
         group.add(pupil);
       }
 
-      // Glow light
-      const pl = new T.PointLight(GHOST_HEX[i], 1.8, 3.5);
-      pl.position.set(0, 0.3, 0);
-      group.add(pl);
-      group.userData = { light: pl, bodyMat, idx: i };
+      group.userData = { light: null, bodyMat, idx: i };
 
       const g = ghosts[i] || { x:0, y:0 };
       group.position.set(worldX(g.x), 0.28, worldZ(g.y));
       scene.add(group);
-      ghostMeshes.push({ group, bodyMat, light: pl, idx: i });
+      ghostMeshes.push({ group, bodyMat, light: null, idx: i });
     }
   }
 
-  function addPointLights() {
-    const T = THREE_LIB;
-    // Subtle coloured accent lights at maze corners for atmosphere
-    const corners = [[2,2],[COLS-3,2],[2,ROWS-4],[COLS-3,ROWS-4]];
-    const colors = [0x0022ff, 0xff0044, 0x00ffaa, 0xffaa00];
-    corners.forEach(([c,r], i) => {
-      const pl = new T.PointLight(colors[i], 0.6, 8);
-      pl.position.set(tileWorldX(c), 1.5, tileWorldZ(r));
-      scene.add(pl);
-    });
-  }
+  function addPointLights() { /* removed — using MeshBasicMaterial, no lights needed */ }
 
   // ── Update 3D scene from game state ──────────────────────
   function update3D(now) {
@@ -551,10 +499,7 @@ export default (function () {
         }
       }
 
-      // Pac light flicker on power pellet
-      if (pacMesh.userData.light) {
-        pacMesh.userData.light.intensity = now < scaredEnd ? 4 : 2.5;
-      }
+
     }
 
     // Ghosts
@@ -608,11 +553,6 @@ export default (function () {
 
       if (gm.bodyMat) {
         gm.bodyMat.color.setHex(bodyColor);
-        gm.bodyMat.emissive.setHex(emiColor);
-      }
-      if (gm.light) {
-        gm.light.color.setHex(lightColor);
-        gm.light.intensity = 1.8;
       }
     }
 
@@ -641,11 +581,7 @@ export default (function () {
       const pm = pelletMeshes[key];
       const pulse = 0.85 + 0.15 * Math.sin(now/250);
       pm.scale.setScalar(pulse);
-      pm.position.y = 0.28 + Math.sin(now/300) * 0.06;
-      if (pm.userData.light) {
-        pm.userData.light.intensity = 1.2 + Math.sin(now/250)*0.5;
-        pm.userData.light.position.copy(pm.position);
-      }
+      pm.position.y = 0.32;
     }
 
     // Floating score text (handled on overlay canvas, see drawFloaters2D)
@@ -655,8 +591,7 @@ export default (function () {
     if (levelTransition) {
       const fl = Math.floor(now/220)%2===0;
       wallMeshes.forEach(m => {
-        if (m.material.color) m.material.color.setHex(fl ? 0xffffff : 0x0a1fff);
-        if (m.material.emissive) m.material.emissive.setHex(fl ? 0x888888 : 0x000844);
+        m.material.color.setHex(fl ? 0xffffff : 0x1a3fff);
       });
     }
   }
@@ -788,11 +723,7 @@ export default (function () {
     // Reset ghost mesh visuals
     ghostMeshes.forEach(gm => {
       gm.group.children.forEach(c=>{ c.visible=true; });
-      if (gm.bodyMat) {
-        gm.bodyMat.color.setHex(GHOST_HEX[gm.idx]);
-        gm.bodyMat.emissive.setHex(GHOST_EMI[gm.idx]);
-      }
-      if (gm.light) { gm.light.color.setHex(GHOST_HEX[gm.idx]); gm.light.intensity=1.8; }
+      if (gm.bodyMat) { gm.bodyMat.color.setHex(GHOST_HEX[gm.idx]); }
     });
   }
 
