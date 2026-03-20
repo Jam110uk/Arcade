@@ -402,25 +402,52 @@ export default (function () {
     if (pacMesh) { scene.remove(pacMesh); }
 
     pacMesh = new T.Group();
+    const R = 0.46;
 
-    // Body — yellow sphere
-    const bodyGeo = new T.SphereGeometry(0.46, 24, 16);
-    const bodyMat = new T.MeshStandardMaterial({ color: 0xffe600,
-      emissive: 0xdd8800, emissiveIntensity: 0.6, roughness: 0.3, metalness: 0.1 });
-    pacBodyMesh = new T.Mesh(bodyGeo, bodyMat);
-    pacBodyMesh.scale.y = 0.55;
+    const pacMat = new T.MeshStandardMaterial({
+      color: 0xffe600, emissive: 0xcc7700, emissiveIntensity: 0.55,
+      roughness: 0.3, metalness: 0.05,
+    });
 
+    // ── Upper jaw: top hemisphere, pivots upward when mouth opens ──
+    const upperGeo = new T.SphereGeometry(R, 32, 16, 0, Math.PI*2, 0, Math.PI/2);
+    pacBodyMesh = new T.Mesh(upperGeo, pacMat);
     pacMesh.add(pacBodyMesh);
 
-    // Eye
-    const eyeGeo = new T.SphereGeometry(0.07, 8, 8);
-    const eyeMat = new T.MeshStandardMaterial({ color:0x000000, roughness:1 });
-    const eye = new T.Mesh(eyeGeo, eyeMat);
-    eye.position.set(0.22, 0.28, -0.28);
-    pacMesh.add(eye);
+    // ── Lower jaw: bottom hemisphere, pivots downward when mouth opens ──
+    const lowerGeo = new T.SphereGeometry(R, 32, 16, 0, Math.PI*2, Math.PI/2, Math.PI/2);
+    const lowerJaw = new T.Mesh(lowerGeo, pacMat);
+    pacMesh.add(lowerJaw);
+    pacMesh.userData.lowerJaw = lowerJaw;
 
+    // Flat discs sealing the back of each jaw so no gap shows
+    const discGeo = new T.CircleGeometry(R, 32);
+    const upperDisc = new T.Mesh(discGeo, pacMat);
+    upperDisc.rotation.x = Math.PI / 2;
+    upperDisc.position.y = 0.005;
+    pacMesh.add(upperDisc);
+    const lowerDisc = new T.Mesh(discGeo, pacMat);
+    lowerDisc.rotation.x = -Math.PI / 2;
+    lowerDisc.position.y = -0.005;
+    pacMesh.add(lowerDisc);
+    pacMesh.userData.upperDisc = upperDisc;
+    pacMesh.userData.lowerDisc = lowerDisc;
+
+    // ── Two eyes on the front-upper face ─────────────────────────
+    const eyeMat = new T.MeshStandardMaterial({ color: 0x111111, roughness: 1 });
+    const eyeGeo = new T.SphereGeometry(0.065, 10, 10);
+
+    const eyeL = new T.Mesh(eyeGeo, eyeMat); // left eye
+    eyeL.position.set(-0.17, R * 0.52, -R * 0.74);
+    pacMesh.add(eyeL);
+
+    const eyeR = new T.Mesh(eyeGeo, eyeMat); // right eye
+    eyeR.position.set( 0.17, R * 0.52, -R * 0.74);
+    pacMesh.add(eyeR);
+
+    // Slightly flatten pac vertically so it looks like a disc from the tilted camera
+    pacMesh.scale.y = 0.72;
     pacMesh.userData.light = null;
-
     pacMesh.position.set(worldX(pac.x), 0.28, worldZ(pac.y));
     scene.add(pacMesh);
   }
@@ -516,20 +543,27 @@ export default (function () {
       else if (pac.dy === -1) pacMesh.rotation.y =  0;
       else if (pac.dy === 1)  pacMesh.rotation.y =  Math.PI;
 
-      // Mouth: squash/stretch the body mesh to simulate chomping
+      // Mouth: rotate upper and lower jaws open/closed
       if (!pac.dead) {
-        const chompScale = 1 - pac.mouthAngle * 0.35;
-        if (pacBodyMesh) {
-          pacBodyMesh.scale.z = chompScale;
-          pacBodyMesh.scale.x = chompScale;
-        }
+        // mouthAngle goes 0→0.35 (open) and back — map to jaw rotation angle
+        const jawAngle = pac.mouthAngle * 0.55; // radians each jaw rotates
+        if (pacBodyMesh) pacBodyMesh.rotation.x = -jawAngle;  // upper jaw tilts up
+        const lj = pacMesh.userData.lowerJaw;
+        if (lj) lj.rotation.x = jawAngle;                     // lower jaw tilts down
+        // Move sealing discs with their jaws
+        const ud = pacMesh.userData.upperDisc;
+        const ld = pacMesh.userData.lowerDisc;
+        if (ud) { ud.rotation.x = Math.PI/2 - jawAngle; }
+        if (ld) { ld.rotation.x = -(Math.PI/2 - jawAngle); }
         pacMesh.position.y = 0.28;
       } else {
-        // Death: flatten and spin on the floor
-        pacMesh.position.y = 0.28 * (1 - pac.deathAnim * 0.9);
+        // Death: flatten and spin
+        pacMesh.position.y = Math.max(0, 0.28 * (1 - pac.deathAnim));
         pacMesh.rotation.y = pac.deathAnim * Math.PI * 3;
         if (pacBodyMesh) {
-          pacBodyMesh.scale.set(1 + pac.deathAnim*0.5, 0.72*(1-pac.deathAnim*0.95), 1+pac.deathAnim*0.5);
+          const s = 1 - pac.deathAnim * 0.95;
+          pacBodyMesh.scale.set(1, Math.max(0.01, s), 1);
+          if (pacMesh.userData.lowerJaw) pacMesh.userData.lowerJaw.scale.set(1, Math.max(0.01, s), 1);
         }
       }
 
@@ -762,8 +796,12 @@ export default (function () {
   function initPac() {
     pac = { x:14*TILE, y:23*TILE+TILE/2, dx:0, dy:0, qx:0, qy:0,
             mouthAngle:0, mouthDir:1, dead:false, deathAnim:0 };
-    if (pacBodyMesh) pacBodyMesh.scale.set(1,0.72,1);
-    if (pacMesh) { pacMesh.rotation.set(0,0,0); pacMesh.position.y=0.28; }
+    if (pacBodyMesh) { pacBodyMesh.scale.set(1,1,1); pacBodyMesh.rotation.x=0; }
+    if (pacMesh) {
+      pacMesh.rotation.set(0,0,0);
+      pacMesh.position.y=0.28;
+      if (pacMesh.userData.lowerJaw) { pacMesh.userData.lowerJaw.scale.set(1,1,1); pacMesh.userData.lowerJaw.rotation.x=0; }
+    }
   }
   function initGhosts() {
     const sp=[{col:14,row:11},{col:13,row:14},{col:14,row:14},{col:15,row:14}];
