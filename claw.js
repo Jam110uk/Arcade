@@ -18,6 +18,7 @@ export default (() => {
 
   // ── State ──────────────────────────────────────────────────
   let renderer, scene, camera, world;
+  let _lightSpot, _lightL, _lightR, _lightUnder, _lightSign, _ambientLight;
   let clawGroup, clawWire;
   let clawFingers = [];   // { pivot, lowerGroup }
   let prizes = [], meshBodies = [];
@@ -26,7 +27,7 @@ export default (() => {
   // states: idle | dropping | grabbing | closing | retracting
   //         | delivering | releasing | returning | gameover
   let gameState = 'idle';
-  let tries = 20, score = 0, prizesCollected = 0;
+  let tries = 20, score = 0, prizesCollected = 0, grabCount = 0;
   let clawOpen = 1.0;        // 1=open, 0=fully closed
   let dropY = 0, dropTimer = 0;
   let grabbed = null;
@@ -75,29 +76,62 @@ export default (() => {
 
   // ── Prize defs ─────────────────────────────────────────────
   const PRIZE_DEFS = [
-    // High value orbs
-    { emoji:'🦄', label:'Unicorn Orb',  color:0xdd66ff, pts:100, glow:0xcc00ff, radius:0.21 },
-    { emoji:'💎', label:'Diamond Orb',  color:0x44ccff, pts: 90, glow:0x00aaff, radius:0.19 },
-    { emoji:'🌈', label:'Rainbow Orb',  color:0xff77bb, pts: 85, glow:0xff2299, radius:0.20 },
-    { emoji:'🔥', label:'Fire Orb',     color:0xff5511, pts: 80, glow:0xff2200, radius:0.20 },
-    { emoji:'⭐', label:'Star Orb',     color:0xffdd22, pts: 75, glow:0xffaa00, radius:0.20 },
-    { emoji:'🐙', label:'Octopus Orb',  color:0xaa55ff, pts: 70, glow:0x8800ff, radius:0.22 },
-    { emoji:'🐸', label:'Frog Orb',     color:0x22dd66, pts: 60, glow:0x00bb44, radius:0.21 },
-    { emoji:'🍀', label:'Clover Orb',   color:0x33bb55, pts: 55, glow:0x008833, radius:0.18 },
-    // Mid value plush
-    { emoji:'🐻', label:'Bear Plush',   color:0xbb6633, pts: 50, glow:0x774422, radius:0.24 },
-    { emoji:'🐶', label:'Dog Plush',    color:0xcc9944, pts: 45, glow:0xaa6622, radius:0.23 },
-    { emoji:'🐱', label:'Cat Plush',    color:0xffbb66, pts: 40, glow:0xdd7700, radius:0.23 },
-    { emoji:'🎀', label:'Bow Plush',    color:0xff4499, pts: 35, glow:0xdd0066, radius:0.20 },
-    // Low value cheap toys
-    { emoji:'🐧', label:'Penguin Toy',  color:0x88bbff, pts: 25, glow:0x4488ff, radius:0.20 },
-    { emoji:'🦆', label:'Rubber Duck',  color:0xffee44, pts: 20, glow:0xddcc00, radius:0.20 },
-    { emoji:'🐮', label:'Cow Toy',      color:0xddddaa, pts: 18, glow:0xaaaaaa, radius:0.22 },
-    { emoji:'🐷', label:'Piggy Toy',    color:0xffaaaa, pts: 15, glow:0xff7788, radius:0.21 },
-    { emoji:'🎾', label:'Tennis Ball',  color:0xaaee44, pts: 12, glow:0x88cc22, radius:0.18 },
-    { emoji:'🔮', label:'Crystal Ball', color:0xaaddff, pts: 10, glow:0x66aaff, radius:0.17 },
-    { emoji:'🍭', label:'Lollipop',     color:0xff88cc, pts:  8, glow:0xff44aa, radius:0.17 },
-    { emoji:'🎲', label:'Lucky Dice',   color:0xffffff, pts:  5, glow:0xcccccc, radius:0.17 },
+    // ── LEGENDARY (500pts) — extremely rare ──────────────────────────────
+    { emoji:'👑', label:'Golden Crown',    color:0xffd700, pts:500, glow:0xffaa00, radius:0.23, rare:true },
+    { emoji:'💠', label:'Infinity Gem',    color:0x00eeff, pts:500, glow:0x00ccff, radius:0.21, rare:true },
+    // ── EPIC (300pts) — very rare ────────────────────────────────────────
+    { emoji:'🌟', label:'Shooting Star',   color:0xfffacd, pts:300, glow:0xffe066, radius:0.22, rare:true },
+    { emoji:'🧿', label:'Evil Eye Orb',    color:0x3399ff, pts:300, glow:0x0055ff, radius:0.21, rare:true },
+    { emoji:'🪄', label:'Magic Wand',      color:0xcc88ff, pts:300, glow:0xaa00ff, radius:0.20, rare:true },
+    // ── RARE (200pts) — rare ─────────────────────────────────────────────
+    { emoji:'🦄', label:'Unicorn Orb',     color:0xdd66ff, pts:200, glow:0xcc00ff, radius:0.21, rare:true },
+    { emoji:'💎', label:'Diamond Orb',     color:0x44ccff, pts:200, glow:0x00aaff, radius:0.19, rare:true },
+    { emoji:'🌈', label:'Rainbow Orb',     color:0xff77bb, pts:200, glow:0xff2299, radius:0.20, rare:true },
+    { emoji:'🐉', label:'Dragon Egg',      color:0x66ff88, pts:200, glow:0x00ff44, radius:0.22, rare:true },
+    { emoji:'🍄', label:'Magic Mushroom',  color:0xff4422, pts:200, glow:0xff0000, radius:0.19, rare:true },
+    // ── HIGH VALUE (75-100pts) ────────────────────────────────────────────
+    { emoji:'🔥', label:'Fire Orb',        color:0xff5511, pts:100, glow:0xff2200, radius:0.20 },
+    { emoji:'⭐', label:'Star Orb',        color:0xffdd22, pts: 90, glow:0xffaa00, radius:0.20 },
+    { emoji:'🐙', label:'Octopus Orb',     color:0xaa55ff, pts: 80, glow:0x8800ff, radius:0.22 },
+    { emoji:'🦊', label:'Fox Plush',       color:0xff7733, pts: 75, glow:0xff4400, radius:0.22 },
+    { emoji:'🦋', label:'Butterfly',       color:0xff66dd, pts: 75, glow:0xff00bb, radius:0.19 },
+    { emoji:'🐬', label:'Dolphin',         color:0x55ccff, pts: 75, glow:0x0099ff, radius:0.22 },
+    // ── MID VALUE (35-70pts) ──────────────────────────────────────────────
+    { emoji:'🐸', label:'Frog Orb',        color:0x22dd66, pts: 70, glow:0x00bb44, radius:0.21 },
+    { emoji:'🍀', label:'Clover Orb',      color:0x33bb55, pts: 60, glow:0x008833, radius:0.18 },
+    { emoji:'🐻', label:'Bear Plush',      color:0xbb6633, pts: 55, glow:0x774422, radius:0.24 },
+    { emoji:'🐼', label:'Panda Plush',     color:0xffffff, pts: 55, glow:0xaaaaaa, radius:0.23 },
+    { emoji:'🐶', label:'Dog Plush',       color:0xcc9944, pts: 50, glow:0xaa6622, radius:0.23 },
+    { emoji:'🐱', label:'Cat Plush',       color:0xffbb66, pts: 45, glow:0xdd7700, radius:0.23 },
+    { emoji:'🦁', label:'Lion Plush',      color:0xddaa33, pts: 45, glow:0xbb8800, radius:0.24 },
+    { emoji:'🐨', label:'Koala Plush',     color:0xaabbcc, pts: 40, glow:0x8899aa, radius:0.23 },
+    { emoji:'🎀', label:'Bow Plush',       color:0xff4499, pts: 40, glow:0xdd0066, radius:0.20 },
+    { emoji:'🦘', label:'Kangaroo',        color:0xcc8855, pts: 38, glow:0xaa6633, radius:0.23 },
+    { emoji:'🐯', label:'Tiger Plush',     color:0xff9933, pts: 35, glow:0xdd6600, radius:0.24 },
+    // ── LOW VALUE (8-30pts) ───────────────────────────────────────────────
+    { emoji:'🐧', label:'Penguin Toy',     color:0x88bbff, pts: 30, glow:0x4488ff, radius:0.20 },
+    { emoji:'🦆', label:'Rubber Duck',     color:0xffee44, pts: 25, glow:0xddcc00, radius:0.20 },
+    { emoji:'🐮', label:'Cow Toy',         color:0xddddaa, pts: 22, glow:0xaaaaaa, radius:0.22 },
+    { emoji:'🐷', label:'Piggy Toy',       color:0xffaaaa, pts: 20, glow:0xff7788, radius:0.21 },
+    { emoji:'🐰', label:'Bunny Toy',       color:0xffddee, pts: 20, glow:0xffaacc, radius:0.20 },
+    { emoji:'🐣', label:'Hatching Chick',  color:0xffee88, pts: 18, glow:0xddcc44, radius:0.18 },
+    { emoji:'🦔', label:'Hedgehog',        color:0xaa7755, pts: 18, glow:0x885533, radius:0.19 },
+    { emoji:'🎾', label:'Tennis Ball',     color:0xaaee44, pts: 15, glow:0x88cc22, radius:0.18 },
+    { emoji:'🔮', label:'Crystal Ball',    color:0xaaddff, pts: 12, glow:0x66aaff, radius:0.17 },
+    { emoji:'🍭', label:'Lollipop',        color:0xff88cc, pts: 10, glow:0xff44aa, radius:0.17 },
+    { emoji:'🎲', label:'Lucky Dice',      color:0xffffff, pts:  8, glow:0xcccccc, radius:0.17 },
+    { emoji:'🧸', label:'Teddy Bear',      color:0xcc9966, pts:  8, glow:0xaa7744, radius:0.22 },
+    // ── BONUS EXTRAS ─────────────────────────────────────────────────────
+    { emoji:'🍉', label:'Watermelon',      color:0x44cc44, pts: 14, glow:0x22aa22, radius:0.20 },
+    { emoji:'🍓', label:'Strawberry',      color:0xff3344, pts: 12, glow:0xdd1122, radius:0.17 },
+    { emoji:'🌸', label:'Cherry Blossom',  color:0xffbbdd, pts: 16, glow:0xff88bb, radius:0.18 },
+    { emoji:'🎸', label:'Guitar',          color:0xdd8833, pts: 22, glow:0xbb5500, radius:0.20 },
+    { emoji:'🚀', label:'Rocket',          color:0xaabbff, pts: 28, glow:0x6688ff, radius:0.19 },
+    { emoji:'🌊', label:'Wave',            color:0x33aaff, pts: 15, glow:0x0077ff, radius:0.19 },
+    { emoji:'🎵', label:'Music Note',      color:0xff99ff, pts: 10, glow:0xff44ff, radius:0.17 },
+    { emoji:'⚡', label:'Lightning',       color:0xffff44, pts: 35, glow:0xffdd00, radius:0.18 },
+    { emoji:'🌙', label:'Moon',            color:0xffffaa, pts: 25, glow:0xffee55, radius:0.19 },
+    { emoji:'🎪', label:'Circus Tent',     color:0xff4444, pts: 18, glow:0xdd0000, radius:0.21 },
   ];
 
   // ── Init ───────────────────────────────────────────────────
@@ -118,14 +152,16 @@ export default (() => {
     _resetClaw();
     _bindEvents();
     gameState = 'idle';
-    introAnim = true; introCamAngle = 0;
-    tries = 20; score = 0; prizesCollected = 0;
+    introAnim = true; introCamAngle = 0; camAngle = 0;
+    tries = 20; score = 0; prizesCollected = 0; grabCount = 0;
     _updateUI();
     lastTime = performance.now();
     _loop();
+    _startIntroEffects();
   }
 
   function destroy() {
+    _stopIntroEffects();
     _unbindEvents();
     _stopMoveSound();
     if (animId) cancelAnimationFrame(animId);
@@ -190,7 +226,67 @@ export default (() => {
     });
   }
 
-  // Soft descending whistle — slipped off / dropped it / so close
+  // ── Intro spin effects ─────────────────────────────────────
+  let _introFlashInterval = null;
+  let _introJingleTimeouts = [];
+
+  function _startIntroEffects() {
+    _stopIntroEffects(); // clear any leftovers from previous game
+
+    // Soft rotating jingle — plays a gentle arpeggio loop that fades over ~4s
+    const ac = _getAudio(); if (!ac) return;
+    const introNotes = [
+      [523,0],[659,180],[784,360],[1047,560],
+      [784,740],[659,920],[523,1100],[659,1280],
+      [784,1460],[1047,1640],[1319,1860],[1047,2080],
+      [784,2300],[659,2520],[523,2740],[392,2960],
+    ];
+    introNotes.forEach(([freq, delayMs], i) => {
+      const progress = i / introNotes.length;
+      const vol = 0.10 * (1.0 - progress * 0.85); // fade out over the sequence
+      const t = setTimeout(() => {
+        if (!introAnim && i > 4) return; // stop early if anim finished
+        const o = ac.createOscillator();
+        const g = ac.createGain();
+        o.type = 'triangle';
+        o.frequency.setValueAtTime(freq, ac.currentTime);
+        g.gain.setValueAtTime(0, ac.currentTime);
+        g.gain.linearRampToValueAtTime(vol, ac.currentTime + 0.03);
+        g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.28);
+        o.connect(g); g.connect(ac.destination);
+        o.start(ac.currentTime);
+        o.stop(ac.currentTime + 0.32);
+      }, delayMs);
+      _introJingleTimeouts.push(t);
+    });
+
+    // Flashing lights — cycle through colours during spin
+    const flashColors = [0xff33aa, 0x00f5ff, 0xffd700, 0xff33aa, 0x44ff88, 0x00f5ff];
+    let fi = 0;
+    _introFlashInterval = setInterval(() => {
+      if (!_lightSpot) return;
+      const col = flashColors[fi % flashColors.length];
+      const on = (fi % 2 === 0);
+      _lightSpot.intensity  = on ? 9  : 3;
+      _lightL.intensity     = on ? 7  : 1.2;
+      _lightR.intensity     = on ? 7  : 1.2;
+      _lightUnder.intensity = on ? 5  : 0.5;
+      if (_lightSign) { _lightSign.color.setHex(col); _lightSign.intensity = on ? 7 : 2; }
+      fi++;
+    }, 120);
+  }
+
+  function _stopIntroEffects() {
+    if (_introFlashInterval) { clearInterval(_introFlashInterval); _introFlashInterval = null; }
+    _introJingleTimeouts.forEach(t => clearTimeout(t));
+    _introJingleTimeouts = [];
+    // Restore default light intensities
+    if (_lightSpot)  { _lightSpot.intensity  = 5.0; }
+    if (_lightL)     { _lightL.intensity     = 2.2; }
+    if (_lightR)     { _lightR.intensity     = 1.8; }
+    if (_lightUnder) { _lightUnder.intensity = 1.0; }
+    if (_lightSign)  { _lightSign.color.setHex(0xff33aa); _lightSign.intensity = 2.8; }
+  }
   function _playMiss() {
     [520, 400, 300].forEach((f, i) => {
       setTimeout(() => _playTone(f, 'triangle', 0.3, 0.05, 0.02, 0.28), i * 90);
@@ -258,31 +354,97 @@ export default (() => {
   // Per-prize chute jingle — each prize has a unique soft 3-note melody
   // Notes are [freq, delay_ms, duration_s, waveType]
   const PRIZE_JINGLES = {
-    '🦄': [[523,0,0.35,'sine'],[659,180,0.35,'sine'],[784,360,0.5,'sine'],[1047,580,0.7,'sine']],        // Unicorn — bright rising fanfare
+    // ── LEGENDARY (500pts) — long grand fanfares ──────────────────────────
+    '👑': [[523,0,0.3,'sine'],[659,150,0.3,'sine'],[784,300,0.3,'sine'],[1047,450,0.4,'sine'],[1319,620,0.4,'sine'],[1047,820,0.3,'sine'],[1319,1020,0.8,'triangle']], // Crown — triumphant ascending
+    '💠': [[880,0,0.3,'sine'],[1108,160,0.3,'sine'],[1320,320,0.3,'sine'],[1760,500,0.5,'sine'],[1320,720,0.3,'sine'],[1760,920,0.9,'triangle']], // Infinity Gem — crystalline cascade
+    // ── EPIC (300pts) — rich multi-note jingles ───────────────────────────
+    '🌟': [[784,0,0.25,'sine'],[988,140,0.25,'sine'],[1175,280,0.25,'sine'],[1319,440,0.35,'sine'],[1175,620,0.25,'sine'],[1319,780,0.7,'triangle']], // Shooting Star — sparkling run
+    '🧿': [[494,0,0.3,'sine'],[587,160,0.3,'sine'],[740,320,0.3,'sine'],[988,500,0.4,'sine'],[740,700,0.3,'sine'],[988,900,0.7,'sine']], // Evil Eye — deep mystical
+    '🪄': [[659,0,0.2,'triangle'],[784,130,0.2,'triangle'],[988,260,0.2,'triangle'],[1175,400,0.3,'triangle'],[1319,560,0.3,'triangle'],[1047,730,0.6,'sine']], // Wand — magical sparkle
+    // ── RARE (200pts) — distinct 4-5 note jingles ────────────────────────
+    '🦄': [[523,0,0.35,'sine'],[659,180,0.35,'sine'],[784,360,0.5,'sine'],[1047,580,0.7,'sine']], // Unicorn — bright rising fanfare
     '💎': [[880,0,0.25,'sine'],[1108,150,0.25,'sine'],[1320,300,0.45,'sine'],[1047,500,0.6,'triangle']], // Diamond — crystalline high
     '🌈': [[523,0,0.3,'triangle'],[659,140,0.3,'triangle'],[784,280,0.3,'triangle'],[1047,420,0.55,'triangle'],[784,580,0.4,'triangle']], // Rainbow — bouncy cascade
+    '🐉': [[330,0,0.3,'sawtooth'],[415,160,0.3,'sawtooth'],[523,320,0.35,'triangle'],[659,500,0.4,'sine'],[880,700,0.7,'sine']], // Dragon — powerful build
+    '🍄': [[440,0,0.25,'sine'],[523,140,0.25,'sine'],[659,280,0.3,'sine'],[523,440,0.25,'sine'],[659,600,0.55,'triangle']], // Mushroom — whimsical bounce
+    // ── HIGH VALUE ────────────────────────────────────────────────────────
     '🔥': [[220,0,0.2,'sawtooth'],[330,130,0.2,'sawtooth'],[440,260,0.3,'sawtooth'],[660,420,0.5,'triangle']], // Fire — punchy rock riff
     '⭐': [[784,0,0.2,'sine'],[988,120,0.2,'sine'],[1175,240,0.4,'sine'],[988,420,0.2,'sine'],[1175,560,0.5,'sine']], // Star — twinkly
-    '🐙': [[311,0,0.3,'sine'],[370,160,0.3,'sine'],[440,320,0.5,'sine'],[370,520,0.6,'sine']],           // Octopus — wobbly minor
-    '🐸': [[330,0,0.18,'square'],[440,140,0.18,'square'],[330,280,0.18,'square'],[523,400,0.4,'sine']],  // Frog — ribbit-like staccato
-    '🍀': [[523,0,0.25,'sine'],[622,150,0.25,'sine'],[698,300,0.4,'sine'],[784,480,0.5,'sine']],         // Clover — gentle Irish lilt
+    '🐙': [[311,0,0.3,'sine'],[370,160,0.3,'sine'],[440,320,0.5,'sine'],[370,520,0.6,'sine']],  // Octopus — wobbly minor
+    '🦊': [[523,0,0.2,'sine'],[659,130,0.2,'sine'],[784,260,0.35,'sine'],[659,420,0.45,'sine']], // Fox — quick clever
+    '🦋': [[784,0,0.18,'triangle'],[988,110,0.18,'triangle'],[1175,220,0.18,'triangle'],[988,350,0.4,'sine']], // Butterfly — light flutter
+    '🐬': [[494,0,0.25,'sine'],[622,150,0.25,'sine'],[740,300,0.35,'sine'],[880,480,0.5,'sine']], // Dolphin — bright sonar
+    // ── MID VALUE ─────────────────────────────────────────────────────────
+    '🐸': [[330,0,0.18,'square'],[440,140,0.18,'square'],[330,280,0.18,'square'],[523,400,0.4,'sine']], // Frog — ribbit staccato
+    '🍀': [[523,0,0.25,'sine'],[622,150,0.25,'sine'],[698,300,0.4,'sine'],[784,480,0.5,'sine']], // Clover — gentle lilt
     '🐻': [[262,0,0.3,'triangle'],[330,180,0.3,'triangle'],[392,360,0.5,'triangle'],[330,560,0.6,'triangle']], // Bear — warm low tones
-    '🐶': [[392,0,0.2,'sine'],[494,140,0.2,'sine'],[587,280,0.35,'sine'],[494,460,0.5,'sine']],          // Dog — happy wag
-    '🐱': [[523,0,0.22,'sine'],[659,140,0.22,'sine'],[523,280,0.22,'sine'],[784,440,0.45,'sine']],       // Cat — curious little melody
-    '🎀': [[659,0,0.2,'sine'],[784,130,0.2,'sine'],[880,260,0.3,'sine'],[988,400,0.5,'sine']],           // Bow — pretty ascending
-    '🐧': [[440,0,0.18,'square'],[370,130,0.18,'square'],[440,260,0.18,'square'],[494,390,0.4,'sine']],  // Penguin — waddle march
+    '🐼': [[330,0,0.25,'sine'],[415,150,0.25,'sine'],[494,300,0.3,'sine'],[415,470,0.5,'triangle']], // Panda — gentle
+    '🐶': [[392,0,0.2,'sine'],[494,140,0.2,'sine'],[587,280,0.35,'sine'],[494,460,0.5,'sine']], // Dog — happy wag
+    '🐱': [[523,0,0.22,'sine'],[659,140,0.22,'sine'],[523,280,0.22,'sine'],[784,440,0.45,'sine']], // Cat — curious
+    '🦁': [[220,0,0.3,'sawtooth'],[277,180,0.3,'triangle'],[349,360,0.4,'triangle'],[440,560,0.55,'sine']], // Lion — regal roar
+    '🐨': [[370,0,0.28,'sine'],[440,160,0.28,'sine'],[523,320,0.35,'sine'],[440,510,0.5,'sine']], // Koala — calm
+    '🎀': [[659,0,0.2,'sine'],[784,130,0.2,'sine'],[880,260,0.3,'sine'],[988,400,0.5,'sine']], // Bow — pretty ascending
+    '🦘': [[330,0,0.2,'triangle'],[415,130,0.2,'triangle'],[494,270,0.2,'triangle'],[415,420,0.4,'sine']], // Kangaroo — bouncy
+    '🐯': [[294,0,0.25,'sawtooth'],[370,150,0.25,'triangle'],[440,300,0.35,'sine'],[370,480,0.5,'sine']], // Tiger — fierce
+    // ── LOW VALUE ─────────────────────────────────────────────────────────
+    '🐧': [[440,0,0.18,'square'],[370,130,0.18,'square'],[440,260,0.18,'square'],[494,390,0.4,'sine']], // Penguin — march
     '🦆': [[370,0,0.2,'sawtooth'],[440,130,0.15,'sawtooth'],[370,260,0.2,'sawtooth'],[523,400,0.4,'sine']], // Duck — quacky
-    '🐮': [[220,0,0.3,'triangle'],[277,200,0.3,'triangle'],[330,400,0.45,'triangle']],                   // Cow — moo-like low
-    '🐷': [[330,0,0.18,'sine'],[415,130,0.18,'sine'],[370,260,0.18,'sine'],[330,390,0.35,'sine']],       // Piggy — oink squeak
+    '🐮': [[220,0,0.3,'triangle'],[277,200,0.3,'triangle'],[330,400,0.45,'triangle']], // Cow — moo low
+    '🐷': [[330,0,0.18,'sine'],[415,130,0.18,'sine'],[370,260,0.18,'sine'],[330,390,0.35,'sine']], // Piggy — oink
+    '🐰': [[523,0,0.18,'sine'],[659,110,0.18,'sine'],[784,220,0.18,'sine'],[659,340,0.4,'triangle']], // Bunny — hop hop
+    '🐣': [[659,0,0.15,'sine'],[784,100,0.15,'sine'],[659,200,0.15,'sine'],[880,320,0.35,'sine']], // Chick — cheep cheep
+    '🦔': [[370,0,0.2,'triangle'],[440,130,0.15,'triangle'],[370,250,0.2,'triangle'],[494,380,0.35,'sine']], // Hedgehog — prickly staccato
     '🎾': [[587,0,0.15,'square'],[740,100,0.15,'square'],[587,200,0.15,'square'],[880,320,0.35,'sine']], // Tennis — springy bounce
-    '🔮': [[494,0,0.3,'sine'],[587,180,0.3,'sine'],[740,360,0.5,'sine']],                               // Crystal — mystical shimmer
-    '🍭': [[784,0,0.18,'sine'],[880,110,0.18,'sine'],[988,220,0.18,'sine'],[1047,330,0.4,'sine']],       // Lollipop — sweet ascending
-    '🎲': [[440,0,0.15,'square'],[330,110,0.15,'square'],[440,220,0.15,'square'],[523,340,0.35,'sine']], // Dice — punchy random
+    '🔮': [[494,0,0.3,'sine'],[587,180,0.3,'sine'],[740,360,0.5,'sine']], // Crystal — shimmer
+    '🍭': [[784,0,0.18,'sine'],[880,110,0.18,'sine'],[988,220,0.18,'sine'],[1047,330,0.4,'sine']], // Lollipop — sweet
+    '🎲': [[440,0,0.15,'square'],[330,110,0.15,'square'],[440,220,0.15,'square'],[523,340,0.35,'sine']], // Dice — punchy
+    '🧸': [[330,0,0.25,'triangle'],[392,150,0.25,'triangle'],[330,300,0.25,'triangle'],[440,460,0.4,'sine']], // Teddy — cosy
+    // ── BONUS ─────────────────────────────────────────────────────────────
+    '🍉': [[523,0,0.2,'sine'],[659,130,0.2,'sine'],[784,260,0.3,'sine'],[659,410,0.4,'sine']], // Watermelon — juicy
+    '🍓': [[659,0,0.18,'sine'],[784,110,0.18,'sine'],[880,220,0.25,'sine'],[784,370,0.4,'sine']], // Strawberry — sweet
+    '🌸': [[784,0,0.2,'triangle'],[880,130,0.2,'triangle'],[988,260,0.2,'triangle'],[880,410,0.45,'sine']], // Blossom — delicate
+    '🎸': [[220,0,0.2,'sawtooth'],[330,120,0.2,'sawtooth'],[440,240,0.25,'sawtooth'],[550,380,0.5,'triangle']], // Guitar — rock chord
+    '🚀': [[330,0,0.15,'sine'],[415,90,0.15,'sine'],[523,180,0.2,'sine'],[659,290,0.25,'sine'],[880,420,0.5,'sine']], // Rocket — launch ascending
+    '🌊': [[370,0,0.3,'sine'],[440,160,0.3,'sine'],[370,320,0.3,'sine'],[494,500,0.5,'sine']], // Wave — rolling
+    '🎵': [[523,0,0.2,'sine'],[659,130,0.2,'sine'],[523,260,0.2,'sine'],[784,390,0.45,'triangle']], // Note — musical
+    '⚡': [[880,0,0.1,'square'],[1108,80,0.1,'square'],[880,160,0.1,'square'],[1320,260,0.4,'sine']], // Lightning — electric zap
+    '🌙': [[494,0,0.3,'sine'],[587,180,0.3,'sine'],[659,360,0.4,'sine'],[587,560,0.55,'triangle']], // Moon — dreamy
+    '🎪': [[440,0,0.2,'square'],[523,120,0.2,'square'],[659,240,0.2,'square'],[523,380,0.2,'square'],[659,500,0.45,'sine']], // Circus — carnivalesque
   };
 
-  function _playPrizeJingle(emoji) {
+  function _flashLights(isRare) {
+    if (!_lightSpot) return;
+    const flashes = isRare ? 6 : 3;
+    const color   = isRare ? 0xffd700 : 0xffffff;
+    const peak    = isRare ? 14 : 8;
+    let f = 0;
+    const interval = setInterval(() => {
+      const on = (f % 2 === 0);
+      _lightSpot.intensity  = on ? peak     : 5.0;
+      _lightL.intensity     = on ? peak * 0.8 : 2.2;
+      _lightR.intensity     = on ? peak * 0.8 : 1.8;
+      _lightUnder.intensity = on ? peak     : 1.0;
+      if (isRare && _lightSign) {
+        _lightSign.color.setHex(on ? color : 0xff33aa);
+        _lightSign.intensity = on ? 8 : 2.8;
+      }
+      f++;
+      if (f >= flashes * 2) {
+        clearInterval(interval);
+        // Restore defaults
+        _lightSpot.intensity  = 5.0;
+        _lightL.intensity     = 2.2;
+        _lightR.intensity     = 1.8;
+        _lightUnder.intensity = 1.0;
+        if (_lightSign) { _lightSign.color.setHex(0xff33aa); _lightSign.intensity = 2.8; }
+      }
+    }, isRare ? 80 : 100);
+  }
+
+  function _playPrizeJingle(emoji, isRare) {
     const ac = _getAudio(); if (!ac) return;
     const notes = PRIZE_JINGLES[emoji] || [[523,0,0.3,'sine'],[659,200,0.3,'sine'],[784,400,0.5,'sine']];
+    const vol = isRare ? 0.28 : 0.18;
     notes.forEach(([freq, delayMs, dur, type]) => {
       setTimeout(() => {
         const o = ac.createOscillator();
@@ -290,13 +452,14 @@ export default (() => {
         o.type = type;
         o.frequency.setValueAtTime(freq, ac.currentTime);
         g.gain.setValueAtTime(0, ac.currentTime);
-        g.gain.linearRampToValueAtTime(0.18, ac.currentTime + 0.02);
+        g.gain.linearRampToValueAtTime(vol, ac.currentTime + 0.02);
         g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + dur);
         o.connect(g); g.connect(ac.destination);
         o.start(ac.currentTime);
         o.stop(ac.currentTime + dur + 0.05);
       }, delayMs);
     });
+    _flashLights(isRare);
   }
 
   // ── UI ─────────────────────────────────────────────────────
@@ -382,21 +545,36 @@ export default (() => {
     _buildPrizeChart();
   }
 
-  function _buildPrizeChart() {
+  function _buildPrizeChart() { _updatePrizeChart(); }
+
+  function _updatePrizeChart() {
     const container = document.getElementById('claw-chart-rows');
     if (!container) return;
-    const maxPts = Math.max(...PRIZE_DEFS.map(d => d.pts));
-    const sorted = [...PRIZE_DEFS].sort((a,b) => b.pts - a.pts);
-    container.innerHTML = sorted.map(d => `
-      <div class="claw-chart-row">
+    // Count how many of each def are currently in the pit
+    const counts = new Map();
+    prizes.forEach(p => {
+      if (p.scored) return;
+      const key = p.def.emoji;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    if (counts.size === 0) { container.innerHTML = '<div style="color:#666;font-size:11px;text-align:center;padding:8px">— pit empty —</div>'; return; }
+    // Build sorted list from what's in the pit
+    const inPit = [...counts.entries()]
+      .map(([emoji, count]) => ({ def: PRIZE_DEFS.find(d => d.emoji === emoji), count }))
+      .filter(e => e.def)
+      .sort((a, b) => b.def.pts - a.def.pts);
+    const maxPts = inPit[0]?.def.pts || 1;
+    container.innerHTML = inPit.map(({ def: d, count }) => `
+      <div class="claw-chart-row" style="${d.rare ? 'border-left:2px solid gold;padding-left:4px;' : ''}">
         <span class="claw-chart-emoji">${d.emoji}</span>
         <div style="flex:1;min-width:0;">
           <div style="display:flex;align-items:center;gap:4px;">
-            <span class="claw-chart-label">${d.label}</span>
-            <span class="claw-chart-pts">${d.pts}</span>
+            <span class="claw-chart-label" style="${d.rare ? 'color:#ffd700;' : ''}">${d.label}</span>
+            <span class="claw-chart-pts" style="${d.rare ? 'color:#ffd700;' : ''}">${d.pts}</span>
+            <span style="font-size:9px;color:#888;margin-left:2px">×${count}</span>
           </div>
           <div class="claw-chart-bar">
-            <div class="claw-chart-bar-fill" style="width:${Math.round(d.pts/maxPts*100)}%"></div>
+            <div class="claw-chart-bar-fill" style="width:${Math.round(d.pts/maxPts*100)}%;${d.rare ? 'background:linear-gradient(90deg,#ffd700,#ffaa00);' : ''}"></div>
           </div>
         </div>
       </div>
@@ -445,6 +623,7 @@ export default (() => {
     };
     window._clawPlayAgain = () => {
       // Tear down and reinitialise in place
+      _stopIntroEffects();
       _unbindEvents();
       _stopMoveSound();
       if (animId) { cancelAnimationFrame(animId); animId = null; }
@@ -453,7 +632,7 @@ export default (() => {
       prizes = []; meshBodies = [];
       clawGroup = null; clawWire = null; clawFingers = [];
       grabbed = null; clawBody = null; movingSoundNode = null;
-      tries = 20; score = 0; prizesCollected = 0; gameState = 'idle';
+      tries = 20; score = 0; prizesCollected = 0; grabCount = 0; gameState = 'idle';
       swayAngleX = 0; swayAngleZ = 0; swayVelX = 0; swayVelZ = 0;
       init();
     };
@@ -473,17 +652,18 @@ export default (() => {
     camera = new THREE.PerspectiveCamera(50, 1, 0.1, 80);
     _setCameraPos();
 
-    scene.add(new THREE.AmbientLight(0x332244, 2.2));
-    const spot = new THREE.SpotLight(0xffffff, 5.0, 18, Math.PI / 4, 0.25);
-    spot.position.set(0, 7, 0); scene.add(spot);
+    _ambientLight = new THREE.AmbientLight(0x332244, 2.2);
+    scene.add(_ambientLight);
+    _lightSpot = new THREE.SpotLight(0xffffff, 5.0, 18, Math.PI / 4, 0.25);
+    _lightSpot.position.set(0, 7, 0); scene.add(_lightSpot);
 
-    const pL = new THREE.PointLight(0xff55ff, 2.2, 14);
-    pL.position.set(-2.5, 1, -2); scene.add(pL);
-    const pR = new THREE.PointLight(0x55aaff, 1.8, 14);
-    pR.position.set(2.5, 0.8, 2); scene.add(pR);
+    _lightL = new THREE.PointLight(0xff55ff, 2.2, 14);
+    _lightL.position.set(-2.5, 1, -2); scene.add(_lightL);
+    _lightR = new THREE.PointLight(0x55aaff, 1.8, 14);
+    _lightR.position.set(2.5, 0.8, 2); scene.add(_lightR);
     // Under-light for play area
-    const under = new THREE.PointLight(0xffffff, 1.0, 8);
-    under.position.set(0, PLAY_FLOOR_Y + 0.5, 0); scene.add(under);
+    _lightUnder = new THREE.PointLight(0xffffff, 1.0, 8);
+    _lightUnder.position.set(0, PLAY_FLOOR_Y + 0.5, 0); scene.add(_lightUnder);
 
     const sg = new THREE.BufferGeometry();
     const sp = [];
@@ -708,9 +888,9 @@ export default (() => {
     const signFace = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 0.33), signFaceMat);
     signFace.position.set(0, MACHINE.h/2+0.40, MACHINE.d/2-0.05 + 0.051);
     scene.add(signFace);
-    const sl = new THREE.PointLight(0xff33aa, 2.8, 5);
-    sl.position.set(0, MACHINE.h/2+0.40, MACHINE.d/2-0.05);
-    scene.add(sl);
+    _lightSign = new THREE.PointLight(0xff33aa, 2.8, 5);
+    _lightSign.position.set(0, MACHINE.h/2+0.40, MACHINE.d/2-0.05);
+    scene.add(_lightSign);
 
     _buildClaw();
     // Apply initial open pose now that fingers exist
@@ -844,9 +1024,28 @@ export default (() => {
     });
   }
 
-  // ── Prizes ─────────────────────────────────────────────────
+  // ── Prize selection helpers ─────────────────────────────────
+  // Weighted random pick from PRIZE_DEFS — rare prizes have very low weight.
+  // Prioritises defs not already in the pit.
+  function _pickPrizeDef() {
+    const inPit = new Set(prizes.map(p => p.def.emoji));
+    // Split into not-in-pit and in-pit pools
+    const fresh   = PRIZE_DEFS.filter(d => !inPit.has(d.emoji));
+    const refill  = PRIZE_DEFS.filter(d =>  inPit.has(d.emoji));
+    // Weight: rare=1, normal=10. Fresh pool gets 3× bonus weight.
+    function weight(d, bonus) { return (d.rare ? 1 : 10) * bonus; }
+    const pool = [
+      ...fresh.map(d  => ({ d, w: weight(d, 3) })),
+      ...refill.map(d => ({ d, w: weight(d, 1) })),
+    ];
+    const total = pool.reduce((s, e) => s + e.w, 0);
+    let r = Math.random() * total;
+    for (const { d, w } of pool) { r -= w; if (r <= 0) return d; }
+    return pool[pool.length - 1].d;
+  }
+
   function _spawnPrizes() {
-    for (let i = 0; i < 36; i++) _spawnOnePrize(PRIZE_DEFS[i % PRIZE_DEFS.length]);
+    for (let i = 0; i < 36; i++) _spawnOnePrize(_pickPrizeDef());
   }
 
   function _spawnOnePrize(def) {
@@ -867,16 +1066,18 @@ export default (() => {
     const mat = new THREE.MeshPhongMaterial({
       color:       def.color,
       emissive:    new THREE.Color(def.glow),
-      emissiveIntensity: 0.20,
+      emissiveIntensity: def.rare ? 0.55 : 0.20,
       transparent: true,
-      opacity:     0.58,
-      shininess:   130,
-      specular:    new THREE.Color(0xffffff),
+      opacity:     def.rare ? 0.82 : 0.58,
+      shininess:   def.rare ? 200 : 130,
+      specular:    new THREE.Color(def.rare ? 0xffffff : 0xaaaaaa),
       side:        THREE.FrontSide,
       depthWrite:  false,
     });
 
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(def.radius, 14, 14), mat);
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(def.radius, def.rare ? 12 : 8, def.rare ? 12 : 8), mat);
+    mesh.position.set(x, y, z);
+    scene.add(mesh);
     mesh.position.set(x, y, z);
     scene.add(mesh);
 
@@ -895,6 +1096,16 @@ export default (() => {
       new THREE.MeshBasicMaterial({ color:def.glow, transparent:true, opacity:0.10, side:THREE.BackSide, depthWrite:false })
     );
     mesh.add(halo);
+
+    // Rare prizes get a second larger outer halo that pulses in _animateScene
+    if (def.rare) {
+      const outerHalo = new THREE.Mesh(
+        new THREE.SphereGeometry(def.radius * 2.0, 8, 8),
+        new THREE.MeshBasicMaterial({ color:def.glow, transparent:true, opacity:0.18, side:THREE.BackSide, depthWrite:false })
+      );
+      outerHalo.userData.isRareHalo = true;
+      mesh.add(outerHalo);
+    }
 
     // Physics
     const body = new C.Body({ mass:0.5, linearDamping:0.40, angularDamping:0.52 });
@@ -984,7 +1195,12 @@ export default (() => {
   function _triggerDrop() {
     if (gameState !== 'idle' || tries <= 0) return;
     tries--;
+    grabCount++;
     _updateUI();
+    // Every other grab, quietly drop a new random ball into the pit
+    if (grabCount % 2 === 0) {
+      setTimeout(() => { _spawnOnePrize(_pickPrizeDef()); _updatePrizeChart(); }, 800);
+    }
     gameState = 'dropping';
     dropY = 0; clawOpen = 1.0; dropTimer = 0;
     _dropChanceChecked = false;
@@ -1011,10 +1227,20 @@ export default (() => {
     lastTime  = now;
 
     if (introAnim) {
-      introCamAngle += dt * 0.38;
+      const TARGET = Math.PI * 2;
+      const progress = Math.min(introCamAngle / TARGET, 1.0);
+      // Ease-out: fast start, decelerates smoothly to rest facing front
+      const speed = 2.6 * Math.pow(1.0 - progress, 0.55) + 0.15;
+      introCamAngle += dt * speed;
       camAngle = introCamAngle;
       _setCameraPos();
-      if (introCamAngle > Math.PI * 0.40) introAnim = false;
+      if (introCamAngle >= TARGET) {
+        introCamAngle = TARGET;
+        camAngle = 0; // snap exactly to front
+        _setCameraPos();
+        introAnim = false;
+        _stopIntroEffects();
+      }
     }
 
     _handleMovement(dt);
@@ -1393,12 +1619,12 @@ export default (() => {
         prizesCollected++;
         _updateUI();
         _showToast(`${p.def.emoji}  +${p.def.pts} pts  —  ${p.def.label}!`);
-        _playPrizeJingle(p.def.emoji);
+        _playPrizeJingle(p.def.emoji, p.def.rare);
         // Every 3rd prize collected, drop 3 new random prizes into the pit
         if (prizesCollected % 3 === 0) {
           setTimeout(() => {
             for (let i = 0; i < 3; i++) {
-              setTimeout(() => _spawnOnePrize(PRIZE_DEFS[Math.floor(Math.random() * PRIZE_DEFS.length)]), i * 200);
+              setTimeout(() => { _spawnOnePrize(_pickPrizeDef()); _updatePrizeChart(); }, i * 220);
             }
           }, 1200);
         }
@@ -1407,6 +1633,7 @@ export default (() => {
           world.removeBody(p.body);
           prizes     = prizes.filter(x => x !== p);
           meshBodies = meshBodies.filter(x => x.body !== p.body);
+          _updatePrizeChart();
         }, 900);
       }
     });
@@ -1426,8 +1653,20 @@ export default (() => {
     prizes.forEach(p => {
       if (p.emojiPlane) p.emojiPlane.lookAt(camera.position);
       if (!p.scored) {
-        const intensity = 0.16 + 0.13 * Math.sin(now * 0.0017 + p.mesh.position.x * 3.2);
+        const intensity = p.def.rare
+          ? 0.45 + 0.25 * Math.sin(now * 0.004 + p.mesh.position.x * 2.1)
+          : 0.16 + 0.13 * Math.sin(now * 0.0017 + p.mesh.position.x * 3.2);
         p.mesh.material.emissiveIntensity = intensity;
+        // Pulse the outer halo for rare prizes
+        if (p.def.rare) {
+          p.mesh.children.forEach(child => {
+            if (child.userData.isRareHalo) {
+              child.material.opacity = 0.10 + 0.12 * Math.sin(now * 0.003 + p.mesh.position.z * 1.8);
+              const s = 1 + 0.08 * Math.sin(now * 0.0025 + p.mesh.position.x);
+              child.scale.setScalar(s);
+            }
+          });
+        }
       }
     });
   }
