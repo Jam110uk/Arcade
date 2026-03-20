@@ -384,17 +384,24 @@ function poolSetupBalls() {
   POOL.balls.push({ id: 0, x: POOL.TW * 0.25, y: POOL.TH / 2, vx: 0, vy: 0, potted: false, angle: 0, spin: 0, sliding: false });
 
   // Rack: triangle at 3/4 mark
+  // UK 8-ball rack: 8 in dead centre (row 3 middle), alternating red/yellow,
+  // back corners = one red one yellow.
+  // Positions filled row by row left-to-right:
+  //   Row 0 (apex):          1 ball  → red(1)
+  //   Row 1:                 2 balls → yellow(9), red(2)
+  //   Row 2 (centre row):    3 balls → red(3), 8-ball(8), yellow(10)
+  //   Row 3:                 4 balls → yellow(11), red(4), yellow(12), red(5)
+  //   Row 4 (base):          5 balls → red(6), yellow(13), red(7), yellow(14), red(15)
+  //   Back corners (row 4 ends) = red(6) and red(15) — adjust last to yellow
+  const order = [1, 9,2, 3,8,10, 11,4,12,5, 6,13,7,14,15];
   const rx = POOL.TW * 0.65;
   const ry = POOL.TH / 2;
   const br = POOL.BALL_R * 2 + 1;
-  const rows = [[8],[1,9],[2,8,10],[3,4,11,12],[5,6,7,13,14,15]]; // 8 in center of 3rd row -> fixed
-  // Standard rack order with 8 in middle
-  const order = [1,9,2,8,10,3,4,11,12,5,6,7,13,14,15];
   let idx2 = 0;
   for (let row = 0; row < 5; row++) {
     for (let col = 0; col <= row; col++) {
       const bx = rx + row * br * 0.866;
-      const by = ry + (col - row/2) * br;
+      const by = ry + (col - row / 2) * br;
       POOL.balls.push({ id: order[idx2++], x: bx, y: by, vx: 0, vy: 0, potted: false, angle: 0, spin: 0, sliding: false });
     }
   }
@@ -1753,9 +1760,11 @@ function poolStartGame() {
   POOL._lastObservedSeq = 0;
   POOL._observingShot = 0;
   POOL._lastSettledSeq = 0;
-  POOL._settledProcessed = true;
-  POOL._lastSettledSeq = 0;
   POOL._settledProcessed = true; // start true so first snapshot can't spuriously fire
+  POOL._lastCueBallReset = 0;
+  POOL._observerIsReplaying = false;
+  POOL._observerPhysicsRaf = null;
+  POOL._isShooting = false;
 
   showScreen('pool-screen');
 
@@ -1822,7 +1831,12 @@ function poolBallsFromData(data, liveCorrection) {
 
 async function poolSyncBallsToFirebase() {
   if (!POOL.roomCode) return;
-  await update(ref(db, `pool/${POOL.roomCode}`), { balls: poolBallsToData() });
+  // Write balls AND a cueBallReset flag so the observer knows to snap
+  // the cue ball position (scratch recovery) without treating it as a new shot.
+  await update(ref(db, `pool/${POOL.roomCode}`), {
+    balls: poolBallsToData(),
+    cueBallReset: Date.now(),
+  });
 }
 
 // Internal fire function - called from new click handler and bot
@@ -2352,15 +2366,29 @@ function poolListenToGame() {
       POOL._observerIsReplaying = true;
 
       // Pure physics + render loop only — no foul/turn logic (shooter owns that).
-      // Killed externally by shotSettled or naturally when all balls stop.
+      // Killed externally by shotSettled, or naturally when all balls stop.
+      // When balls stop naturally, keep isMoving=true so we don't re-enable shooting
+      // before shotSettled arrives with the authoritative turn assignment.
+      const replayStartSeq = incomingSeq;
+      if (POOL._observerSafetyTimeout) clearTimeout(POOL._observerSafetyTimeout);
       (function observerPhysicsLoop() {
         if (!POOL._observerIsReplaying) return;
         poolPhysicsStep();
         poolDraw();
         if (poolAllStopped()) {
+          // Physics done — stop the loop but keep isMoving=true until
+          // shotSettled arrives and gives us the authoritative turn.
           POOL._observerIsReplaying = false;
-          POOL.isMoving = false;
           POOL._observerPhysicsRaf = null;
+          // Safety: if shotSettled hasn't arrived within 3s, unblock anyway
+          POOL._observerSafetyTimeout = setTimeout(() => {
+            if (POOL.isMoving && POOL._lastObservedSeq === replayStartSeq
+                && !POOL._isShooting) {
+              POOL.isMoving = false;
+              poolUpdateTurnIndicator();
+              poolDraw();
+            }
+          }, 3000);
         } else {
           POOL._observerPhysicsRaf = requestAnimationFrame(observerPhysicsLoop);
         }
@@ -2382,18 +2410,40 @@ function poolListenToGame() {
     // NOTE: liveBalls updates are handled by a dedicated sub-path listener below.
     // The parent listener only handles shot start detection, cue aim, and settlement.
 
+    // ── CUE BALL RESET (scratch recovery) ────────────────────────────────────
+    // Shooter repositions the cue ball 600ms after a scratch and writes cueBallReset.
+    // Observer must apply this so their cue ball isn't stuck as potted.
+    if (room.cueBallReset && room.cueBallReset !== POOL._lastCueBallReset
+        && !POOL._isShooting && !POOL._observerIsReplaying) {
+      POOL._lastCueBallReset = room.cueBallReset;
+      if (room.balls) poolBallsFromData(room.balls, false);
+      poolDraw();
+    }
+
     // ── SHOT SETTLED ─────────────────────────────────────────────────────────
     // Shooter writes shotSettled + turn after their animation completes.
     // Both clients hear this — shooter skips it (handles own turn in onDone callback).
     // Observer uses it to apply final positions and hand off the turn.
     const shotWasMine = room.lastShot && room.lastShot.playerNum === POOL.playerNum;
-    // Process if: there's a settled seq, it's newer than last we processed, not our shot
+    // Process settled ONLY when ALL are true:
+    // 1. New settled seq we haven't processed
+    // 2. Matches a shot we actually started observing (_lastObservedSeq)
+    //    — this prevents the shooter from processing their opponent's settled
+    //    writes mid-game and corrupting their own isMoving state
+    // 3. Was not our shot
+    // 4. We are not currently the shooter
     const shouldProcessSettled = room.shotSettled > 0
       && room.shotSettled > (POOL._lastSettledSeq || 0)
-      && !shotWasMine;
+      && room.shotSettled <= (POOL._lastObservedSeq || 0)
+      && !shotWasMine
+      && !POOL._isShooting;
 
     if (shouldProcessSettled) {
       POOL._lastSettledSeq = room.shotSettled; // mark as processed
+      if (POOL._observerSafetyTimeout) {
+        clearTimeout(POOL._observerSafetyTimeout);
+        POOL._observerSafetyTimeout = null;
+      }
       // Stop observer physics loop
       POOL._observerIsReplaying = false;
       POOL.isMoving = false;
