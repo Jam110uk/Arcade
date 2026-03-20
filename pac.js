@@ -412,9 +412,6 @@ export default (function () {
       color: 0xff4477, emissive: 0xdd0044, emissiveIntensity: 0.9,
       roughness: 0.3, side: T.DoubleSide,
     });
-    const eyeMat = new T.MeshStandardMaterial({
-      color: 0x111111, roughness: 1,
-    });
 
     // ── Bottom hemisphere (fixed, never moves) ────────────────────
     // SphereGeometry(r, wSeg, hSeg, phiStart, phiLen, thetaStart, thetaLen)
@@ -448,14 +445,14 @@ export default (function () {
     pinkDiscTop.position.y = -0.002;
     topGroup.add(pinkDiscTop);
 
-    // Two eyes on the top hemisphere — sit on the flat underside face,
-    // slightly embedded so they face forward/down toward the camera
+    // Two black eyes on the curved top dome, visible from the tilted camera
+    // Positioned left/right, up on the hemisphere, behind the mouth opening
     const eyeGeo = new T.SphereGeometry(0.07, 12, 12);
-    const eyeL = new T.Mesh(eyeGeo, eyeMat);
-    const eyeR = new T.Mesh(eyeGeo, eyeMat);
-    // Position: forward of centre (toward -Z = mouth direction), left/right
-    eyeL.position.set(-0.16, 0.04, -R * 0.52);
-    eyeR.position.set( 0.16, 0.04, -R * 0.52);
+    const eyeMatBlack = new T.MeshStandardMaterial({ color: 0x000000, roughness: 0.8 });
+    const eyeL = new T.Mesh(eyeGeo, eyeMatBlack);
+    const eyeR = new T.Mesh(eyeGeo, eyeMatBlack);
+    eyeL.position.set(-0.20, R * 0.62, -R * 0.28);
+    eyeR.position.set( 0.20, R * 0.62, -R * 0.28);
     topGroup.add(eyeL);
     topGroup.add(eyeR);
 
@@ -550,10 +547,10 @@ export default (function () {
       // lookAt is called ONCE at buildScene and never again — camera doesn't rotate
 
       // Face direction of travel
-      if (pac.dx === 1)       pacMesh.rotation.y = -Math.PI/2;
-      else if (pac.dx === -1) pacMesh.rotation.y =  Math.PI/2;
-      else if (pac.dy === -1) pacMesh.rotation.y =  0;
-      else if (pac.dy === 1)  pacMesh.rotation.y =  Math.PI;
+      if (pac.dx === 1)       pacMesh.rotation.y =  Math.PI/2;
+      else if (pac.dx === -1) pacMesh.rotation.y = -Math.PI/2;
+      else if (pac.dy === -1) pacMesh.rotation.y =  Math.PI;
+      else if (pac.dy === 1)  pacMesh.rotation.y =  0;
 
       // Mouth: rotate top hemisphere group upward to open, back down to close
       if (!pac.dead) {
