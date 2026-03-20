@@ -2412,12 +2412,23 @@ function poolListenToGame() {
 
     // ── CUE BALL RESET (scratch recovery) ────────────────────────────────────
     // Shooter repositions the cue ball 600ms after a scratch and writes cueBallReset.
-    // Observer must apply this so their cue ball isn't stuck as potted.
+    // We ONLY fix the cue ball's potted flag and position locally — we do NOT
+    // snap all ball positions from room.balls because that snapshot may be stale
+    // (taken before subsequent shots that have already moved things).
     if (room.cueBallReset && room.cueBallReset !== POOL._lastCueBallReset
         && !POOL._isShooting && !POOL._observerIsReplaying) {
       POOL._lastCueBallReset = room.cueBallReset;
-      if (room.balls) poolBallsFromData(room.balls, false);
-      poolDraw();
+      if (POOL.cueBall && POOL.cueBall.potted) {
+        // Just un-pocket the cue ball and place it at the D — don't touch other balls
+        POOL.cueBall.potted = false;
+        POOL.cueBall.x = POOL.TW * 0.25;
+        POOL.cueBall.y = POOL.TH / 2;
+        POOL.cueBall.vx = 0;
+        POOL.cueBall.vy = 0;
+        POOL.cueBall.spin = 0;
+        POOL.cueBall.sliding = false;
+        poolDraw();
+      }
     }
 
     // ── SHOT SETTLED ─────────────────────────────────────────────────────────
@@ -2454,6 +2465,14 @@ function poolListenToGame() {
       _stopObserverRender();
       // Apply authoritative final positions
       if (room.balls) poolBallsFromData(room.balls, false);
+      // If cue ball was scratched, un-pocket it immediately so shooting isn't blocked.
+      // The cueBallReset write (600ms later) will confirm this but we can't wait that long.
+      if (POOL.cueBall && POOL.cueBall.potted) {
+        POOL.cueBall.potted = false;
+        POOL.cueBall.x = POOL.TW * 0.25;
+        POOL.cueBall.y = POOL.TH / 2;
+        POOL.cueBall.vx = 0; POOL.cueBall.vy = 0;
+      }
       if (room.ballTypes) {
         POOL.myBallType = room.ballTypes[`p${POOL.playerNum}`];
         POOL.opponentBallType = room.ballTypes[`p${POOL.playerNum === 1 ? 2 : 1}`];
