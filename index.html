@@ -7936,43 +7936,15 @@ function slLaunchGame(game, room) {
       POOL.isBot = false;
       document.getElementById('pool-player-name').value = myName;
       if (isHost) {
-        poolInit();
-        poolSetupBalls();
-        POOL.myTurn = true;
-        POOL.myBallType = null; POOL.opponentBallType = null;
-        POOL.myPotted = 0; POOL.oppPotted = 0;
-        POOL.shotState = 'aiming'; POOL.pullback = 0;
+        // Host writes the initial room state to Firebase then starts
         set(ref(db, `pool/${gameCode}`), {
           status: 'playing', winner: null, turn: 1,
-          balls: poolBallsToData(), lastShot: null, ballTypes: null,
+          balls: null, lastShot: null, ballTypes: null,
           player1: { name: myName }, player2: { name: oppName },
-        }).then(() => {
-          document.getElementById('main-subtitle').textContent = '8-BALL — ONLINE MULTIPLAYER';
-          document.getElementById('header-room-code').textContent = gameCode;
-          document.getElementById('room-code-display').style.display = '';
-          showScreen('pool-screen');
-          setTimeout(() => { poolGetCanvas(); poolDraw(); poolUpdateTurnIndicator(); poolUpdateScores(); }, 50);
-          poolListenToGame();
-        });
+        }).then(() => poolStartGame());
       } else {
-        poolInit();
-        POOL.myTurn = false;
-        POOL.myBallType = null; POOL.opponentBallType = null;
-        POOL.myPotted = 0; POOL.oppPotted = 0;
-        POOL.shotState = 'aiming'; POOL.pullback = 0;
-        POOL.shotSeq = 0; POOL._lastObservedSeq = 0; POOL._observingShot = 0;
-        document.getElementById('main-subtitle').textContent = '8-BALL — ONLINE MULTIPLAYER';
-        document.getElementById('header-room-code').textContent = gameCode;
-        document.getElementById('room-code-display').style.display = '';
-        showScreen('pool-screen');
-        setTimeout(async () => {
-          poolGetCanvas();
-          const snap = await get(ref(db, `pool/${gameCode}/balls`));
-          if (snap.exists()) poolBallsFromData(snap.val());
-          else poolSetupBalls();
-          poolDraw(); poolUpdateTurnIndicator(); poolUpdateScores();
-        }, 50);
-        poolListenToGame();
+        // Guest just starts — host has already written room state
+        poolStartGame();
       }
     }
     // Wait for pool.js to finish loading if it hasn't yet
