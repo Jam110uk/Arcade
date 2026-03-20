@@ -44,9 +44,10 @@ export default (() => {
     /* Kill 2D ocean — 3D water shows through transparent cells */
     #enemy-grid .grid-ocean-canvas,
     #my-grid    .grid-ocean-canvas { display: none !important; }
-    /* Kill 2D ship SVG overlays — 3D meshes replace them */
-    #enemy-grid .ship-overlay,
-    #my-grid    .ship-overlay { display: none !important; }
+    /* Kill 2D ship SVG overlays in game-screen ONLY —
+       placement-screen drag ghost (also .ship-overlay) must still work */
+    #game-screen #enemy-grid .ship-overlay,
+    #game-screen #my-grid    .ship-overlay { display: none !important; }
     /* Keep 2D wrecks — shown after 3D sink animation completes */
     #enemy-grid .ship-wreck,
     #my-grid    .ship-wreck  { display: block !important; }
@@ -163,11 +164,17 @@ export default (() => {
   // Project a viewport pixel position (px, py) onto the Y=0 world plane
   // using the current camera. Returns THREE.Vector3 or null.
   // ══════════════════════════════════════════════════════════════
-  const _plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-  const _ray   = new THREE.Raycaster();
+  // Lazily created after THREE loads
+  let _plane = null;
+  let _ray   = null;
+  function _ensureRay() {
+    if (!_plane) _plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    if (!_ray)   _ray   = new THREE.Raycaster();
+  }
 
   function screenToWorld(px, py) {
     if (!_camera) return null;
+    _ensureRay();
     const ndc = new THREE.Vector2(
       (px / window.innerWidth)  * 2 - 1,
       -(py / window.innerHeight) * 2 + 1,
