@@ -1736,7 +1736,8 @@ window.poolJoinRoom = async function() {
 };
 
 function poolStartGame() {
-  poolInit();
+  // Only run poolInit if balls not already set up (host sets up before Firebase write)
+  if (!POOL.balls || !POOL.balls.length) poolInit();
   POOL.myTurn = POOL.playerNum === 1;
   POOL.myBallType = null;
   POOL.opponentBallType = null;
@@ -1752,8 +1753,6 @@ function poolStartGame() {
 
   showScreen('pool-screen');
 
-  // Suppress the global body::before scanline overlay for pool —
-  // the 3D renderer makes it very visible and distracting on the green felt.
   if (!document.getElementById('pool-no-scanlines')) {
     const s = document.createElement('style');
     s.id = 'pool-no-scanlines';
@@ -1762,9 +1761,7 @@ function poolStartGame() {
   }
 
   if (POOL.playerNum === 1) {
-    // Host: set up balls and push to Firebase
-    poolSetupBalls();
-    poolSyncBallsToFirebase();
+    // Host: balls already set up and written to Firebase before poolStartGame called
     setTimeout(() => {
       poolGetCanvas();
       poolDraw();
@@ -1772,16 +1769,16 @@ function poolStartGame() {
       poolUpdateScores();
     }, 50);
   } else {
-    // Guest: fetch ball positions from Firebase so they match the host's rack
+    // Guest: wait 400ms to ensure host ball data is in Firebase
     setTimeout(async () => {
       poolGetCanvas();
       const snap = await get(ref(db, `pool/${POOL.roomCode}/balls`));
       if (snap.exists()) poolBallsFromData(snap.val());
-      else poolSetupBalls(); // fallback if host hasn't pushed yet
+      else poolSetupBalls();
       poolDraw();
       poolUpdateTurnIndicator();
       poolUpdateScores();
-    }, 50);
+    }, 400);
   }
 
   poolListenToGame();

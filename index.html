@@ -7936,14 +7936,16 @@ function slLaunchGame(game, room) {
       POOL.isBot = false;
       document.getElementById('pool-player-name').value = myName;
       if (isHost) {
-        // Host writes the initial room state to Firebase then starts
+        // Host sets up balls first, then writes them to Firebase so guest gets the same rack
+        poolInit();
+        poolSetupBalls();
         set(ref(db, `pool/${gameCode}`), {
           status: 'playing', winner: null, turn: 1,
-          balls: null, lastShot: null, ballTypes: null,
+          balls: poolBallsToData(), lastShot: null, ballTypes: null,
           player1: { name: myName }, player2: { name: oppName },
         }).then(() => poolStartGame());
       } else {
-        // Guest just starts — host has already written room state
+        // Guest just starts — poolStartGame will fetch balls from Firebase
         poolStartGame();
       }
     }
@@ -10923,20 +10925,19 @@ function mlLaunch(lobby) {
   ML.unsubs = [];
   mlListStop();
 
-  // Only host deletes the lobby — this ensures the host's onValue fires on
-  // the 'launching' status before the document is removed (avoids race condition
-  // where guest deletes lobby before host listener sees the 'launching' status)
-  if (ML.isHost) {
-    try { remove(ref(db, `perGameLobbies/${ML.game}/${ML.lobbyId}`)); } catch(e) {}
-  }
-
+  // Capture all values synchronously before any async gap
   const isHost   = ML.isHost;
   const myName   = ML.playerName;
   const oppName  = isHost ? lobby.guest.name : lobby.hostName;
   const gameCode = lobby.gameCode;
   const game     = ML.game;
+  const lobbyId  = ML.lobbyId;
 
-  // Reuse slLaunchGame by building a compatible room object
+  // Only host deletes the lobby entry
+  if (isHost) {
+    try { remove(ref(db, `perGameLobbies/${game}/${lobbyId}`)); } catch(e) {}
+  }
+
   const room = {
     player1:  { name: isHost ? myName : oppName },
     player2:  { name: isHost ? oppName : myName },
@@ -10944,16 +10945,16 @@ function mlLaunch(lobby) {
     selectedGame: game,
   };
 
-  // Temporarily set SL fields so slLaunchGame works unchanged
-  SL.isHost      = isHost;
-  SL.playerName  = myName;
-  SL.code        = null;
+  // Set SL fields — stable for the duration of slLaunchGame
+  SL.isHost     = isHost;
+  SL.playerName = myName;
+  SL.code       = null;
 
-  // Ensure the game module is loaded before launching (it was preloaded in
-  // openMultiLobby but we wait here in case it's still in flight)
-  import('./games.js').then(({ preloadGame }) => preloadGame(game)).then(() => {
-    slLaunchGame(game, room);
-  }).catch(() => slLaunchGame(game, room));
+  // Ensure the game module is loaded, then launch — using captured locals only
+  import('./games.js')
+    .then(({ preloadGame }) => preloadGame(game))
+    .then(() => slLaunchGame(game, room))
+    .catch(() => slLaunchGame(game, room));
 }
 
 // ── Back ──────────────────────────────────────────────────────
