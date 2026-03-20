@@ -2336,23 +2336,24 @@ function poolListenToGame() {
     const isNewShot = isOpponentShot && incomingSeq > (POOL._lastObservedSeq || 0);
 
     if (isNewShot) {
-      // New opponent shot — replay the exact same physics locally so the observer
-      // sees a full smooth animation, not jerky 30fps Firebase snapshots.
+      // New opponent shot — run local physics replay so observer sees full animation.
       POOL._lastObservedSeq = incomingSeq;
       POOL._observingShot = incomingSeq;
       POOL.myTurn = false;
       POOL.oppCue = null;
       poolUpdateTurnIndicator();
 
-      // Stop any existing observer render loop before starting physics replay
+      // Cancel any previous observer loop
       _stopObserverRender();
-
-      // Restore pre-shot ball positions from the shot broadcast
-      if (shot.balls) {
-        poolBallsFromData(shot.balls, false); // full snap — pre-shot positions
+      if (POOL._observerPhysicsRaf) {
+        cancelAnimationFrame(POOL._observerPhysicsRaf);
+        POOL._observerPhysicsRaf = null;
       }
 
-      // Apply the cue velocity exactly as the shooter did
+      // Restore pre-shot ball positions
+      if (shot.balls) poolBallsFromData(shot.balls, false);
+
+      // Apply cue velocity exactly as shooter did
       const cb = POOL.cueBall;
       if (cb) {
         cb.vx = Math.cos(shot.angle) * shot.speed;
@@ -2363,17 +2364,23 @@ function poolListenToGame() {
 
       POOL.firstBallHitId = null;
       POOL.shotFoul = false;
-
-      // Run poolAnimate as the observer — this drives the full physics sim locally.
-      // onDone is a no-op here: the shooter's shotSettled write handles turn handoff.
-      // We guard with _observingShot so a late liveBalls tick can't restart us.
-      const observedSeq = incomingSeq;
+      POOL.isMoving = true;
       POOL._observerIsReplaying = true;
-      poolAnimate(() => {
-        // Observer physics complete — stop and wait for shotSettled to apply final positions
-        POOL._observerIsReplaying = false;
-        POOL._observingShot = 0;
-      });
+
+      // Pure physics+render loop — no onDone foul/turn logic (shooter handles that).
+      // Stops when balls settle OR when shotSettled snaps us to final positions.
+      (function observerPhysicsLoop() {
+        if (!POOL._observerIsReplaying) return;
+        poolPhysicsStep();
+        poolDraw();
+        if (poolAllStopped()) {
+          POOL._observerIsReplaying = false;
+          POOL.isMoving = false;
+          POOL._observerPhysicsRaf = null;
+        } else {
+          POOL._observerPhysicsRaf = requestAnimationFrame(observerPhysicsLoop);
+        }
+      })();
     }
 
     // Ghost cue: only show while idle (no shot in flight)
@@ -2391,10 +2398,15 @@ function poolListenToGame() {
     // The shooter's onDone callback handles their own turn logic; they must NOT process this.
     const shotWasMine = room.lastShot && room.lastShot.playerNum === POOL.playerNum;
     if (room.shotSettled === incomingSeq && !shotWasMine) {
-      POOL.isMoving = false;
+      // Stop observer physics loop cleanly
       POOL._observerIsReplaying = false;
+      POOL.isMoving = false;
+      if (POOL._observerPhysicsRaf) {
+        cancelAnimationFrame(POOL._observerPhysicsRaf);
+        POOL._observerPhysicsRaf = null;
+      }
       _stopObserverRender();
-      // Apply the shooter's authoritative final ball positions (full snap, no velocity carry)
+      // Snap to shooter's authoritative final positions
       if (room.balls) { poolBallsFromData(room.balls, false); }
       if (room.ballTypes) {
         const myKey = `p${POOL.playerNum}`;
@@ -2437,20 +2449,20 @@ function poolListenToGame() {
     const data = snap.val();
     if (data && data.balls) {
       if (POOL._observerIsReplaying) {
-        // Observer is already running full local physics — apply as a gentle
-        // position correction only (preserves velocities, no loop restart).
+        // Observer physics running locally — gently nudge positions toward authoritative
+        // values without zeroing velocities (preserves smooth local simulation).
         poolBallsFromData(data.balls, true);
       } else {
-        // Fallback: no local replay running yet (race: liveBalls arrived before
-        // the parent listener fired isNewShot). Start the render loop.
+        // Fallback: liveBalls arrived before isNewShot fired (race condition).
+        // Snap positions and start a simple render loop until shotSettled arrives.
         poolBallsFromData(data.balls, true);
         POOL.isMoving = true;
         if (!POOL._observingShot) POOL._observingShot = -1;
         if (!POOL._observerRendering) _startObserverRender();
       }
     } else {
-      // balls:null — shooter animation finished. Let shotSettled handle cleanup
-      // if we are mid-replay; otherwise stop the fallback render loop.
+      // balls:null — shooter animation done. Only stop if NOT mid-replay
+      // (replay will finish naturally via poolAllStopped or shotSettled).
       if (!POOL._observerIsReplaying) {
         POOL._observingShot = 0;
         POOL.isMoving = false;
