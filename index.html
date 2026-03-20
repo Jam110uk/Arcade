@@ -7950,11 +7950,17 @@ function slLaunchGame(game, room) {
       }
     }
     // Wait for pool.js to finish loading if it hasn't yet
+    const poolScript = document.querySelector('script[src="./pool.js"]');
     if (typeof poolInit === 'function') {
       _poolLaunch();
+    } else if (poolScript) {
+      poolScript.addEventListener('load', _poolLaunch);
     } else {
-      const s = document.querySelector('script[src="./pool.js"]');
-      if (s) { s.addEventListener('load', _poolLaunch); }
+      // Script not injected yet — inject and wait
+      const s = document.createElement('script');
+      s.src = './pool.js';
+      s.addEventListener('load', _poolLaunch);
+      document.head.appendChild(s);
     }
 
   } else if (game === 'scrabble') {
@@ -10725,6 +10731,11 @@ window.openMultiLobby = function(game) {
 
   // Preload the game module now so it's ready when the match launches
   import('./games.js').then(({ preloadGame }) => preloadGame(game)).catch(() => {});
+  // pool.js is a plain-globals script (not ES module) — inject it separately
+  if (game === 'pool' && !document.querySelector('script[src="./pool.js"]')) {
+    const s = document.createElement('script'); s.src = './pool.js';
+    document.head.appendChild(s);
+  }
 
   const meta = GAME_META[game];
   document.getElementById('main-title').textContent    = meta.icon + ' ' + meta.name;
