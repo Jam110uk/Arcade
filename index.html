@@ -4952,7 +4952,7 @@
         <div class="game-name">CHESS</div>
         <div class="game-desc">Play chess head-to-head — 2 players online.</div>
       </div>
-      <div class="game-card" style="--card-accent:#00ffff;display:none" data-multi-game onclick="window.TRON?.showOnlineMenu()">
+      <div class="game-card" style="--card-accent:#00ffff;display:none" data-multi-game onclick="selectGame('tron').then(()=>window.TRON?.showOnlineMenu())">
         <span class="game-icon">⚡</span>
         <div class="game-name">TRON</div>
         <div class="game-desc">Light cycle racing — 2 players online.</div>
@@ -4967,7 +4967,7 @@
         <div class="game-name">UNO</div>
         <div class="game-desc">Classic card game — online multiplayer.</div>
       </div>
-      <div class="game-card" style="--card-accent:#f472b6;display:none" data-multi-game onclick="selectGame('guesswho')">
+      <div class="game-card" style="--card-accent:#f472b6;display:none" data-multi-game onclick="openMultiLobby('guesswho')">
         <span class="game-icon">🎭</span>
         <div class="game-name">GUESS WHO</div>
         <div class="game-desc">Iconic fictional characters — 2 players online.</div>
@@ -7766,6 +7766,9 @@ window.leaveConfirmYes = function() {
     notifyAndLeave(path, () => { chatDestroy('uno'); hideHeaderLeave(); window.UNO?.destroy(); backToGameSelect(); });
   } else if (ctx === 'tron') {
     window.TRON?.destroy(); hideHeaderLeave(); backToGameSelect();
+  } else if (ctx === 'guesswho') {
+    const path = window.GW?.roomCode ? `guesswho/${GW.roomCode}` : null;
+    notifyAndLeave(path, () => { chatDestroy('guesswho'); hideHeaderLeave(); window.GW?.destroy(); backToGameSelect(); });
   } else {
     backToGameSelect();
   }
@@ -7979,6 +7982,8 @@ function slLaunchGame(game, room) {
     UNO.launchMulti(isHost, myName, oppName, gameCode);
   } else if (game === 'pokemon') {
     PKM.launchMulti(isHost, myName, oppName, gameCode);
+  } else if (game === 'guesswho') {
+    window.GW?.launchMulti(isHost, myName, oppName, gameCode);
   }
 }
 
@@ -10709,6 +10714,7 @@ const GAME_META = {
   tron:        { icon:'⚡', name:'TRON',        accent:'#00ffff' },
   pokemon:     { icon:'⚡', name:'POKÉMON',     accent:'#ef4444' },
   uno:         { icon:'🃏', name:'UNO',         accent:'#f97316' },
+  guesswho:    { icon:'🎭', name:'GUESS WHO',   accent:'#f472b6' },
 };
 
 const ML = {

@@ -2372,19 +2372,18 @@ function poolListenToGame() {
     if (!snap.exists()) return;
     const data = snap.val();
     if (data && data.balls) {
-      // Shot in progress — apply positions and ensure render loop is running
-      // If _observingShot not yet set by parent listener (race), use isMoving as fallback
-      if (!POOL._observingShot && !POOL.isMoving) return; // truly idle, ignore
-      if (!POOL._observingShot) POOL._observingShot = -1; // placeholder until parent catches up
+      // Apply positions immediately — start observer render loop if not already running.
+      // No gate on _observingShot here: the parent listener may not have fired yet (race),
+      // and dropping frames here is exactly what causes the "balls teleport" bug.
       poolBallsFromData(data.balls);
+      POOL.isMoving = true;
+      if (!POOL._observingShot) POOL._observingShot = -1;
       if (!POOL._observerRendering) _startObserverRender();
     } else {
-      // balls:null — shooter's animation finished
-      if (POOL._observingShot) {
-        POOL._observingShot = 0;
-        POOL.isMoving = false;
-        _stopObserverRender();
-      }
+      // balls:null — shooter's animation finished, stop observer loop
+      POOL._observingShot = 0;
+      POOL.isMoving = false;
+      _stopObserverRender();
     }
   });
   POOL.unsubs.push(liveBallsUnsub);
