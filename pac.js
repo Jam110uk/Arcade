@@ -284,33 +284,36 @@ export default (function () {
     renderer.setClearColor(0x000005);
 
     scene = new T.Scene();
-    scene.fog = new T.FogExp2(0x000010, 0.04);
+    // No fog — full maze must be visible at all times
 
-    // Camera — top-down isometric tilt (about 75° down)
-    camera = new T.PerspectiveCamera(55, COLS/ROWS, 0.1, 200);
-    camera.position.set(0, 22, 8);
-    camera.lookAt(0, 0, 2);
+    // ── Orthographic top-down camera ──────────────────────────
+    // Frustum sized to the exact 28×31 world with a small margin.
+    const halfW = COLS / 2 + 0.5;
+    const halfH = ROWS / 2 + 0.5;
+    camera = new T.OrthographicCamera(-halfW, halfW, halfH, -halfH, 0.1, 200);
+    camera.position.set(0, 50, 0);  // directly above centre
+    camera.lookAt(0, 0, 0);         // straight down
 
-    // Lighting
-    const ambient = new T.AmbientLight(0x111133, 0.6);
+    // Strong ambient so corridors are evenly lit from above
+    const ambient = new T.AmbientLight(0x223366, 1.4);
     scene.add(ambient);
 
-    // Blue corridor fill light from above
-    const fill = new T.DirectionalLight(0x2244ff, 0.4);
-    fill.position.set(0, 20, 0);
+    // Overhead blue fill
+    const fill = new T.DirectionalLight(0x4466ff, 0.7);
+    fill.position.set(0, 40, 0);
     scene.add(fill);
 
-    // Warm key light casting shadows
+    // Slightly angled key light for subtle wall shading; shadow camera covers full maze
     const key = new T.DirectionalLight(0xffeedd, 0.8);
-    key.position.set(8, 25, 8);
+    key.position.set(0, 40, 4);
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
-    key.shadow.camera.near = 0.5;
-    key.shadow.camera.far = 80;
-    key.shadow.camera.left = -20;
-    key.shadow.camera.right = 20;
-    key.shadow.camera.top = 20;
-    key.shadow.camera.bottom = -20;
+    key.shadow.camera.near   = 1;
+    key.shadow.camera.far    = 100;
+    key.shadow.camera.left   = -(COLS/2 + 2);
+    key.shadow.camera.right  =  (COLS/2 + 2);
+    key.shadow.camera.top    =  (ROWS/2 + 2);
+    key.shadow.camera.bottom = -(ROWS/2 + 2);
     scene.add(key);
 
     // Floor — dark glossy plane with grid lines
@@ -354,10 +357,10 @@ export default (function () {
       for (let col = 0; col < COLS; col++) {
         const cell = curMap[row][col];
         if (cell === 1 || cell === 4) {
-          const geo = new T.BoxGeometry(1, cell===4?0.15:1.2, cell===4?0.08:1);
+          const geo = new T.BoxGeometry(1, cell===4?0.12:0.8, cell===4?0.08:1);
           const mat = cell===4 ? doorMat : wallMat;
           const mesh = new T.Mesh(geo, mat);
-          mesh.position.set(tileWorldX(col), cell===4?0.08:0.6, tileWorldZ(row));
+          mesh.position.set(tileWorldX(col), cell===4?0.06:0.4, tileWorldZ(row));
           mesh.castShadow = true;
           mesh.receiveShadow = true;
           scene.add(mesh);
@@ -374,13 +377,13 @@ export default (function () {
     Object.values(pelletMeshes).forEach(m=>{scene.remove(m);m.geometry.dispose();m.material.dispose();});
     dotMeshes={}; pelletMeshes={};
 
-    const dotGeo = new T.SphereGeometry(0.10, 6, 6);
+    const dotGeo = new T.SphereGeometry(0.18, 8, 8);
     const dotMat = new T.MeshStandardMaterial({
-      color:0xffccaa, emissive:0xff6633, emissiveIntensity:0.6, roughness:0.4
+      color:0xffddcc, emissive:0xff8844, emissiveIntensity:1.8, roughness:0.3
     });
-    const pelGeo = new T.SphereGeometry(0.28, 12, 12);
+    const pelGeo = new T.SphereGeometry(0.36, 14, 14);
     const pelMat = new T.MeshStandardMaterial({
-      color:0xffee00, emissive:0xff9900, emissiveIntensity:1.2, roughness:0.2, metalness:0.1
+      color:0xffff00, emissive:0xffcc00, emissiveIntensity:2.5, roughness:0.1, metalness:0.1
     });
 
     for (let row=0; row<ROWS; row++) {
@@ -388,14 +391,14 @@ export default (function () {
         const cell = map[row][col];
         if (cell === 2) {
           const m = new T.Mesh(dotGeo, dotMat);
-          m.position.set(tileWorldX(col), 0.10, tileWorldZ(row));
+          m.position.set(tileWorldX(col), 0.18, tileWorldZ(row));
           scene.add(m);
           dotMeshes[`${col},${row}`] = m;
         } else if (cell === 3) {
           const m = new T.Mesh(pelGeo, pelMat);
-          m.position.set(tileWorldX(col), 0.28, tileWorldZ(row));
+          m.position.set(tileWorldX(col), 0.36, tileWorldZ(row));
           // Give pellets a point light for local glow
-          const pl = new T.PointLight(0xffcc00, 1.5, 3);
+          const pl = new T.PointLight(0xffcc00, 2.0, 2.5);
           pl.position.copy(m.position);
           scene.add(pl); m.userData.light = pl;
           scene.add(m);
@@ -436,7 +439,7 @@ export default (function () {
     pacMesh.add(pl);
     pacMesh.userData.light = pl;
 
-    pacMesh.position.set(worldX(pac.x), 0.33, worldZ(pac.y));
+    pacMesh.position.set(worldX(pac.x), 0.28, worldZ(pac.y));
     scene.add(pacMesh);
   }
 
@@ -538,13 +541,13 @@ export default (function () {
           pacBodyMesh.scale.z = chompScale;
           pacBodyMesh.scale.x = chompScale;
         }
-        pacMesh.position.y = 0.33 + Math.sin(now * 0.008) * 0.03;
+        pacMesh.position.y = 0.28;
       } else {
-        // Death: sink and spin
-        pacMesh.position.y = Math.max(-0.3, 0.33 - pac.deathAnim * 0.7);
-        pacMesh.rotation.z = pac.deathAnim * Math.PI * 1.5;
+        // Death: flatten and spin on the floor
+        pacMesh.position.y = 0.28 * (1 - pac.deathAnim * 0.9);
+        pacMesh.rotation.y = pac.deathAnim * Math.PI * 3;
         if (pacBodyMesh) {
-          pacBodyMesh.scale.set(1 + pac.deathAnim*0.3, 0.72 * (1-pac.deathAnim*0.8), 1);
+          pacBodyMesh.scale.set(1 + pac.deathAnim*0.5, 0.72*(1-pac.deathAnim*0.95), 1+pac.deathAnim*0.5);
         }
       }
 
@@ -564,10 +567,9 @@ export default (function () {
       group.position.z = worldZ(g.y);
 
       if (g.inHouse) {
-        // Bounce in ghost house
-        group.position.y = 0.28 + Math.sin(now/400 + i) * 0.12;
+        group.position.y = 0.22;
       } else {
-        group.position.y = 0.28 + Math.sin(now * 0.006 + i) * 0.04;
+        group.position.y = 0.22;
       }
 
       // Wavy skirt: rotate slowly
@@ -751,11 +753,8 @@ export default (function () {
     threeCanvas.style.width  = w + 'px';
     threeCanvas.style.height = h + 'px';
     if (overlayCanvas) { overlayCanvas.style.width=w+'px'; overlayCanvas.style.height=h+'px'; }
-    if (renderer && camera) {
-      renderer.setSize(COLS*TILE, ROWS*TILE, false);
-      camera.aspect = COLS/ROWS;
-      camera.updateProjectionMatrix();
-    }
+    if (renderer) renderer.setSize(COLS*TILE, ROWS*TILE, false);
+    // Orthographic camera — frustum is fixed to maze size, no aspect update needed
   }
 
   // ── Map helpers ───────────────────────────────────────────
@@ -774,7 +773,7 @@ export default (function () {
     pac = { x:14*TILE, y:23*TILE+TILE/2, dx:0, dy:0, qx:0, qy:0,
             mouthAngle:0, mouthDir:1, dead:false, deathAnim:0 };
     if (pacBodyMesh) pacBodyMesh.scale.set(1,0.72,1);
-    if (pacMesh) { pacMesh.rotation.set(0,0,0); pacMesh.position.y=0.33; }
+    if (pacMesh) { pacMesh.rotation.set(0,0,0); pacMesh.position.y=0.28; }
   }
   function initGhosts() {
     const sp=[{col:14,row:11},{col:13,row:14},{col:14,row:14},{col:15,row:14}];
