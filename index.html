@@ -16315,6 +16315,28 @@ window.PERF = (() => {
   padding: 0 2px;
 }
 
+/* Layer selector buttons */
+.bam3d-layer-btn {
+  flex: 1;
+  font-family: 'Orbitron', monospace;
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 4px 2px;
+  background: rgba(0,245,255,0.06);
+  border: 1px solid rgba(0,245,255,0.2);
+  color: rgba(0,245,255,0.5);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.bam3d-layer-btn.active {
+  background: rgba(0,245,255,0.18);
+  border-color: #00f5ff;
+  color: #00f5ff;
+  text-shadow: 0 0 6px rgba(0,245,255,0.8);
+}
+.bam3d-layer-btn:hover { background: rgba(0,245,255,0.12); }
+
 /* Overlay */
 #bam3d-overlay {
   display: none;
@@ -16428,6 +16450,14 @@ window.PERF = (() => {
       <div id="bam3d-power-slot" onclick="window.BAM3D?.usePower()" title="[X] Use power-up">
         — NO POWER-UP —
       </div>
+      <div class="bam3d-panel" style="padding:4px 3px">
+        <div class="bam3d-panel-label">LAYER [1-3]</div>
+        <div style="display:flex;gap:3px;margin-top:3px">
+          <button class="bam3d-layer-btn active" id="bam3d-layer-0" onclick="window.BAM3D?.setLayer(0)">1</button>
+          <button class="bam3d-layer-btn" id="bam3d-layer-1" onclick="window.BAM3D?.setLayer(1)">2</button>
+          <button class="bam3d-layer-btn" id="bam3d-layer-2" onclick="window.BAM3D?.setLayer(2)">3</button>
+        </div>
+      </div>
       <div style="margin-top:auto; display:flex; flex-direction:column; gap:5px;">
         <button class="bam3d-btn" id="bam3d-pause-btn" onclick="window.BAM3D?.togglePause()">⏸</button>
         <button class="bam3d-btn" onclick="window.BAM3D?.newGame()">🆕 NEW</button>
@@ -16436,8 +16466,9 @@ window.PERF = (() => {
       <div class="bam3d-controls">
         MOUSE: AIM<br>
         CLICK: SHOOT<br>
-        ←→ / AD: SWING<br>
-        ↑↓ / WS: DEPTH<br>
+        ←→ / AD: AIM<br>
+        1/2/3: LAYER<br>
+        TAB: NEXT LAYER<br>
         SPACE: FIRE<br>
         Z: HOLD<br>
         X: POWER-UP<br>
