@@ -1,1 +1,31 @@
+name: Deploy with cache-busting
 
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Inject cache-bust version from commit hash
+        run: |
+          VERSION="${{ github.sha }}"
+          SHORT="${VERSION:0:8}"
+          # Replace ?v=anything (or no version) with current commit hash
+          sed -i "s|games\.js?v=[^'\"&]*|games.js?v=${SHORT}|g" index.html
+          sed -i "s|hs\.js?v=[^'\"&]*|hs.js?v=${SHORT}|g"       index.html
+          sed -i "s|games\.js'|games.js?v=${SHORT}'|g"           index.html
+          sed -i "s|hs\.js'|hs.js?v=${SHORT}'|g"                 index.html
+          sed -i "s|games\.js\"|games.js?v=${SHORT}\"|g"         index.html
+          sed -i "s|hs\.js\"|hs.js?v=${SHORT}\"|g"               index.html
+          echo "Cache-bust version: ${SHORT}"
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./
+          publish_branch: gh-pages
