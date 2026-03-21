@@ -22,46 +22,128 @@ export default (() => {
       if (ctx.state === 'suspended') ctx.resume().catch(() => {});
       return ctx;
     }
-    function tone(f, d, type = 'sine', vol = 0.15, fEnd = null, delay = 0) {
+
+    // Soft sine tone with slow attack and long tail
+    function tone(f, d, vol=0.12, fEnd=null, delay=0, type='sine') {
       try {
-        const c = gc(), o = c.createOscillator(), g = c.createGain();
-        o.connect(g); g.connect(c.destination); o.type = type;
-        const t = c.currentTime + delay;
-        o.frequency.setValueAtTime(f, t);
-        if (fEnd != null) o.frequency.linearRampToValueAtTime(fEnd, t + d);
-        g.gain.setValueAtTime(0.001, t);
-        g.gain.linearRampToValueAtTime(vol, t + 0.005);
-        g.gain.exponentialRampToValueAtTime(0.001, t + d);
-        o.start(t); o.stop(t + d + 0.01);
-      } catch (_) {}
+        const c=gc(), o=c.createOscillator(), g=c.createGain();
+        o.connect(g); g.connect(c.destination); o.type=type;
+        const t=c.currentTime+delay;
+        o.frequency.setValueAtTime(f,t);
+        if(fEnd!=null) o.frequency.exponentialRampToValueAtTime(fEnd,t+d);
+        // Gentle ADSR: soft attack, no click, smooth release
+        g.gain.setValueAtTime(0,t);
+        g.gain.linearRampToValueAtTime(vol, t+Math.min(0.04,d*0.2));
+        g.gain.setValueAtTime(vol, t+d*0.5);
+        g.gain.exponentialRampToValueAtTime(0.0001, t+d);
+        o.start(t); o.stop(t+d+0.05);
+      } catch(_) {}
     }
-    function noise(d, vol = 0.1, delay = 0) {
+
+    // Two-sine chord for warmth
+    function chord(f1, f2, d, vol=0.09, delay=0) {
+      tone(f1, d, vol, null, delay, 'sine');
+      tone(f2, d, vol*0.7, null, delay, 'sine');
+    }
+
+    // Soft filtered noise burst
+    function softNoise(d, vol=0.06, delay=0) {
       try {
-        const c = gc(), buf = c.createBuffer(1, c.sampleRate * d, c.sampleRate);
-        const data = buf.getChannelData(0);
-        for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
-        const s = c.createBufferSource(), g = c.createGain();
-        s.buffer = buf; s.connect(g); g.connect(c.destination);
-        const t = c.currentTime + delay;
-        g.gain.setValueAtTime(vol, t);
-        g.gain.exponentialRampToValueAtTime(0.001, t + d);
-        s.start(t); s.stop(t + d + 0.01);
-      } catch (_) {}
+        const c=gc();
+        const buf=c.createBuffer(1,c.sampleRate*d,c.sampleRate);
+        const data=buf.getChannelData(0);
+        for(let i=0;i<data.length;i++) data[i]=Math.random()*2-1;
+        const src=c.createBufferSource();
+        src.buffer=buf;
+        const filt=c.createBiquadFilter();
+        filt.type='bandpass'; filt.frequency.value=800; filt.Q.value=0.8;
+        const g=c.createGain();
+        src.connect(filt); filt.connect(g); g.connect(c.destination);
+        const t=c.currentTime+delay;
+        g.gain.setValueAtTime(0,t);
+        g.gain.linearRampToValueAtTime(vol,t+0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001,t+d);
+        src.start(t); src.stop(t+d+0.05);
+      } catch(_) {}
     }
+
     return {
-      shoot()      { tone(520, 0.07, 'sine', 0.14, 680); },
-      bounce()     { tone(300, 0.05, 'sine', 0.10, 240); },
-      land()       { tone(180, 0.08, 'sine', 0.10, 160); },
-      pop(n)       { tone(600 + Math.min(n,8)*40, 0.06, 'square', 0.13); noise(0.06, 0.07); },
-      floaters(n)  { for (let i=0;i<Math.min(n,6);i++) tone(400-i*35,0.12,'sine',0.10,200-i*20,i*0.04); },
-      chain(n)     { for (let i=0;i<Math.min(n,5);i++) tone(440*Math.pow(1.2,i),0.10,'square',0.14,null,i*0.07); },
-      levelUp()    { [523,659,784,1047,1319].forEach((f,i)=>tone(f,0.12,'square',0.15,null,i*0.09)); setTimeout(()=>tone(1319,0.4,'sine',0.12,1047),500); },
-      gameOver()   { [440,370,330,262].forEach((f,i)=>tone(f,0.22,'sine',0.14,null,i*0.18)); },
-      powerFire()  { tone(880,0.12,'sawtooth',0.18,220); noise(0.08,0.1); },
-      powerWater() { for (let i=0;i<4;i++) tone(600-i*60,0.1,'sine',0.12,400-i*40,i*0.06); },
-      powerLightning() { noise(0.04,0.18); tone(1200,0.1,'square',0.15,200); },
-      powerStar()  { [784,988,1175,1568].forEach((f,i)=>tone(f,0.12,'square',0.14,null,i*0.06)); },
-      resume()     { if (ctx&&ctx.state==='suspended') ctx.resume().catch(()=>{}); },
+      // Shoot — soft rising bubble "bloop"
+      shoot() {
+        tone(320, 0.18, 0.10, 520);
+        tone(640, 0.12, 0.05, 800, 0.02);
+      },
+
+      // Wall bounce — gentle thud
+      bounce() {
+        tone(220, 0.14, 0.08, 180);
+        softNoise(0.08, 0.04);
+      },
+
+      // Land — soft click with warm thud
+      land() {
+        tone(280, 0.12, 0.09, 240);
+        softNoise(0.06, 0.03);
+      },
+
+      // Pop — pleasant bubble burst, pitch rises with count
+      pop(n) {
+        const f = 480 + Math.min(n,8)*35;
+        chord(f, f*1.26, 0.22, 0.10);
+        softNoise(0.10, 0.05, 0.02);
+      },
+
+      // Floaters — cascading falling drops
+      floaters(n) {
+        for(let i=0;i<Math.min(n,6);i++) {
+          tone(520-i*45, 0.20, 0.08, 340-i*30, i*0.055);
+        }
+      },
+
+      // Chain — warm ascending arpeggio
+      chain(n) {
+        const notes=[440,554,659,784,988];
+        for(let i=0;i<Math.min(n,5);i++) {
+          chord(notes[i], notes[i]*1.5, 0.22, 0.09, i*0.09);
+        }
+      },
+
+      // Level up — bright warm fanfare
+      levelUp() {
+        [523,659,784,988,1175].forEach((f,i)=>chord(f,f*1.26,0.28,0.10,i*0.11));
+        setTimeout(()=>tone(1319,0.6,0.10,1047),620);
+      },
+
+      // Game over — gentle descending chord sequence
+      gameOver() {
+        [440,370,311,262].forEach((f,i)=>chord(f,f*0.75,0.35,0.09,i*0.22));
+      },
+
+      // Power — fire: warm crackling sizzle
+      powerFire() {
+        tone(660, 0.30, 0.10, 220);
+        softNoise(0.25, 0.08);
+        tone(440, 0.20, 0.07, 330, 0.05);
+      },
+
+      // Power — water: gentle ripple cascade
+      powerWater() {
+        for(let i=0;i<5;i++) tone(660-i*70, 0.20, 0.08, 500-i*50, i*0.07);
+      },
+
+      // Power — lightning: sharp zap with tail
+      powerLightning() {
+        softNoise(0.06, 0.12);
+        tone(1100, 0.18, 0.09, 180, 0.02);
+        tone(880, 0.25, 0.07, 220, 0.08);
+      },
+
+      // Power — star: sparkling arpeggio
+      powerStar() {
+        [784,988,1175,1480,1760].forEach((f,i)=>chord(f,f*1.26,0.20,0.08,i*0.07));
+      },
+
+      resume() { if(ctx&&ctx.state==='suspended') ctx.resume().catch(()=>{}); },
     };
   })();
 
@@ -681,8 +763,23 @@ export default (() => {
 
       const avgCv=group.reduce((a,{r,c})=>{const cv=cellXY(r,c);a.x+=cv.x;a.y+=cv.y;return a;},{x:0,y:0});
       avgCv.x/=group.length; avgCv.y/=group.length;
+      // Capture any power-up bubbles in the match before we pop them
+      const powersInGroup = group
+        .filter(({r,c})=>grid[r]&&grid[r][c]&&grid[r][c].power)
+        .map(({r,c})=>({power:grid[r][c].power, r, c}));
+
       group.forEach(({r,c})=>_popCell(r,c,false));
-      // Floaters fall with gravity — spawn as falling bubbles not pop particles
+      // Fire collected power effects (after popping their cells)
+      powersInGroup.forEach(({power,r,c})=>{
+        const cv=cellXY(r,c);
+        setTimeout(()=>{
+          _spawnPowerParticles(power, cv.x, cv.y);
+          SFX['power'+power.charAt(0).toUpperCase()+power.slice(1)]?.();
+          if(window.FX) FX.screenFlash(
+            power==='fire'?'#ff6a00':power==='water'?'#00f5ff':power==='lightning'?'#ffe600':'#ffe600', 0.2
+          );
+        }, 80);
+      });
       floaters.forEach(({r,c})=>_spawnFloater(r,c));
       _trimEmptyRows();
       _addScoreSprite(avgCv.x,avgCv.y-20,chain>1?`CHAIN×${chain}! +${pts}`:`+${pts}`);
@@ -803,7 +900,9 @@ export default (() => {
 
   // ── Flood fill ────────────────────────────────────────────────
   function _getMatchGroup(row,col) {
-    if (!grid[row]||!grid[row][col]||grid[row][col].power) return [];
+    // Power bubbles CAN be the seed — but only if we landed on one that has already
+    // been activated (handled separately). For normal matching, skip power-only seeds.
+    if (!grid[row]||!grid[row][col]) return [];
     const ci=grid[row][col].ci;
     const visited=new Set(),result=[],stack=[[row,col]];
     while (stack.length) {
@@ -811,7 +910,8 @@ export default (() => {
       if (visited.has(key)) continue;
       if (r<0||r>=grid.length) continue;
       if (c<0||c>=colsForRow(r)) continue;
-      if (!grid[r]||!grid[r][c]||grid[r][c].ci!==ci||grid[r][c].power) continue;
+      // Power bubbles match by colour — they count as their colour in the chain
+      if (!grid[r]||!grid[r][c]||grid[r][c].ci!==ci) continue;
       visited.add(key); result.push({r,c});
       stack.push(..._hexNeighbors(r,c));
     }
