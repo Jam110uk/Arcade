@@ -16178,6 +16178,12 @@ window.PERF = (() => {
   height: 100%;
   display: block;
 }
+#bam3d-canvas-container {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
 
 /* Stat panels */
 .bam3d-panel {
@@ -16400,9 +16406,9 @@ window.PERF = (() => {
       </div>
     </div>
 
-    <!-- CANVAS -->
+    <!-- CANVAS — Three.js mounts its own <canvas> into this container -->
     <div class="bam3d-canvas-wrap">
-      <canvas id="bam3d-canvas"></canvas>
+      <div id="bam3d-canvas-container"></div>
       <div id="bam3d-overlay">
         <div class="bam3d-ov-title" id="bam3d-ov-title">BUST-A-MOVE 3D</div>
         <div id="bam3d-ov-score"></div>
