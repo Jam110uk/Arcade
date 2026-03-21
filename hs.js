@@ -13,6 +13,7 @@ export default (() => {
     { key: 'plinko',       label: 'PLINKO',         unit: 'pts' },
     { key: 'bubblebreaker',label: 'BUBBLE BREAKER', unit: 'pts' },
     { key: 'puzzlebobble', label: 'PUZZLE BOBBLE',  unit: 'pts' },
+    { key: 'bustamove3d',  label: 'BUST-A-MOVE 3D', unit: 'pts' },
     { key: 'orbit',        label: 'ORBIT',          unit: 'pts' },
     { key: 'claw',         label: 'CLAW MACHINE',   unit: 'pts' },
     { key: 'wordle',       label: 'WORDLE',         unit: 'streak' },
