@@ -16153,7 +16153,7 @@ window.PERF = (() => {
   flex-direction: column;
   gap: 6px;
   padding: 8px 6px;
-  width: clamp(72px, 13vw, 100px);
+  width: clamp(80px, 14vw, 115px);
   flex-shrink: 0;
   background: rgba(0,0,0,0.4);
   border-right: 1px solid rgba(0,245,255,0.12);
@@ -16340,15 +16340,21 @@ window.PERF = (() => {
 /* Power-up legend */
 .bam3d-power-legend { padding: 5px 4px; }
 .bam3d-pw-row {
-  display: flex; align-items: center; gap: 4px;
-  padding: 3px 0; border-bottom: 1px solid rgba(0,245,255,0.07);
+  display: flex; align-items: center; gap: 5px;
+  padding: 4px 2px; border-bottom: 1px solid rgba(0,245,255,0.08);
 }
 .bam3d-pw-row:last-child { border-bottom: none; }
-.bam3d-pw-icon { font-size: clamp(0.9rem,1.8vw,1.2rem); flex-shrink:0; width:22px; text-align:center; }
+.bam3d-pw-icon {
+  font-size: clamp(1.1rem, 2.2vw, 1.5rem);
+  flex-shrink: 0; width: 26px; text-align: center;
+  filter: drop-shadow(0 0 4px rgba(255,230,0,0.6));
+}
 .bam3d-pw-desc {
   font-family: 'Share Tech Mono', monospace;
-  font-size: clamp(0.32rem,0.58vw,0.42rem);
-  color: rgba(200,230,255,0.55); line-height:1.3;
+  font-size: clamp(0.48rem, 0.9vw, 0.62rem);
+  color: rgba(200,230,255,0.8);
+  line-height: 1.4;
+  text-shadow: 0 0 4px rgba(0,245,255,0.3);
 }
 
 /* Overlay */
@@ -16474,7 +16480,8 @@ window.PERF = (() => {
       </div>
       <div class="bam3d-controls">
         MOUSE: AIM<br>
-        CLICK: SHOOT<br>
+        L-CLICK: SHOOT<br>
+        R-CLICK: HOLD<br>
         ←→ / AD: AIM<br>
         SPACE: FIRE<br>
         Z: HOLD<br>

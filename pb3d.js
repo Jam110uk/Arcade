@@ -262,8 +262,28 @@ export default (() => {
   //   inner glow   — small opaque sphere slightly inset
   //   emoji sprite — canvas texture Sprite sitting just inside
   function _buildBubbleMesh(ci, power) {
-    const col = ALL_COLORS[ci];
+    // ci === -1 means player power-up: clear glass bubble, no colour
+    const isColorless = ci === -1;
+    const col = isColorless ? null : ALL_COLORS[ci];
     const group = new THREE.Group();
+
+    if (isColorless) {
+      // Clear glass shell only — no tint
+      const shellMat = new THREE.MeshPhongMaterial({
+        color:             0xffffff,
+        emissive:          0x223355,
+        emissiveIntensity: 0.08,
+        shininess:         300,
+        specular:          0xffffff,
+        transparent:       true,
+        opacity:           0.30,
+        side:              THREE.FrontSide,
+      });
+      group.add(new THREE.Mesh(sphereGeo(R), shellMat));
+      // Rim glow
+      const rimMat = new THREE.MeshBasicMaterial({ color:0x00f5ff, transparent:true, opacity:0.18, side:THREE.BackSide });
+      group.add(new THREE.Mesh(sphereGeo(R*1.04), rimMat));
+    } else {
 
     // Outer glass shell
     const shellMat = new THREE.MeshPhongMaterial({
@@ -302,12 +322,23 @@ export default (() => {
     spec2.position.set(-R * 0.12, R * 0.52, R * 0.45);
     group.add(spec2);
 
-    // Power-up emoji sprite inside the bubble
+    // Power-up emoji sprite inside the coloured bubble
     if (power) {
       const tex = _getEmojiTex(power, col.hex);
       const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.9, depthTest: false }));
       sprite.scale.set(R * 1.1, R * 1.1, 1);
       sprite.position.set(0, 0, R * 0.15);
+      group.add(sprite);
+    }
+
+    } // end else (coloured bubble)
+
+    // Power emoji for colourless player bubble (larger, brighter)
+    if (isColorless && power) {
+      const tex = _getEmojiTex(power, 0xffffff);
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 1.0, depthTest: false }));
+      sprite.scale.set(R * 1.4, R * 1.4, 1);
+      sprite.position.set(0, 0, R * 0.2);
       group.add(sprite);
     }
 
@@ -449,11 +480,16 @@ export default (() => {
 
   // ── Queue ─────────────────────────────────────────────────────
   function _makeSlot() {
+    const power = Math.random() < POWER_CHANCE
+      ? POWER_KEYS[Math.floor(Math.random() * POWER_KEYS.length)]
+      : null;
+    if (power) {
+      // Player power-ups are colourless — ci=-1, clear bubble with just emoji
+      return { ci: -1, power };
+    }
     const pal = _getColorsInGrid().length ? _getColorsInGrid() : _activePalette();
     const ci  = pal[Math.floor(Math.random() * pal.length)];
-    // Power-up slots share same colours as grid
-    const power = Math.random() < POWER_CHANCE ? POWER_KEYS[Math.floor(Math.random() * POWER_KEYS.length)] : null;
-    return { ci, power };
+    return { ci, power: null };
   }
 
   function refillQueue() {
@@ -490,24 +526,38 @@ export default (() => {
       c.strokeStyle='rgba(0,245,255,0.2)'; c.lineWidth=1;
       c.beginPath(); c.arc(w/2,h/2,w/2-3,0,Math.PI*2); c.stroke(); return;
     }
-    const col = ALL_COLORS[slot.ci];
     const cx=w/2, cy=h/2, r=w/2-3;
-    // Glass bubble look
-    const gr = c.createRadialGradient(cx-r*0.3,cy-r*0.35,r*0.04,cx,cy,r);
-    gr.addColorStop(0, _lighten(col.css,0.65));
-    gr.addColorStop(0.5, _rgba(col.css, 0.73));
-    gr.addColorStop(1, _darken(col.css,0.3, 0.53));
-    c.beginPath(); c.arc(cx,cy,r,0,Math.PI*2);
-    c.fillStyle=gr; c.fill();
-    c.strokeStyle='rgba(255,255,255,0.3)'; c.lineWidth=1; c.stroke();
-    // Specular
-    c.beginPath(); c.arc(cx-r*0.3,cy-r*0.32,r*0.22,0,Math.PI*2);
-    c.fillStyle='rgba(255,255,255,0.60)'; c.fill();
-    // Emoji for power-ups
+
+    if (slot.ci === -1) {
+      // Colourless power-up — clear glass bubble
+      const gr = c.createRadialGradient(cx-r*0.3,cy-r*0.35,r*0.04,cx,cy,r);
+      gr.addColorStop(0, 'rgba(200,230,255,0.55)');
+      gr.addColorStop(0.5, 'rgba(100,160,220,0.25)');
+      gr.addColorStop(1, 'rgba(0,80,160,0.12)');
+      c.beginPath(); c.arc(cx,cy,r,0,Math.PI*2);
+      c.fillStyle=gr; c.fill();
+      c.strokeStyle='rgba(0,245,255,0.5)'; c.lineWidth=1.5; c.stroke();
+      // Specular
+      c.beginPath(); c.arc(cx-r*0.3,cy-r*0.32,r*0.22,0,Math.PI*2);
+      c.fillStyle='rgba(255,255,255,0.70)'; c.fill();
+    } else {
+      const col = ALL_COLORS[slot.ci];
+      const gr = c.createRadialGradient(cx-r*0.3,cy-r*0.35,r*0.04,cx,cy,r);
+      gr.addColorStop(0, _lighten(col.css,0.65));
+      gr.addColorStop(0.5, _rgba(col.css, 0.73));
+      gr.addColorStop(1, _darken(col.css,0.3, 0.53));
+      c.beginPath(); c.arc(cx,cy,r,0,Math.PI*2);
+      c.fillStyle=gr; c.fill();
+      c.strokeStyle='rgba(255,255,255,0.3)'; c.lineWidth=1; c.stroke();
+      c.beginPath(); c.arc(cx-r*0.3,cy-r*0.32,r*0.22,0,Math.PI*2);
+      c.fillStyle='rgba(255,255,255,0.60)'; c.fill();
+    }
+
+    // Emoji overlay for power-ups
     if (slot.power) {
       c.font=`${Math.round(r*0.88)}px serif`;
       c.textAlign='center'; c.textBaseline='middle';
-      c.globalAlpha=0.85;
+      c.globalAlpha = slot.ci === -1 ? 1.0 : 0.85;
       c.fillText(POWERS[slot.power].emoji, cx+1, cy+2);
       c.globalAlpha=1;
     }
@@ -541,7 +591,16 @@ export default (() => {
 
   // ── Power-up activation ───────────────────────────────────────
   function _activatePower(power, row, col) {
-    const ci = grid[row][col].ci;
+    // For colourless player power bubbles, pick the colour of the first occupied neighbour
+    let ci = grid[row][col].ci;
+    if (ci === -1) {
+      for (const [nr,nc] of _hexNeighbors(row,col)) {
+        if (nr>=0&&nr<grid.length&&nc>=0&&grid[nr]&&grid[nr][nc]&&grid[nr][nc].ci>=0) {
+          ci = grid[nr][nc].ci; break;
+        }
+      }
+      if (ci === -1) ci = 0; // fallback
+    }
     switch (power) {
       case 'fire':      _powerFire(row, col);      break;
       case 'water':     _powerWater(row, col, ci); break;
@@ -680,11 +739,14 @@ export default (() => {
         ball.mesh.rotateOnAxis(ball.mesh.userData.rotAxis, ball.mesh.userData.rotSpeed * dt * 3);
       }
     }
+    // Trail — clear previous frame's meshes first
+    trailPool.forEach(m=>scene.remove(m)); trailPool=[];
     if (ball&&ball.trail.length) {
       ball.trail.forEach((tp,i)=>{
         const t=(i+1)/ball.trail.length;
         const r=Math.max(2,Math.round(R*t*0.55));
-        const m=new THREE.Mesh(sphereGeo(r),new THREE.MeshBasicMaterial({color:ALL_COLORS[ball.ci].hex,transparent:true,opacity:t*0.3}));
+        const trailColor = ball.ci >= 0 ? ALL_COLORS[ball.ci].hex : 0xaaddff;
+        const m=new THREE.Mesh(sphereGeo(r),new THREE.MeshBasicMaterial({color:trailColor,transparent:true,opacity:t*0.3}));
         m.position.copy(tw(tp.x,tp.y)); m.position.z=2.5;
         scene.add(m); trailPool.push(m);
       });
@@ -755,6 +817,7 @@ export default (() => {
     grid[row][col]={ci,power};
     gridMeshes.push({mesh:ball.mesh,row,col,ci,power});
     ball.mesh=null; ball=null;
+    trailPool.forEach(m=>scene.remove(m)); trailPool=[];
     _invalidateAim();
 
     // Power-up activates immediately on landing
@@ -811,8 +874,9 @@ export default (() => {
 
       if(window.FX){
         const rect=container.getBoundingClientRect();
-        group.forEach(({r,c})=>{const cv=cellXY(r,c);FX.burst(rect.left+(cv.x/W)*rect.width,rect.top+(cv.y/H)*rect.height,{count:10,colors:[ALL_COLORS[ci].css,'#fff'],speed:4,life:35,size:3,shape:'circle',gravity:0.12});});
-        if(chain>=2){FX.screenFlash(ALL_COLORS[ci].css,0.2);FX.shake(4);}
+        const burstColor = ci >= 0 ? ALL_COLORS[ci].css : '#aaddff';
+        group.forEach(({r,c})=>{const cv=cellXY(r,c);FX.burst(rect.left+(cv.x/W)*rect.width,rect.top+(cv.y/H)*rect.height,{count:10,colors:[burstColor,'#fff'],speed:4,life:35,size:3,shape:'circle',gravity:0.12});});
+        if(chain>=2){FX.screenFlash(burstColor,0.2);FX.shake(4);}
       }
     } else {
       chain=0; chainTimer=0; SFX.land();
@@ -856,7 +920,7 @@ export default (() => {
     grid[row][col]=null;
     if (!silent) {
       const ang=Math.random()*Math.PI*2, spd=isFloater?1+Math.random()*2:3+Math.random()*4;
-      const m=new THREE.Mesh(sphereGeo(R*0.45),new THREE.MeshBasicMaterial({color:ALL_COLORS[ci].hex,transparent:true,opacity:1}));
+      const m=new THREE.Mesh(sphereGeo(R*0.45),new THREE.MeshBasicMaterial({color:ci>=0?ALL_COLORS[ci].hex:0xaaddff,transparent:true,opacity:1}));
       m.position.copy(tw(cv.x,cv.y)); m.position.z=4; scene.add(m);
       popParticles.push({mesh:m,x:cv.x,y:cv.y,vx:Math.cos(ang)*spd,vy:isFloater?-(1+Math.random()*1.5):Math.sin(ang)*spd,alpha:1,scale:1,isFloater});
     }
@@ -925,17 +989,15 @@ export default (() => {
 
   // ── Flood fill ────────────────────────────────────────────────
   function _getMatchGroup(row,col) {
-    // Power bubbles CAN be the seed — but only if we landed on one that has already
-    // been activated (handled separately). For normal matching, skip power-only seeds.
     if (!grid[row]||!grid[row][col]) return [];
     const ci=grid[row][col].ci;
     const visited=new Set(),result=[],stack=[[row,col]];
     while (stack.length) {
       const [r,c]=stack.pop(); const key=r+','+c;
       if (visited.has(key)) continue;
-      if (r<0||r>=grid.length) continue;
-      if (c<0||c>=colsForRow(r)) continue;
-      // Power bubbles match by colour — they count as their colour in the chain
+      if (r<0||r>=grid.length||c<0) continue;
+      const rowLen=(grid[r]||[]).length;
+      if (c>=rowLen) continue;
       if (!grid[r]||!grid[r][c]||grid[r][c].ci!==ci) continue;
       visited.add(key); result.push({r,c});
       stack.push(..._hexNeighbors(r,c));
@@ -946,21 +1008,30 @@ export default (() => {
   function _getFloating(justPopped) {
     const poppedKeys=new Set(justPopped.map(({r,c})=>r+','+c));
     const attached=new Set(),q=[];
-    for (let c=0;c<colsForRow(0);c++){const key='0,'+c;if(!poppedKeys.has(key)&&grid[0]&&grid[0][c]){q.push([0,c]);attached.add(key);}}
+    const row0len=(grid[0]||[]).length;
+    for (let c=0;c<row0len;c++){
+      const key='0,'+c;
+      if(!poppedKeys.has(key)&&grid[0]&&grid[0][c]){q.push([0,c]);attached.add(key);}
+    }
     while (q.length){
       const [r,c]=q.shift();
       for (const [nr,nc] of _hexNeighbors(r,c)){
         const key=nr+','+nc;
         if (attached.has(key)||poppedKeys.has(key)) continue;
-        if (nr<0||nr>=grid.length||nc<0||nc>=colsForRow(nr)) continue;
+        if (nr<0||nr>=grid.length||nc<0) continue;
+        const rowLen=(grid[nr]||[]).length;
+        if (nc>=rowLen) continue;
         if (!grid[nr]||!grid[nr][nc]) continue;
         attached.add(key); q.push([nr,nc]);
       }
     }
     const floating=[];
-    for (let r=0;r<grid.length;r++) for (let c=0;c<colsForRow(r);c++){
-      const key=r+','+c;
-      if (!poppedKeys.has(key)&&grid[r]&&grid[r][c]&&!attached.has(key)) floating.push({r,c});
+    for (let r=0;r<grid.length;r++){
+      const len=(grid[r]||[]).length;
+      for (let c=0;c<len;c++){
+        const key=r+','+c;
+        if(!poppedKeys.has(key)&&grid[r]&&grid[r][c]&&!attached.has(key)) floating.push({r,c});
+      }
     }
     return floating;
   }
@@ -972,8 +1043,9 @@ export default (() => {
   function _dropAllFloating() {
     const attached = new Set();
     const q = [];
-    // Seed from row 0
-    for (let c=0; c<colsForRow(0); c++) {
+    // Seed from every filled cell in row 0
+    const row0len = (grid[0]||[]).length;
+    for (let c=0; c<row0len; c++) {
       if (grid[0]&&grid[0][c]) { q.push([0,c]); attached.add('0,'+c); }
     }
     while (q.length) {
@@ -981,13 +1053,19 @@ export default (() => {
       for (const [nr,nc] of _hexNeighbors(r,c)) {
         const key=nr+','+nc;
         if (attached.has(key)) continue;
-        if (nr<0||nr>=grid.length||nc<0||nc>=colsForRow(nr)) continue;
+        if (nr<0||nr>=grid.length||nc<0) continue;
+        const rowLen=(grid[nr]||[]).length;
+        if (nc>=rowLen) continue;
         if (!grid[nr]||!grid[nr][nc]) continue;
         attached.add(key); q.push([nr,nc]);
       }
     }
-    for (let r=0;r<grid.length;r++) for (let c=0;c<colsForRow(r);c++) {
-      if (grid[r]&&grid[r][c]&&!attached.has(r+','+c)) _spawnFloater(r,c);
+    // Scan every actual occupied cell — not just colsForRow() count
+    for (let r=0;r<grid.length;r++) {
+      const len=(grid[r]||[]).length;
+      for (let c=0;c<len;c++) {
+        if (grid[r]&&grid[r][c]&&!attached.has(r+','+c)) _spawnFloater(r,c);
+      }
     }
   }
 
@@ -1228,7 +1306,8 @@ export default (() => {
     aimLineMesh.geometry.dispose();
     aimLineMesh.geometry=new THREE.BufferGeometry().setFromPoints(_aimPts);
     aimLineMesh.computeLineDistances();
-    aimLineMesh.material.color.setHex(ALL_COLORS[queue[0]?.ci??0].hex);
+    const qci = queue[0]?.ci ?? 0;
+    aimLineMesh.material.color.setHex(qci >= 0 ? ALL_COLORS[qci].hex : 0xaaddff);
   }
 
   // ── Render loop ───────────────────────────────────────────────
@@ -1253,6 +1332,7 @@ export default (() => {
   }
   function _onMouseMove(e){if(!paused&&!dead)_aimFromClient(e.clientX,e.clientY);}
   function _onClick(e){if(paused||dead)return;_aimFromClient(e.clientX,e.clientY);shoot();}
+  function _onRightClick(e){e.preventDefault();if(paused||dead)return;swapHold();}
   function _onTouch(e){if(paused||dead)return;e.preventDefault();const t=e.touches[0];_aimFromClient(t.clientX,t.clientY);}
   function _onTouchEnd(){if(!paused&&!dead)shoot();}
   function _onKeyDown(e){
@@ -1274,13 +1354,14 @@ export default (() => {
     if(!container)return;
     container.addEventListener('mousemove',_onMouseMove);
     container.addEventListener('click',_onClick);
+    container.addEventListener('contextmenu',_onRightClick);
     container.addEventListener('touchmove',_onTouch,{passive:false});
     container.addEventListener('touchend',_onTouchEnd);
     document.addEventListener('keydown',_onKeyDown);
     document.addEventListener('keyup',_onKeyUp);
   }
   function _unbindEvents(){
-    if(container){container.removeEventListener('mousemove',_onMouseMove);container.removeEventListener('click',_onClick);container.removeEventListener('touchmove',_onTouch);container.removeEventListener('touchend',_onTouchEnd);}
+    if(container){container.removeEventListener('mousemove',_onMouseMove);container.removeEventListener('click',_onClick);container.removeEventListener('contextmenu',_onRightClick);container.removeEventListener('touchmove',_onTouch);container.removeEventListener('touchend',_onTouchEnd);}
     document.removeEventListener('keydown',_onKeyDown);
     document.removeEventListener('keyup',_onKeyUp);
   }
