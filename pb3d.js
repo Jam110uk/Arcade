@@ -214,7 +214,8 @@ export default (() => {
   // Bubble mesh pool
   let gridMeshes = []; // { mesh, row, col, ci, power }
   let ball        = null; // { mesh, x, y, vx, vy, ci, power, bounces, trail:[] }
-  let trailPool   = [];
+  let trailPool   = []; // legacy — kept for cleanup
+  let _trailMeshPool = null; // pre-built reusable trail meshes
   let popParticles = []; // { mesh, x, y, vx, vy, gravity, alpha, scale, isFloater }
   let scoreSprites = []; // { mesh, life, maxLife }
 
@@ -227,8 +228,50 @@ export default (() => {
 
   function sphereGeo(r) {
     const k = Math.round(r);
-    if (!_geoCache[k]) _geoCache[k] = new THREE.SphereGeometry(r, 24, 18);
+    if (!_geoCache[k]) _geoCache[k] = new THREE.SphereGeometry(r, 16, 12);
     return _geoCache[k];
+  }
+
+  // ── Shared material cache — never clone, always reuse ─────────
+  // Keyed strings: 'shell_0', 'inner_0', 'spec', 'spec2', 'clear_shell', 'clear_rim'
+  const _sharedMats = {};
+
+  function _shellMat(ci) {
+    const k = 'shell_'+ci;
+    if (!_sharedMats[k]) _sharedMats[k] = new THREE.MeshPhongMaterial({
+      color: ALL_COLORS[ci].hex, emissive: ALL_COLORS[ci].hex,
+      emissiveIntensity: 0.08, shininess: 260, specular: 0xffffff,
+      transparent: true, opacity: 0.55, side: THREE.FrontSide,
+    });
+    return _sharedMats[k];
+  }
+  function _innerMat(ci) {
+    const k = 'inner_'+ci;
+    if (!_sharedMats[k]) _sharedMats[k] = new THREE.MeshPhongMaterial({
+      color: ALL_COLORS[ci].hex, emissive: ALL_COLORS[ci].hex,
+      emissiveIntensity: 0.45, shininess: 80,
+      transparent: true, opacity: 0.72,
+    });
+    return _sharedMats[k];
+  }
+  function _specMat()  {
+    if (!_sharedMats.spec)  _sharedMats.spec  = new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.55 });
+    return _sharedMats.spec;
+  }
+  function _spec2Mat() {
+    if (!_sharedMats.spec2) _sharedMats.spec2 = new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.35 });
+    return _sharedMats.spec2;
+  }
+  function _clearShellMat() {
+    if (!_sharedMats.clearShell) _sharedMats.clearShell = new THREE.MeshPhongMaterial({
+      color:0xffffff, emissive:0x223355, emissiveIntensity:0.08,
+      shininess:300, specular:0xffffff, transparent:true, opacity:0.30, side:THREE.FrontSide,
+    });
+    return _sharedMats.clearShell;
+  }
+  function _clearRimMat() {
+    if (!_sharedMats.clearRim) _sharedMats.clearRim = new THREE.MeshBasicMaterial({ color:0x00f5ff, transparent:true, opacity:0.18, side:THREE.BackSide });
+    return _sharedMats.clearRim;
   }
 
   // ── Game state ────────────────────────────────────────────────
@@ -256,83 +299,37 @@ export default (() => {
   //   inner glow   — small opaque sphere slightly inset
   //   emoji sprite — canvas texture Sprite sitting just inside
   function _buildBubbleMesh(ci, power) {
-    // ci === -1 means player power-up: clear glass bubble, no colour
     const isColorless = ci === -1;
-    const col = isColorless ? null : ALL_COLORS[ci];
     const group = new THREE.Group();
 
     if (isColorless) {
-      // Clear glass shell only — no tint
-      const shellMat = new THREE.MeshPhongMaterial({
-        color:             0xffffff,
-        emissive:          0x223355,
-        emissiveIntensity: 0.08,
-        shininess:         300,
-        specular:          0xffffff,
-        transparent:       true,
-        opacity:           0.30,
-        side:              THREE.FrontSide,
-      });
-      group.add(new THREE.Mesh(sphereGeo(R), shellMat));
-      // Rim glow
-      const rimMat = new THREE.MeshBasicMaterial({ color:0x00f5ff, transparent:true, opacity:0.18, side:THREE.BackSide });
-      group.add(new THREE.Mesh(sphereGeo(R*1.04), rimMat));
+      group.add(new THREE.Mesh(sphereGeo(R), _clearShellMat()));
+      group.add(new THREE.Mesh(sphereGeo(R*1.04), _clearRimMat()));
     } else {
-
-    // Outer glass shell
-    const shellMat = new THREE.MeshPhongMaterial({
-      color:             col.hex,
-      emissive:          col.hex,
-      emissiveIntensity: 0.08,
-      shininess:         260,
-      specular:          0xffffff,
-      transparent:       true,
-      opacity:           0.55,
-      side:              THREE.FrontSide,
-    });
-    const shell = new THREE.Mesh(sphereGeo(R), shellMat);
-    group.add(shell);
-
-    // Inner glow sphere
-    const innerMat = new THREE.MeshPhongMaterial({
-      color:             col.hex,
-      emissive:          col.hex,
-      emissiveIntensity: 0.45,
-      shininess:         80,
-      transparent:       true,
-      opacity:           0.72,
-    });
-    const inner = new THREE.Mesh(sphereGeo(R * 0.72), innerMat);
-    group.add(inner);
-
-    // Specular highlight blob (small white sphere off-centre top-left)
-    const specMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55 });
-    const spec = new THREE.Mesh(sphereGeo(R * 0.22), specMat);
-    spec.position.set(-R * 0.32, R * 0.34, R * 0.55);
-    group.add(spec);
-
-    // Secondary smaller specular
-    const spec2 = new THREE.Mesh(sphereGeo(R * 0.10), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35 }));
-    spec2.position.set(-R * 0.12, R * 0.52, R * 0.45);
-    group.add(spec2);
-
-    // Power-up emoji sprite inside the coloured bubble
-    if (power) {
-      const tex = _getEmojiTex(power, col.hex);
-      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.9, depthTest: false }));
-      sprite.scale.set(R * 1.1, R * 1.1, 1);
-      sprite.position.set(0, 0, R * 0.15);
-      group.add(sprite);
+      group.add(new THREE.Mesh(sphereGeo(R),        _shellMat(ci)));
+      group.add(new THREE.Mesh(sphereGeo(R * 0.72), _innerMat(ci)));
+      const spec = new THREE.Mesh(sphereGeo(R * 0.22), _specMat());
+      spec.position.set(-R*0.32, R*0.34, R*0.55);
+      group.add(spec);
+      const spec2 = new THREE.Mesh(sphereGeo(R * 0.10), _spec2Mat());
+      spec2.position.set(-R*0.12, R*0.52, R*0.45);
+      group.add(spec2);
+      if (power) {
+        const col = ALL_COLORS[ci];
+        const tex = _getEmojiTex(power, col.hex);
+        // SpriteMaterial must be per-instance (opacity can differ per power bubble shimmer)
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.9, depthTest: false }));
+        sprite.scale.set(R*1.1, R*1.1, 1);
+        sprite.position.set(0, 0, R*0.15);
+        group.add(sprite);
+      }
     }
 
-    } // end else (coloured bubble)
-
-    // Power emoji for colourless player bubble (larger, brighter)
     if (isColorless && power) {
       const tex = _getEmojiTex(power, 0xffffff);
       const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 1.0, depthTest: false }));
-      sprite.scale.set(R * 1.4, R * 1.4, 1);
-      sprite.position.set(0, 0, R * 0.2);
+      sprite.scale.set(R*1.4, R*1.4, 1);
+      sprite.position.set(0, 0, R*0.2);
       group.add(sprite);
     }
 
@@ -743,16 +740,29 @@ export default (() => {
         }
       });
     });
-    // Trail — clear previous frame's meshes first
-    trailPool.forEach(m=>scene.remove(m)); trailPool=[];
-    if (ball&&ball.trail.length) {
-      ball.trail.forEach((tp,i)=>{
-        const t=(i+1)/ball.trail.length;
-        const r=Math.max(2,Math.round(R*t*0.55));
-        const trailColor = ball.ci >= 0 ? ALL_COLORS[ball.ci].hex : 0xaaddff;
-        const m=new THREE.Mesh(sphereGeo(r),new THREE.MeshBasicMaterial({color:trailColor,transparent:true,opacity:t*0.3}));
-        m.position.copy(tw(tp.x,tp.y)); m.position.z=2.5;
-        scene.add(m); trailPool.push(m);
+    // Trail — reuse pre-built pool, toggle visibility instead of create/destroy
+    const TRAIL_SIZE = 5;
+    if (!_trailMeshPool) {
+      _trailMeshPool = [];
+      for (let i = 0; i < TRAIL_SIZE; i++) {
+        const m = new THREE.Mesh(sphereGeo(Math.round(R*0.3)), new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0 }));
+        m.visible = false;
+        scene.add(m);
+        _trailMeshPool.push(m);
+      }
+    }
+    // Hide all first
+    _trailMeshPool.forEach(m => { m.visible = false; });
+    if (ball && ball.trail.length) {
+      const trailColor = ball.ci >= 0 ? ALL_COLORS[ball.ci].hex : 0xaaddff;
+      ball.trail.forEach((tp, i) => {
+        const poolMesh = _trailMeshPool[i];
+        if (!poolMesh) return;
+        const t = (i+1) / ball.trail.length;
+        poolMesh.material.color.setHex(trailColor);
+        poolMesh.material.opacity = t * 0.3;
+        poolMesh.position.copy(tw(tp.x, tp.y)); poolMesh.position.z = 2.5;
+        poolMesh.visible = true;
       });
     }
 
@@ -822,7 +832,7 @@ export default (() => {
     grid[row][col]={ci,power};
     gridMeshes.push({mesh:ball.mesh,row,col,ci,power});
     ball.mesh=null; ball=null;
-    trailPool.forEach(m=>scene.remove(m)); trailPool=[];
+    if (_trailMeshPool) _trailMeshPool.forEach(m => { m.visible = false; });
     _invalidateAim();
 
     // Power-up activates immediately on landing
@@ -986,7 +996,15 @@ export default (() => {
     grid[row][col]=null;
     if (!silent) {
       const ang=Math.random()*Math.PI*2, spd=isFloater?1+Math.random()*2:3+Math.random()*4;
-      const m=new THREE.Mesh(sphereGeo(R*0.45),new THREE.MeshBasicMaterial({color:ci>=0?ALL_COLORS[ci].hex:0xaaddff,transparent:true,opacity:1}));
+      // Shared pop geo (R*0.45 rounded)
+      const popR = Math.round(R*0.45);
+      const popColor = ci>=0 ? ALL_COLORS[ci].hex : 0xaaddff;
+      // Reuse a per-colour MeshBasicMaterial for pop particles
+      const matKey = 'pop_'+ci;
+      if (!_sharedMats[matKey]) _sharedMats[matKey] = new THREE.MeshBasicMaterial({ color: popColor, transparent: true, opacity: 1 });
+      // Clone only the opacity state — use per-particle material for independent fade
+      const mat = _sharedMats[matKey].clone();
+      const m=new THREE.Mesh(sphereGeo(popR), mat);
       m.position.copy(tw(cv.x,cv.y)); m.position.z=4; scene.add(m);
       popParticles.push({mesh:m,x:cv.x,y:cv.y,vx:Math.cos(ang)*spd,vy:isFloater?-(1+Math.random()*1.5):Math.sin(ang)*spd,alpha:1,scale:1,isFloater});
     }
@@ -1287,7 +1305,7 @@ export default (() => {
     heldSlot=null; canSwap=true; queue=[];
     dropTimer=DROP_SECS*1000; elapsedMs=0; cannonAngle=-Math.PI/2;
     if(ball){if(ball.mesh)scene.remove(ball.mesh);ball=null;}
-    trailPool.forEach(m=>scene.remove(m)); trailPool=[];
+    if (_trailMeshPool) _trailMeshPool.forEach(m => { m.visible = false; });
     popParticles.forEach(p=>p.mesh&&scene.remove(p.mesh)); popParticles=[];
     scoreSprites.forEach(s=>scene.remove(s.mesh)); scoreSprites=[];
     gridMeshes.forEach(bm=>scene.remove(bm.mesh)); gridMeshes=[];
@@ -1320,8 +1338,8 @@ export default (() => {
     dead=true;
     if(animId){cancelAnimationFrame(animId);animId=null;}
     _unbindEvents();
+    if(_trailMeshPool){ _trailMeshPool.forEach(m=>{ if(scene)scene.remove(m); }); _trailMeshPool=null; }
     // Don't dispose renderer — game may be re-entered via the arcade menu.
-    // The loop will restart cleanly when newGame() is called again.
   }
 
   function togglePause() {
@@ -1366,8 +1384,8 @@ export default (() => {
   function initThree() {
     container=document.getElementById('bam3d-canvas-container');
     if(!container)return;
-    renderer=new THREE.WebGLRenderer({antialias:true,alpha:false});
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+    renderer=new THREE.WebGLRenderer({antialias:true, alpha:false, powerPreference:'high-performance'});
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setClearColor(0x010510,1);
     container.appendChild(renderer.domElement);
     scene=new THREE.Scene();
@@ -1501,9 +1519,12 @@ export default (() => {
     animId=requestAnimationFrame(_loop);
     if(document.hidden)return;
     const dt=Math.min(ts-lastTs,50);lastTs=ts;
+    const wasActive=!!ball||popParticles.length>0||scoreSprites.length>0;
     if(!paused&&!dead)update(dt);
     _updateAimLine();
-    if(renderer&&scene&&camera)renderer.render(scene,camera);
+    // Skip re-render when paused and nothing is moving
+    if(renderer&&scene&&camera&&(!paused||wasActive||popParticles.length>0))
+      renderer.render(scene,camera);
     if(!dead&&!paused)updateUI();
   }
 
