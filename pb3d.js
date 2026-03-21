@@ -167,7 +167,15 @@ export default (() => {
     star:      { emoji: '⭐', label: 'STAR',      desc: 'Clears all of that colour' },
   };
   const POWER_KEYS   = Object.keys(POWERS);
-  const POWER_CHANCE = 0.08;   // chance per cell when generating a row
+  const POWER_CHANCE = 0.08;   // overall chance a bubble is a power-up
+
+  // Weighted power selection — lightning is rare (~5%), fire and star share the rest
+  function _pickPower() {
+    const r = Math.random();
+    if (r < 0.05)  return 'lightning';  // 5%
+    if (r < 0.525) return 'fire';       // 47.5%
+    return 'star';                       // 47.5%
+  }
 
   // ── Geometry constants ────────────────────────────────────────
   // 2× size vs original pb.js (was R=13)
@@ -176,7 +184,10 @@ export default (() => {
   const ROW_H       = R * Math.sqrt(3);
   const SHOOT_SPEED = 28;
   const MAX_BOUNCES = 30;
-  const DROP_SECS   = 55;
+  const DROP_SECS_BASE = 55;  // starting drop interval
+  const DROP_SECS_MIN  = 18;  // fastest it ever gets (level ~20+)
+  // Drop interval decreases by ~1.8s per level, floored at minimum
+  function _dropSecs() { return Math.max(DROP_SECS_MIN, DROP_SECS_BASE - (level - 1) * 1.8); }
   const CEILING_PAD = 8;
   const CANNON_PAD  = 36;
   const CLEAR_ROWS  = 3;
@@ -285,7 +296,7 @@ export default (() => {
   let score = 0, best = 0, level = 1;
   let chain = 0, chainTimer = 0;
   let paused = false, dead = false;
-  let dropTimer     = DROP_SECS * 1000;
+  let dropTimer     = DROP_SECS_BASE * 1000;
   let elapsedMs     = 0;
   let lastTs        = 0;
   let _aimDirty     = true, _aimLastAngle = null, _aimPts = null;
@@ -406,7 +417,7 @@ export default (() => {
       for (let c = 0; c < cols; c++) {
         const ci    = pal[Math.floor(Math.random() * pal.length)];
         const wantPower = powersPlaced < powerBudget && Math.random() < 0.12;
-        const power = wantPower ? POWER_KEYS[Math.floor(Math.random() * POWER_KEYS.length)] : null;
+        const power = wantPower ? _pickPower() : null;
         if (power) powersPlaced++;
         const mesh = _buildBubbleMesh(ci, power);
         _placeMesh(mesh, r, c);
@@ -454,7 +465,7 @@ export default (() => {
     const row  = [];
     for (let c = 0; c < cols; c++) {
       const ci    = pal[Math.floor(Math.random() * pal.length)];
-      const power = Math.random() < POWER_CHANCE ? POWER_KEYS[Math.floor(Math.random() * POWER_KEYS.length)] : null;
+      const power = Math.random() < POWER_CHANCE ? _pickPower() : null;
       row.push({ ci, power });
     }
     return row;
@@ -463,7 +474,7 @@ export default (() => {
   // ── Queue ─────────────────────────────────────────────────────
   function _makeSlot() {
     const power = Math.random() < POWER_CHANCE
-      ? POWER_KEYS[Math.floor(Math.random() * POWER_KEYS.length)]
+      ? _pickPower()
       : null;
     if (power) {
       // Player power-ups are colourless — ci=-1, clear bubble with just emoji
@@ -693,7 +704,7 @@ export default (() => {
     if (!dead) {
       dropTimer-=dt;
       if (dropTimer<=0) {
-        dropTimer=DROP_SECS*1000;
+        dropTimer=_dropSecs()*1000;
         _addNewTopRow();
         if (_gridTooLow()) { doGameOver(); return; }
       }
@@ -970,7 +981,7 @@ export default (() => {
   function _advanceLevel() {
     score+=500*level; if(score>best)best=score;
     level++;
-    dropTimer=DROP_SECS*1000;
+    dropTimer=_dropSecs()*1000;
     chain=0; chainTimer=0;
     heldSlot=null; canSwap=true; queue=[];
 
@@ -1303,7 +1314,7 @@ export default (() => {
     score=0; best=parseInt(localStorage.getItem('bam3d-best')||'0')||0;
     level=1; chain=0; chainTimer=0; paused=false; dead=false;
     heldSlot=null; canSwap=true; queue=[];
-    dropTimer=DROP_SECS*1000; elapsedMs=0; cannonAngle=-Math.PI/2;
+    dropTimer=_dropSecs()*1000; elapsedMs=0; cannonAngle=-Math.PI/2;
     if(ball){if(ball.mesh)scene.remove(ball.mesh);ball=null;}
     if (_trailMeshPool) _trailMeshPool.forEach(m => { m.visible = false; });
     popParticles.forEach(p=>p.mesh&&scene.remove(p.mesh)); popParticles=[];
@@ -1365,7 +1376,7 @@ export default (() => {
 
     // Drop bar
     const dropBar=document.getElementById('bam3d-drop-bar');
-    if(dropBar){const f=Math.max(0,dropTimer/(DROP_SECS*1000));dropBar.style.width=(f*100)+'%';dropBar.style.background=f<0.25?'#ff2d78':f<0.5?'#ffe600':'#00f5ff';}
+    if(dropBar){const f=Math.max(0,dropTimer/(_dropSecs()*1000));dropBar.style.width=(f*100)+'%';dropBar.style.background=f<0.25?'#ff2d78':f<0.5?'#ffe600':'#00f5ff';}
 
     if(score>best){best=score;localStorage.setItem('bam3d-best',best);}
   }
