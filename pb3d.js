@@ -403,8 +403,8 @@ export default (() => {
     // Glass bubble look
     const gr = c.createRadialGradient(cx-r*0.3,cy-r*0.35,r*0.04,cx,cy,r);
     gr.addColorStop(0, _lighten(col.css,0.65));
-    gr.addColorStop(0.5, col.css+'bb');
-    gr.addColorStop(1, _darken(col.css,0.3)+'88');
+    gr.addColorStop(0.5, _rgba(col.css, 0.73));
+    gr.addColorStop(1, _darken(col.css,0.3, 0.53));
     c.beginPath(); c.arc(cx,cy,r,0,Math.PI*2);
     c.fillStyle=gr; c.fill();
     c.strokeStyle='rgba(255,255,255,0.3)'; c.lineWidth=1; c.stroke();
@@ -421,8 +421,9 @@ export default (() => {
     }
   }
 
+  function _rgba(hex,a){const[r,g,b]=_hr(hex);return`rgba(${r},${g},${b},${a})`;}
   function _lighten(hex,a){const[r,g,b]=_hr(hex);return`rgb(${Math.min(255,r+~~(255*a))},${Math.min(255,g+~~(255*a))},${Math.min(255,b+~~(255*a))})`;}
-  function _darken(hex,a) {const[r,g,b]=_hr(hex);return`rgb(${Math.max(0,r-~~(255*a))},${Math.max(0,g-~~(255*a))},${Math.max(0,b-~~(255*a))})`;}
+  function _darken(hex,a,alpha=1){const[r,g,b]=_hr(hex);return`rgba(${Math.max(0,r-~~(255*a))},${Math.max(0,g-~~(255*a))},${Math.max(0,b-~~(255*a))},${alpha})`;}
   function _hr(h){h=h.replace('#','');const n=parseInt(h,16);return[(n>>16)&255,(n>>8)&255,n&255];}
 
   // ── Shoot ─────────────────────────────────────────────────────
@@ -921,14 +922,7 @@ export default (() => {
   function _buildBackground(){_rebuildBackground();}
   function _rebuildBackground(){
     bgObjs2.forEach(o=>scene.remove(o)); bgObjs2=[];
-    function add(o){scene.add(o);bgObjs2.push(o);}
 
-    add(new THREE.Mesh(new THREE.PlaneGeometry(W*2,H*2),new THREE.MeshBasicMaterial({color:0x010510})).position||(() => {
-      const m=new THREE.Mesh(new THREE.PlaneGeometry(W*2,H*2),new THREE.MeshBasicMaterial({color:0x010510}));
-      m.position.set(W/2,H/2,-50); return m;
-    })());
-    // hack — just do it properly:
-    bgObjs2=[];
     const bg=new THREE.Mesh(new THREE.PlaneGeometry(W*2,H*2),new THREE.MeshBasicMaterial({color:0x010510}));
     bg.position.set(W/2,H/2,-50); scene.add(bg); bgObjs2.push(bg);
 
@@ -976,7 +970,7 @@ export default (() => {
     _repositionCannon();
   }
   function _repositionCannon(){if(!cannonGroup)return;cannonGroup.position.set(cannonX(),H-cannonCY(),2);}
-  function _updateBarrel(){if(!cannonBarrel)return;cannonBarrel.rotation.z=cannonAngle+Math.PI/2;}
+  function _updateBarrel(){if(!cannonBarrel)return;cannonBarrel.rotation.z=-(cannonAngle+Math.PI/2);}
 
   // ── Aim line ──────────────────────────────────────────────────
   function _buildAimLine(){
