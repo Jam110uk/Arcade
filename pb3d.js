@@ -343,7 +343,6 @@ export default (() => {
     }
 
     group.userData = { ci, power };
-    _assignRotation(group);
     return group;
   }
 
@@ -377,15 +376,7 @@ export default (() => {
     grp.position.z = 0;
   }
 
-  // Assign a unique slow random rotation axis+speed to a new bubble group
-  function _assignRotation(grp) {
-    grp.userData.rotAxis = new THREE.Vector3(
-      (Math.random()-0.5)*2,
-      (Math.random()-0.5)*2,
-      (Math.random()-0.5)*0.3   // mostly X/Y tumble, minimal Z spin
-    ).normalize();
-    grp.userData.rotSpeed = 0.0004 + Math.random()*0.0006; // rad/ms — very slow
-  }
+  // (rotation removed — power-up bubbles use shimmer sprites instead)
 
   function _getColorsInGrid() {
     const s = new Set();
@@ -661,16 +652,32 @@ export default (() => {
     _spawnPowerParticles('water', cellXY(row,col).x, cellXY(row,col).y);
   }
 
-  function _powerLightning(row) {
+  function _powerLightning(snapRow) {
     SFX.powerLightning();
-    let count=0;
-    for (let c=0; c<colsForRow(row); c++) {
-      if (grid[row]&&grid[row][c]) { _popCell(row,c,false); count++; }
+    // Find the row of the bubble that was actually hit:
+    // it's the nearest occupied neighbour of the snap cell.
+    // Fall back to snapRow if nothing found.
+    let hitRow = snapRow;
+    outer: for (const [nr] of _hexNeighbors(snapRow, 0).concat(_hexNeighbors(snapRow, colsForRow(snapRow)-1))) {
+      if (nr >= 0 && nr < grid.length && grid[nr]) {
+        for (let c = 0; c < (grid[nr]||[]).length; c++) {
+          if (grid[nr][c]) { hitRow = nr; break outer; }
+        }
+      }
     }
-    _addScoreSprite(cannonX(), H-cellXY(row,0).y*0.5, `⚡ ROW CLEAR +${count*30*level}`);
-    score+=count*30*level;
-    if(window.FX){FX.screenFlash('#ffe600',0.35);FX.shake(6);}
-    _spawnPowerParticles('lightning', W/2, cellXY(row,0).y);
+    // Clear the entire hit row using actual grid row length
+    let count = 0;
+    if (grid[hitRow]) {
+      const len = grid[hitRow].length;
+      for (let c = 0; c < len; c++) {
+        if (grid[hitRow][c]) { _popCell(hitRow, c, false); count++; }
+      }
+    }
+    const spriteY = H - cellXY(hitRow, 0).y * 0.5;
+    _addScoreSprite(cannonX(), spriteY, `⚡ ROW CLEAR +${count * 30 * level}`);
+    score += count * 30 * level;
+    if (window.FX) { FX.screenFlash('#ffe600', 0.35); FX.shake(6); }
+    _spawnPowerParticles('lightning', W / 2, cellXY(hitRow, 0).y);
   }
 
   function _powerStar(ci) {
@@ -727,18 +734,22 @@ export default (() => {
       if (!placed&&ball&&ball.y>H+60) { scene.remove(ball.mesh); ball=null; }
     }
 
-    // Rotate all grid bubbles slowly so specular highlights animate
-    if (!paused) {
-      gridMeshes.forEach(bm => {
-        const ax = bm.mesh.userData.rotAxis;
-        const sp = bm.mesh.userData.rotSpeed;
-        if (ax && sp) bm.mesh.rotateOnAxis(ax, sp * dt);
+    // Shimmer power-up bubbles — pulse their sprite opacity
+    const now = performance.now();
+    gridMeshes.forEach(bm => {
+      if (!bm.power) return;
+      bm.mesh.children.forEach(ch => {
+        if (ch instanceof THREE.Sprite) {
+          // Each power bubble gets its own shimmer phase stored in userData
+          if (!bm.mesh.userData.shimmerPhase) bm.mesh.userData.shimmerPhase = Math.random() * Math.PI * 2;
+          bm.mesh.userData.shimmerPhase += dt * 0.004;
+          const s = bm.mesh.userData.shimmerPhase;
+          // Base pulse + occasional bright flash
+          const pulse = 0.65 + 0.25 * Math.sin(s) + 0.10 * Math.sin(s * 3.7);
+          ch.material.opacity = Math.max(0.4, Math.min(1.0, pulse));
+        }
       });
-      // Also rotate the flying ball
-      if (ball && ball.mesh && ball.mesh.userData.rotAxis) {
-        ball.mesh.rotateOnAxis(ball.mesh.userData.rotAxis, ball.mesh.userData.rotSpeed * dt * 3);
-      }
-    }
+    });
     // Trail — clear previous frame's meshes first
     trailPool.forEach(m=>scene.remove(m)); trailPool=[];
     if (ball&&ball.trail.length) {
