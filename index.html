@@ -16468,24 +16468,23 @@ window.PERF = (() => {
       <div class="bam3d-panel bam3d-power-legend">
         <div class="bam3d-panel-label" style="margin-bottom:4px">POWER-UPS</div>
         <div class="bam3d-pw-row"><span class="bam3d-pw-icon">🔥</span><span class="bam3d-pw-desc">Blasts nearby<br>bubbles</span></div>
-        <div class="bam3d-pw-row"><span class="bam3d-pw-icon">💧</span><span class="bam3d-pw-desc">Recolours<br>neighbours</span></div>
         <div class="bam3d-pw-row"><span class="bam3d-pw-icon">⚡</span><span class="bam3d-pw-desc">Clears<br>entire row</span></div>
         <div class="bam3d-pw-row"><span class="bam3d-pw-icon">⭐</span><span class="bam3d-pw-desc">Clears all of<br>that colour</span></div>
+      </div>
+
+      <!-- Controls in same format -->
+      <div class="bam3d-panel bam3d-power-legend">
+        <div class="bam3d-panel-label" style="margin-bottom:4px">CONTROLS</div>
+        <div class="bam3d-pw-row"><span class="bam3d-pw-icon" style="font-size:0.7rem">🖱️</span><span class="bam3d-pw-desc">Move: AIM<br>L-Click: SHOOT</span></div>
+        <div class="bam3d-pw-row"><span class="bam3d-pw-icon" style="font-size:0.7rem">🖱️</span><span class="bam3d-pw-desc">R-Click: HOLD</span></div>
+        <div class="bam3d-pw-row"><span class="bam3d-pw-icon" style="font-size:0.7rem">⌨️</span><span class="bam3d-pw-desc">←→ / AD: AIM<br>SPACE: SHOOT</span></div>
+        <div class="bam3d-pw-row"><span class="bam3d-pw-icon" style="font-size:0.7rem">⌨️</span><span class="bam3d-pw-desc">Z: HOLD<br>P: PAUSE</span></div>
       </div>
 
       <div style="margin-top:auto; display:flex; flex-direction:column; gap:5px;">
         <button class="bam3d-btn" id="bam3d-pause-btn" onclick="window.BAM3D?.togglePause()">⏸</button>
         <button class="bam3d-btn" onclick="window.BAM3D?.newGame()">🆕 NEW</button>
         <button class="bam3d-btn danger" onclick="backToGameSelect()">🕹 EXIT</button>
-      </div>
-      <div class="bam3d-controls">
-        MOUSE: AIM<br>
-        L-CLICK: SHOOT<br>
-        R-CLICK: HOLD<br>
-        ←→ / AD: AIM<br>
-        SPACE: FIRE<br>
-        Z: HOLD<br>
-        P: PAUSE
       </div>
     </div>
 

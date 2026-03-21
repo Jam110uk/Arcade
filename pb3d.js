@@ -126,11 +126,6 @@ export default (() => {
         tone(440, 0.20, 0.07, 330, 0.05);
       },
 
-      // Power — water: gentle ripple cascade
-      powerWater() {
-        for(let i=0;i<5;i++) tone(660-i*70, 0.20, 0.08, 500-i*50, i*0.07);
-      },
-
       // Power — lightning: sharp zap with tail
       powerLightning() {
         softNoise(0.06, 0.12);
@@ -167,10 +162,9 @@ export default (() => {
 
   // ── Power-up definitions ──────────────────────────────────────
   const POWERS = {
-    fire:      { emoji: '🔥', label: 'FIRE',      desc: 'Clears surrounding cluster' },
-    water:     { emoji: '💧', label: 'WATER',     desc: 'Recolours nearby bubbles'   },
-    lightning: { emoji: '⚡', label: 'LIGHTNING', desc: 'Clears entire row'          },
-    star:      { emoji: '⭐', label: 'STAR',      desc: 'Clears all of this colour'  },
+    fire:      { emoji: '🔥', label: 'FIRE',      desc: 'Blasts nearby bubbles'    },
+    lightning: { emoji: '⚡', label: 'LIGHTNING', desc: 'Clears entire row'         },
+    star:      { emoji: '⭐', label: 'STAR',      desc: 'Clears all of that colour' },
   };
   const POWER_KEYS   = Object.keys(POWERS);
   const POWER_CHANCE = 0.08;   // chance per cell when generating a row
@@ -594,27 +588,24 @@ export default (() => {
     }
     switch (power) {
       case 'fire':      _powerFire(row, col);      break;
-      case 'water':     _powerWater(row, col, ci); break;
       case 'lightning': _powerLightning(row);       break;
       case 'star':      _powerStar(ci);             break;
     }
   }
 
   function _powerFire(row, col) {
-    // Flood-fill all connected bubbles of any colour within radius 1.5 cells
     SFX.powerFire();
+    const cx = cellXY(row, col).x, cy = cellXY(row, col).y;
+    _vfxFire(cx, cy);
     const toKill = new Set();
-    // Mark the power bubble itself
     toKill.add(row+','+col);
-    // All hex-neighbours
     for (const [nr,nc] of _hexNeighbors(row,col)) {
-      if (nr>=0&&nr<grid.length&&nc>=0&&nc<colsForRow(nr)&&grid[nr]&&grid[nr][nc])
+      if (nr>=0&&nr<grid.length&&nc>=0&&nc<(grid[nr]||[]).length&&grid[nr]&&grid[nr][nc])
         toKill.add(nr+','+nc);
     }
-    // Second ring
     for (const [nr,nc] of _hexNeighbors(row,col)) {
       for (const [nr2,nc2] of _hexNeighbors(nr,nc)) {
-        if (nr2>=0&&nr2<grid.length&&nc2>=0&&nc2<colsForRow(nr2)&&grid[nr2]&&grid[nr2][nc2])
+        if (nr2>=0&&nr2<grid.length&&nc2>=0&&nc2<(grid[nr2]||[]).length&&grid[nr2]&&grid[nr2][nc2])
           toKill.add(nr2+','+nc2);
       }
     }
@@ -623,40 +614,13 @@ export default (() => {
       const [r,c] = key.split(',').map(Number);
       if (grid[r]&&grid[r][c]) { _popCell(r,c,false); count++; }
     }
-    _addScoreSprite(cellXY(row,col).x, cellXY(row,col).y-20, `🔥 +${count*25*level}`);
+    _addScoreSprite(cx, cy-20, `🔥 +${count*25*level}`);
     score+=count*25*level;
     if(window.FX){FX.screenFlash('#ff6a00',0.3);FX.shake(5);}
-    _spawnPowerParticles('fire', cellXY(row,col).x, cellXY(row,col).y);
-  }
-
-  function _powerWater(row, col, ci) {
-    // Recolour all neighbours to match the bubble that triggered it
-    SFX.powerWater();
-    let count=0;
-    for (const [nr,nc] of _hexNeighbors(row,col)) {
-      if (nr<0||nr>=grid.length||nc<0||nc>=colsForRow(nr)) continue;
-      if (!grid[nr]||!grid[nr][nc]||grid[nr][nc].power) continue;
-      // Recolour
-      grid[nr][nc].ci = ci;
-      const bm=gridMeshes.find(x=>x.row===nr&&x.col===nc);
-      if (bm) {
-        scene.remove(bm.mesh);
-        const nm=_buildBubbleMesh(ci,null);
-        _placeMesh(nm,nr,nc); scene.add(nm);
-        bm.mesh=nm; bm.ci=ci;
-      }
-      count++;
-    }
-    _addScoreSprite(cellXY(row,col).x, cellXY(row,col).y-20, `💧 ×${count} recoloured`);
-    if(window.FX) FX.screenFlash('#00f5ff',0.2);
-    _spawnPowerParticles('water', cellXY(row,col).x, cellXY(row,col).y);
   }
 
   function _powerLightning(snapRow) {
     SFX.powerLightning();
-    // Find the row of the bubble that was actually hit:
-    // it's the nearest occupied neighbour of the snap cell.
-    // Fall back to snapRow if nothing found.
     let hitRow = snapRow;
     outer: for (const [nr] of _hexNeighbors(snapRow, 0).concat(_hexNeighbors(snapRow, colsForRow(snapRow)-1))) {
       if (nr >= 0 && nr < grid.length && grid[nr]) {
@@ -665,31 +629,46 @@ export default (() => {
         }
       }
     }
-    // Clear the entire hit row using actual grid row length
-    let count = 0;
-    if (grid[hitRow]) {
-      const len = grid[hitRow].length;
+    // Launch the visual bolt first, then pop cells in sync with it
+    _vfxLightning(hitRow);
+    // Pop cells staggered to match bolt travel (28ms per column)
+    const len = (grid[hitRow]||[]).length;
+    const midCol = Math.floor(len / 2);
+    ['left','right'].forEach(dir => {
       for (let c = 0; c < len; c++) {
-        if (grid[hitRow][c]) { _popCell(hitRow, c, false); count++; }
+        const col = dir === 'left' ? midCol - c : midCol + c;
+        if (col < 0 || col >= len) continue;
+        const delay = c * 28;
+        setTimeout(() => {
+          if (grid[hitRow] && grid[hitRow][col]) {
+            _popCell(hitRow, col, false);
+            _dropAllFloating();
+          }
+        }, delay);
       }
-    }
+    });
+    const count = len;
     const spriteY = H - cellXY(hitRow, 0).y * 0.5;
     _addScoreSprite(cannonX(), spriteY, `⚡ ROW CLEAR +${count * 30 * level}`);
     score += count * 30 * level;
-    if (window.FX) { FX.screenFlash('#ffe600', 0.35); FX.shake(6); }
-    _spawnPowerParticles('lightning', W / 2, cellXY(hitRow, 0).y);
+    if (window.FX) { FX.screenFlash('#44aaff', 0.35); FX.shake(6); }
   }
 
   function _powerStar(ci) {
     SFX.powerStar();
-    let count=0;
-    for (let r=0;r<grid.length;r++) for (let c=0;c<colsForRow(r);c++) {
-      if (grid[r]&&grid[r][c]&&grid[r][c].ci===ci&&!grid[r][c].power) { _popCell(r,c,false); count++; }
+    // Collect target cells first — don't pop yet
+    const targets = [];
+    for (let r=0;r<grid.length;r++) {
+      const len = (grid[r]||[]).length;
+      for (let c=0;c<len;c++) {
+        if (grid[r]&&grid[r][c]&&grid[r][c].ci===ci) targets.push({r,c});
+      }
     }
+    const count = targets.length;
     _addScoreSprite(cannonX(), H*0.45, `⭐ COLOUR CLEAR +${count*40*level}`);
     score+=count*40*level;
-    if(window.FX){FX.screenFlash('#ffe600',0.4);FX.shake(4);}
-    _spawnPowerParticles('star', W/2, H*0.5);
+    // VFX places stars on each bubble then pops them after delay
+    _vfxStarThenPop(targets, ci);
   }
 
   // ── Update (identical physics to pb.js) ──────────────────────
@@ -773,8 +752,9 @@ export default (() => {
         p.alpha = p.y > H*0.82 ? Math.max(0, 1-(p.y-H*0.82)/(H*0.22)) : 1;
         p.scale = 1;
       } else if (p.isSpark) {
-        p.vy+=0.3; p.vx*=0.96;
-        p.alpha-=0.038; p.scale=Math.max(0,p.scale-0.025);
+        const gm = p.gravMult !== undefined ? p.gravMult : 0.3;
+        p.vy += gm; p.vx *= 0.96;
+        p.alpha -= 0.032; p.scale = Math.max(0, p.scale - 0.022);
       } else {
         p.vy+=0.6; p.vx*=0.97;
         p.alpha-=0.025; p.scale=Math.max(0,p.scale-0.016);
@@ -873,7 +853,7 @@ export default (() => {
           _spawnPowerParticles(power, cv.x, cv.y);
           SFX['power'+power.charAt(0).toUpperCase()+power.slice(1)]?.();
           if(window.FX) FX.screenFlash(
-            power==='fire'?'#ff6a00':power==='water'?'#00f5ff':power==='lightning'?'#ffe600':'#ffe600', 0.2
+            power==='fire'?'#ff6a00':power==='lightning'?'#44aaff':'#ffe600', 0.2
           );
         }, 80);
       });
@@ -960,30 +940,133 @@ export default (() => {
     });
   }
 
-  // Power-up particle burst — coloured particles matching the power type
-  function _spawnPowerParticles(powerKey, cx, cy) {
-    const configs = {
-      fire:      { colors:[0xff6a00,0xff2d78,0xffe600], count:18, speed:5 },
-      water:     { colors:[0x00f5ff,0x0088ff,0xffffff], count:14, speed:4 },
-      lightning: { colors:[0xffe600,0xffffff,0xbf00ff], count:22, speed:7 },
-      star:      { colors:[0xffe600,0xffffff,0xffaaff], count:20, speed:6 },
-    };
-    const cfg = configs[powerKey] || configs.star;
-    for (let i=0; i<cfg.count; i++) {
-      const col = cfg.colors[Math.floor(Math.random()*cfg.colors.length)];
-      const r   = R * (0.18 + Math.random()*0.22);
+  // ── Power-up VFX ──────────────────────────────────────────────
+
+  // Fire swirl: ring of flame particles that spiral outward then fade
+  function _vfxFire(cx, cy) {
+    const count = 28;
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2;
+      const col = [0xff4400, 0xff8800, 0xffcc00, 0xff2200][Math.floor(Math.random()*4)];
+      const r = R * (0.15 + Math.random() * 0.2);
       const mesh = new THREE.Mesh(
-        sphereGeo(Math.max(2,Math.round(r))),
-        new THREE.MeshBasicMaterial({color:col, transparent:true, opacity:1})
+        sphereGeo(Math.max(2, Math.round(r))),
+        new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 1 })
       );
-      mesh.position.copy(tw(cx,cy)); mesh.position.z=6; scene.add(mesh);
-      const ang  = Math.random()*Math.PI*2;
-      const spd  = cfg.speed*(0.5+Math.random());
-      // For lightning, shoot horizontally; for star, spray in all directions
-      const vxp  = powerKey==='lightning' ? Math.cos(ang)*spd*2 : Math.cos(ang)*spd;
-      const vyp  = powerKey==='lightning' ? (Math.random()-0.5)*spd : Math.sin(ang)*spd;
-      popParticles.push({mesh, x:cx, y:cy, vx:vxp, vy:vyp, alpha:1, scale:1, isFloater:false, isSpark:true});
+      mesh.position.copy(tw(cx, cy)); mesh.position.z = 6; scene.add(mesh);
+      const spd = 1.8 + Math.random() * 2.5;
+      // Swirl: radial + tangential component
+      const vx = Math.cos(angle) * spd + Math.sin(angle) * spd * 0.6;
+      const vy = Math.sin(angle) * spd - Math.cos(angle) * spd * 0.6 - 1.5;
+      popParticles.push({ mesh, x: cx, y: cy, vx, vy, alpha: 1, scale: 1.2, isFloater: false, isSpark: true, gravMult: 0.15 });
     }
+    // Inner bright flash ring
+    for (let i = 0; i < 10; i++) {
+      const angle = (i / 10) * Math.PI * 2;
+      const mesh = new THREE.Mesh(
+        sphereGeo(Math.max(3, Math.round(R * 0.28))),
+        new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 })
+      );
+      mesh.position.copy(tw(cx, cy)); mesh.position.z = 7; scene.add(mesh);
+      const spd = 3.5 + Math.random();
+      popParticles.push({ mesh, x: cx, y: cy, vx: Math.cos(angle)*spd, vy: Math.sin(angle)*spd, alpha: 0.9, scale: 1, isFloater: false, isSpark: true, gravMult: 0.05 });
+    }
+  }
+
+  // Lightning: bolts fly left and right, popping bubbles as they travel
+  function _vfxLightning(hitRow) {
+    if (!grid[hitRow]) return;
+    const len = (grid[hitRow] || []).length;
+    // Find impact column (centre of row)
+    const midCol = Math.floor(len / 2);
+    const impactCV = cellXY(hitRow, midCol);
+
+    // Spawn bolt segments travelling left then right
+    ['left','right'].forEach(dir => {
+      for (let c = 0; c < len; c++) {
+        const col = dir === 'left' ? midCol - c : midCol + c;
+        if (col < 0 || col >= len) continue;
+        const cv = cellXY(hitRow, col);
+        const delay = c * 28; // ms stagger per column
+        setTimeout(() => {
+          if (!scene) return;
+          // Bolt flash at this bubble's position
+          for (let i = 0; i < 5; i++) {
+            const boltMesh = new THREE.Mesh(
+              sphereGeo(Math.max(3, Math.round(R * 0.22))),
+              new THREE.MeshBasicMaterial({ color: i%2===0 ? 0x44aaff : 0xffffff, transparent: true, opacity: 1 })
+            );
+            boltMesh.position.copy(tw(cv.x, cv.y)); boltMesh.position.z = 8; scene.add(boltMesh);
+            popParticles.push({
+              mesh: boltMesh, x: cv.x, y: cv.y,
+              vx: (Math.random()-0.5)*3,
+              vy: (Math.random()-0.5)*3,
+              alpha: 1, scale: 1, isFloater: false, isSpark: true, gravMult: 0,
+            });
+          }
+          // Connecting bolt line to left/right neighbour
+          if (col > 0 && col < len) {
+            const pts = [tw(cv.x, cv.y), tw(cv.x + (dir==='left'?-D:D), cv.y)];
+            const boltLine = new THREE.Line(
+              new THREE.BufferGeometry().setFromPoints(pts),
+              new THREE.LineBasicMaterial({ color: 0x88ddff, transparent: true, opacity: 0.9 })
+            );
+            boltLine.position.z = 7; scene.add(boltLine);
+            // Auto-remove after 180ms
+            setTimeout(() => { if (scene) scene.remove(boltLine); }, 180);
+          }
+        }, delay);
+      }
+    });
+  }
+
+  // Star: place a ⭐ sprite on each target bubble, then pop them all at once after delay
+  function _vfxStarThenPop(targetCells, ci) {
+    const starSprites = [];
+    targetCells.forEach(({r, c}) => {
+      const cv = cellXY(r, c);
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 64;
+      const ctx2 = canvas.getContext('2d');
+      ctx2.font = '44px serif'; ctx2.textAlign = 'center'; ctx2.textBaseline = 'middle';
+      ctx2.fillText('⭐', 32, 34);
+      const tex = new THREE.CanvasTexture(canvas);
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0 }));
+      sp.position.copy(tw(cv.x, cv.y)); sp.position.z = 8;
+      sp.scale.set(R * 1.6, R * 1.6, 1);
+      scene.add(sp);
+      starSprites.push({ mesh: sp, life: 600, maxLife: 600, phase: 'fadein' });
+      scoreSprites.push({ mesh: sp, life: 600, maxLife: 600, _starPhase: 'fadein' });
+    });
+
+    // After 420ms: pop all target cells at once
+    setTimeout(() => {
+      if (!scene) return;
+      targetCells.forEach(({r, c}) => {
+        if (grid[r] && grid[r][c]) _popCell(r, c, false);
+      });
+      // Big star burst at centre
+      const avgX = targetCells.reduce((s,{r,c})=>s+cellXY(r,c).x, 0) / targetCells.length;
+      const avgY = targetCells.reduce((s,{r,c})=>s+cellXY(r,c).y, 0) / targetCells.length;
+      for (let i = 0; i < 24; i++) {
+        const ang = (i/24)*Math.PI*2;
+        const col = [0xffe600, 0xffffff, 0xffaaff, 0xff88ff][Math.floor(Math.random()*4)];
+        const mesh = new THREE.Mesh(
+          sphereGeo(Math.max(2, Math.round(R*0.18))),
+          new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 1 })
+        );
+        mesh.position.copy(tw(avgX, avgY)); mesh.position.z = 7; scene.add(mesh);
+        const spd = 4 + Math.random()*4;
+        popParticles.push({ mesh, x:avgX, y:avgY, vx:Math.cos(ang)*spd, vy:Math.sin(ang)*spd, alpha:1, scale:1, isFloater:false, isSpark:true, gravMult:0.2 });
+      }
+      _dropAllFloating(); _trimEmptyRows(); updateUI();
+      if (window.FX) { FX.screenFlash('#ffe600', 0.4); FX.shake(4); }
+    }, 420);
+  }
+
+  // Legacy particle burst (kept for fire inner flash)
+  function _spawnPowerParticles(powerKey, cx, cy) {
+    // Now a no-op — each power has its own dedicated VFX above
   }
 
   function _addScoreSprite(cx,cy,text) {
