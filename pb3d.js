@@ -487,6 +487,19 @@ export default (() => {
     const s = queue.shift(); refillQueue(); return s;
   }
 
+  function _syncCannonColor(slot) {
+    if (!cannonGroup || !slot) return;
+    // Power-up = cyan glow, normal = bubble's colour
+    const col = (slot.ci >= 0 && !slot.power) ? ALL_COLORS[slot.ci].hex : 0x00f5ff;
+    const applyColor = mesh => {
+      if (!mesh || !mesh.material) return;
+      mesh.material.color.setHex(col);
+      mesh.material.emissive.setHex(col);
+    };
+    applyColor(cannonGroup.getObjectByName('cannonRing'));
+    applyColor(cannonBarrel && cannonBarrel.getObjectByName('cannonMuzzle'));
+  }
+
   function _syncCannonBubble() {
     if (!cannonGroup || !queue[0]) return;
     const old = cannonGroup.getObjectByName('cannonBubble');
@@ -495,6 +508,7 @@ export default (() => {
     cb.name = 'cannonBubble';
     cb.scale.setScalar(0.88);
     cannonGroup.add(cb);
+    _syncCannonColor(queue[0]);
   }
 
   // ── Queue UI preview ──────────────────────────────────────────
@@ -815,10 +829,17 @@ export default (() => {
     if (power) {
       _activatePower(power, row, col);
       _popCell(row, col, false, true);
-      // Drop anything now disconnected after the power effect
       _dropAllFloating();
       _trimEmptyRows();
-      if (_countBubbles()===0) { setTimeout(_advanceLevel, 600); return; }
+      // Star pops are deferred 420ms — check board clear after delay too
+      if (power === 'star' || power === 'lightning') {
+        setTimeout(() => {
+          _dropAllFloating(); _trimEmptyRows(); updateUI();
+          if (_countBubbles()===0) setTimeout(_advanceLevel, 400);
+        }, 550);
+      } else {
+        if (_countBubbles()===0) { setTimeout(_advanceLevel, 600); return; }
+      }
       updateUI(); return;
     }
 
@@ -841,20 +862,74 @@ export default (() => {
       // Capture any power-up bubbles in the match before we pop them
       const powersInGroup = group
         .filter(({r,c})=>grid[r]&&grid[r][c]&&grid[r][c].power)
-        .map(({r,c})=>({power:grid[r][c].power, r, c}));
+        .map(({r,c})=>({power:grid[r][c].power, ci:grid[r][c].ci, r, c}));
 
       // Pop the matched group
       group.forEach(({r,c})=>_popCell(r,c,false));
 
-      // Fire collected power effects
-      powersInGroup.forEach(({power,r,c})=>{
-        const cv=cellXY(r,c);
-        setTimeout(()=>{
-          _spawnPowerParticles(power, cv.x, cv.y);
+      // Fire full power effects for any power bubbles caught in the match
+      powersInGroup.forEach(({power, ci: pci, r, c}) => {
+        const cv = cellXY(r, c);
+        setTimeout(() => {
           SFX['power'+power.charAt(0).toUpperCase()+power.slice(1)]?.();
-          if(window.FX) FX.screenFlash(
-            power==='fire'?'#ff6a00':power==='lightning'?'#44aaff':'#ffe600', 0.2
-          );
+          if (power === 'fire') {
+            _vfxFire(cv.x, cv.y);
+            // Fire in grid: blast 2-bubble radius around this cell
+            const toKill = new Set();
+            const addNeighbours = (rr, cc, depth) => {
+              const key = rr+','+cc;
+              if (toKill.has(key)) return;
+              toKill.add(key);
+              if (depth <= 0) return;
+              for (const [nr,nc] of _hexNeighbors(rr, cc)) {
+                if (nr>=0&&nr<grid.length&&nc>=0&&nc<(grid[nr]||[]).length&&grid[nr]&&grid[nr][nc])
+                  addNeighbours(nr, nc, depth-1);
+              }
+            };
+            addNeighbours(r, c, 2);
+            toKill.forEach(key => {
+              const [kr,kc] = key.split(',').map(Number);
+              if (grid[kr]&&grid[kr][kc]) _popCell(kr, kc, false);
+            });
+            _dropAllFloating(); _trimEmptyRows(); updateUI();
+            if (_countBubbles()===0) setTimeout(_advanceLevel, 600);
+            if(window.FX){FX.screenFlash('#ff6a00',0.25);FX.shake(4);}
+          } else if (power === 'lightning') {
+            _vfxLightning(r);
+            const len = (grid[r]||[]).length;
+            const midCol = Math.floor(len/2);
+            const maxDelay = Math.floor(len/2) * 28;
+            ['left','right'].forEach(dir => {
+              for (let step=0; step<len; step++) {
+                const cc = dir==='left' ? midCol-step : midCol+step;
+                if (cc<0||cc>=len) continue;
+                setTimeout(() => {
+                  if (grid[r]&&grid[r][cc]) { _popCell(r, cc, false); _dropAllFloating(); }
+                }, step*28);
+              }
+            });
+            // Check board clear after all lightning pops complete
+            setTimeout(() => {
+              _trimEmptyRows(); updateUI();
+              if (_countBubbles()===0) setTimeout(_advanceLevel, 400);
+            }, maxDelay + 60);
+            if(window.FX){FX.screenFlash('#44aaff',0.3);FX.shake(5);}
+          } else if (power === 'star') {
+            // Star: clear all bubbles of the same colour as this bubble
+            const targetCi = pci >= 0 ? pci : 0;
+            const targets = [];
+            for (let rr=0;rr<grid.length;rr++) {
+              const len=(grid[rr]||[]).length;
+              for (let cc=0;cc<len;cc++) {
+                if (grid[rr]&&grid[rr][cc]&&grid[rr][cc].ci===targetCi) targets.push({r:rr,c:cc});
+              }
+            }
+            _vfxStarThenPop(targets, targetCi);
+            score += targets.length * 40 * level;
+            if(score>best)best=score;
+          }
+          _dropAllFloating(); _trimEmptyRows(); updateUI();
+          if (_countBubbles()===0) setTimeout(_advanceLevel, 600);
         }, 80);
       });
 
@@ -1061,6 +1136,8 @@ export default (() => {
       }
       _dropAllFloating(); _trimEmptyRows(); updateUI();
       if (window.FX) { FX.screenFlash('#ffe600', 0.4); FX.shake(4); }
+      // Check if board is now clear — advance level
+      if (_countBubbles() === 0) { setTimeout(_advanceLevel, 600); }
     }, 420);
   }
 
@@ -1224,6 +1301,21 @@ export default (() => {
     _loop();
   }
 
+  function exitGame() {
+    // Pause the game first
+    if (!paused && !dead) togglePause();
+    // Check if score beats stored personal best
+    const storedBest = parseInt(localStorage.getItem('bam3d-best')||'0')||0;
+    if (score > 0 && score >= storedBest && window.HS) {
+      // Prompt HS submission then navigate away
+      window.HS.promptSubmitOnExit('bustamove3d', score, score.toLocaleString(), () => {
+        backToGameSelect();
+      });
+    } else {
+      backToGameSelect();
+    }
+  }
+
   function destroy() {
     dead=true;
     if(animId){cancelAnimationFrame(animId);animId=null;}
@@ -1354,12 +1446,12 @@ export default (() => {
     const base=new THREE.Mesh(new THREE.CylinderGeometry(R*1.7,R*2,R*0.3,24),new THREE.MeshPhongMaterial({color:0x0a1e30,emissive:0x002244,shininess:80}));
     base.rotation.x=Math.PI/2; cannonGroup.add(base);
     const ring=new THREE.Mesh(new THREE.TorusGeometry(R*1.8,R*0.06,8,32),new THREE.MeshPhongMaterial({color:0x00f5ff,emissive:0x00f5ff,emissiveIntensity:0.7}));
-    cannonGroup.add(ring);
+    ring.name='cannonRing'; cannonGroup.add(ring);
     cannonBarrel=new THREE.Group(); cannonGroup.add(cannonBarrel);
     const bar=new THREE.Mesh(new THREE.CylinderGeometry(R*0.28,R*0.38,R*3.2,12),new THREE.MeshPhongMaterial({color:0x2266aa,emissive:0x001133,shininess:120}));
-    bar.position.y=R*1.6; cannonBarrel.add(bar);
+    bar.name='cannonBar'; bar.position.y=R*1.6; cannonBarrel.add(bar);
     const muzzle=new THREE.Mesh(new THREE.TorusGeometry(R*0.32,R*0.09,8,16),new THREE.MeshPhongMaterial({color:0x00f5ff,emissive:0x00f5ff,emissiveIntensity:0.9}));
-    muzzle.position.y=R*3.2; cannonBarrel.add(muzzle);
+    muzzle.name='cannonMuzzle'; muzzle.position.y=R*3.2; cannonBarrel.add(muzzle);
     _repositionCannon();
   }
   function _repositionCannon(){if(!cannonGroup)return;cannonGroup.position.set(cannonX(),H-cannonCY(),2);}
@@ -1444,6 +1536,8 @@ export default (() => {
     if(e.key==='ArrowLeft'||e.key==='a'||e.key==='A')leftHeld=false;
     if(e.key==='ArrowRight'||e.key==='d'||e.key==='D')rightHeld=false;
   }
+  function _onBlur()  { if (!paused && !dead) togglePause(); }
+
   function _bindEvents(){
     if(!container)return;
     container.addEventListener('mousemove',_onMouseMove);
@@ -1453,16 +1547,18 @@ export default (() => {
     container.addEventListener('touchend',_onTouchEnd);
     document.addEventListener('keydown',_onKeyDown);
     document.addEventListener('keyup',_onKeyUp);
+    window.addEventListener('blur', _onBlur);
   }
   function _unbindEvents(){
     if(container){container.removeEventListener('mousemove',_onMouseMove);container.removeEventListener('click',_onClick);container.removeEventListener('contextmenu',_onRightClick);container.removeEventListener('touchmove',_onTouch);container.removeEventListener('touchend',_onTouchEnd);}
     document.removeEventListener('keydown',_onKeyDown);
     document.removeEventListener('keyup',_onKeyUp);
+    window.removeEventListener('blur', _onBlur);
   }
 
   return {
     newGame: ()=>{if(!renderer){initThree();_bindEvents();}newGame();},
-    destroy, togglePause,
+    destroy, togglePause, exitGame,
     getCurrentScore:()=>score,
   };
 })();
