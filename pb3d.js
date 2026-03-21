@@ -56,6 +56,7 @@ export default (() => {
       floaters(n)  { for (let i=0;i<Math.min(n,6);i++) tone(400-i*35,0.12,'sine',0.10,200-i*20,i*0.04); },
       chain(n)     { for (let i=0;i<Math.min(n,5);i++) tone(440*Math.pow(1.2,i),0.10,'square',0.14,null,i*0.07); },
       levelUp()    { [523,659,784,1047,1319].forEach((f,i)=>tone(f,0.12,'square',0.15,null,i*0.09)); setTimeout(()=>tone(1319,0.4,'sine',0.12,1047),500); },
+      gameOver()   { [440,370,330,262].forEach((f,i)=>tone(f,0.22,'sine',0.14,null,i*0.18)); },
       powerFire()  { tone(880,0.12,'sawtooth',0.18,220); noise(0.08,0.1); },
       powerWater() { for (let i=0;i<4;i++) tone(600-i*60,0.1,'sine',0.12,400-i*40,i*0.06); },
       powerLightning() { noise(0.04,0.18); tone(1200,0.1,'square',0.15,200); },
@@ -104,16 +105,22 @@ export default (() => {
   const CANNON_PAD  = 36;
   const CLEAR_ROWS  = 3;
 
-  // Half the columns — fits the 2× bubble size in the same play width
-  function _playW()      { return W - Math.max(8, W * 0.05) * 2; }
+  // Play area is the full canvas width minus one bubble radius each side
+  function _playW()      { return W - R * 2; }
   function colsEven()    { return Math.floor(_playW() / D); }
   function colsOdd()     { return Math.floor((_playW() - R) / D); }
   function colsForRow(r) { return r % 2 === 0 ? colsEven() : colsOdd(); }
 
+  // Centre the hex grid within the full canvas width
   function cellXY(row, col) {
-    const pillarW = Math.max(8, W * 0.05);
-    const xOff = row % 2 === 0 ? 0 : R;
-    return { x: pillarW + R + xOff + col * D, y: CEILING_PAD + row * ROW_H + R };
+    const isOdd  = row % 2 === 1;
+    const cols   = colsForRow(row);
+    const rowW   = cols * D + (isOdd ? R : 0);
+    const startX = (W - rowW) / 2 + R + (isOdd ? R : 0);
+    return {
+      x: startX + col * D,
+      y: CEILING_PAD + row * ROW_H + R,
+    };
   }
   function cannonX()      { return W / 2; }
   function cannonCY()     { return H - CANNON_PAD - R; }   // canvas Y
@@ -550,8 +557,7 @@ export default (() => {
       ball.trail.push({x:ball.x,y:ball.y});
       if (ball.trail.length>5) ball.trail.shift();
 
-      const pillarW=Math.max(8,W*0.05);
-      const wallL=pillarW+R, wallR=W-pillarW-R;
+      const wallL = R, wallR = W - R;
       const NUM_STEPS=Math.ceil(SHOOT_SPEED/(R*0.8));
       let placed=false;
 
@@ -877,6 +883,8 @@ export default (() => {
 
   function newGame() {
     if (!renderer){initThree();_bindEvents();}
+    // Force resize to pick up correct container dimensions — critical on re-entry
+    _resize();
     score=0; best=parseInt(localStorage.getItem('bam3d-best')||'0')||0;
     level=1; chain=0; chainTimer=0; paused=false; dead=false;
     heldSlot=null; canSwap=true; queue=[];
@@ -889,17 +897,19 @@ export default (() => {
     grid=[];
     generateLevel(); refillQueue();
     _syncCannonBubble();
+    _rebuildBackground(); _repositionCannon(); _invalidateAim();
     hideOverlay(); updateUI();
-    if (!animId) _loop();
+    // Always (re)start the loop — it may have been stopped by destroy() or never started
+    if(animId){cancelAnimationFrame(animId);animId=null;}
+    _loop();
   }
 
   function destroy() {
     dead=true;
     if(animId){cancelAnimationFrame(animId);animId=null;}
     _unbindEvents();
-    if(_resizeObs){_resizeObs.disconnect();_resizeObs=null;}
-    if(renderer){renderer.dispose();renderer=null;}
-    scene=null; camera=null;
+    // Don't dispose renderer — game may be re-entered via the arcade menu.
+    // The loop will restart cleanly when newGame() is called again.
   }
 
   function togglePause() {
@@ -993,16 +1003,19 @@ export default (() => {
     const stars=new THREE.Points(sg,new THREE.PointsMaterial({color:0xc8e8ff,size:1.5,transparent:true,opacity:0.5}));
     scene.add(stars); bgObjs2.push(stars);
 
-    const pillarW=Math.max(8,W*0.05);
-    [[pillarW*1.25,0x00f5ff],[W-pillarW*1.25,0xff2d78]].forEach(([x,col])=>{
-      const pl=new THREE.Mesh(new THREE.PlaneGeometry(pillarW*2.5,H),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.09}));
-      pl.position.set(x,H/2,-2); scene.add(pl); bgObjs2.push(pl);
-    });
+    // Slim left edge glow (3px wide, not a chunky block)
+    const edgeL = new THREE.Mesh(
+      new THREE.PlaneGeometry(3, H),
+      new THREE.MeshBasicMaterial({color:0x00f5ff, transparent:true, opacity:0.55})
+    );
+    edgeL.position.set(1.5, H/2, -1); scene.add(edgeL); bgObjs2.push(edgeL);
 
-    [[2,0,2,H,0x00f5ff],[W-2,0,W-2,H,0xff2d78]].forEach(([x1,y1,x2,y2,col])=>{
-      const l=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x1,y1,1),new THREE.Vector3(x2,y2,1)]),new THREE.LineBasicMaterial({color:col}));
-      scene.add(l); bgObjs2.push(l);
-    });
+    // Slim right edge glow
+    const edgeR = new THREE.Mesh(
+      new THREE.PlaneGeometry(3, H),
+      new THREE.MeshBasicMaterial({color:0xff2d78, transparent:true, opacity:0.55})
+    );
+    edgeR.position.set(W-1.5, H/2, -1); scene.add(edgeR); bgObjs2.push(edgeR);
 
     const top=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,H-2,1),new THREE.Vector3(W,H-2,1)]),new THREE.LineBasicMaterial({color:0xbf00ff}));
     scene.add(top); bgObjs2.push(top);
@@ -1013,8 +1026,7 @@ export default (() => {
 
     const dangerWorldY=H-(cannonCY()-ROW_H*CLEAR_ROWS);
     const dl=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,dangerWorldY,1),new THREE.Vector3(W,dangerWorldY,1)]),new THREE.LineBasicMaterial({color:0xffe600,transparent:true,opacity:0.55}));
-    scene.add(dl); bgObjs2.push(dl);
-  }
+    scene.add(dl); bgObjs2.push(dl);  }
 
   // ── Cannon ────────────────────────────────────────────────────
   function _buildCannon(){
@@ -1046,7 +1058,7 @@ export default (() => {
     if(_aimDirty||_aimLastAngle!==cannonAngle){
       let vx=Math.cos(cannonAngle),vy=Math.sin(cannonAngle);
       let x=cannonX(),y=cannonCY();
-      const pillarW=Math.max(8,W*0.05),wallL=pillarW+R,wallR=W-pillarW-R;
+      const pillarW=0, wallL=R, wallR=W-R;
       const pts=[];
       for(let i=0;i<Math.ceil(H/SHOOT_SPEED)*6;i++){
         x+=vx*SHOOT_SPEED; y+=vy*SHOOT_SPEED;
