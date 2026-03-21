@@ -1328,17 +1328,23 @@ export default (() => {
   }
 
   function exitGame() {
-    // Stop the game
-    dead = true;
+    // Stop the game loop
     if (animId) { cancelAnimationFrame(animId); animId = null; }
+    dead = true;
     hideOverlay();
 
     const storedBest = parseInt(localStorage.getItem('bam3d-best')||'0')||0;
-    if (score > 0 && score > storedBest && window.HS) {
-      // New personal best — prompt submission then navigate
-      window.HS.promptSubmitOnExit('bustamove3d', score, score.toLocaleString(), () => {
-        backToGameSelect();
-      });
+    const isNewBest  = score > 0 && score > storedBest;
+
+    if (isNewBest && window.HS && typeof window.HS.promptSubmitOnExit === 'function') {
+      // Update stored best immediately so it persists even if user skips
+      localStorage.setItem('bam3d-best', score);
+      window.HS.promptSubmitOnExit(
+        'bustamove3d',
+        score,
+        score.toLocaleString(),
+        () => { backToGameSelect(); }
+      );
     } else {
       backToGameSelect();
     }
