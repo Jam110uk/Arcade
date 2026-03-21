@@ -187,20 +187,18 @@ export default (() => {
   const CANNON_PAD  = 36;
   const CLEAR_ROWS  = 3;
 
-  // Play area is the full canvas width minus one bubble radius each side
-  function _playW()      { return W - R * 2; }
-  function colsEven()    { return Math.floor(_playW() / D); }
-  function colsOdd()     { return Math.floor((_playW() - R) / D); }
+  // Play area fills the full canvas width edge-to-edge
+  // Even rows: N bubbles of diameter D fill exactly N*D pixels → start at 0+R
+  // Odd rows: offset by R (half bubble), so N-1 bubbles fit
+  function colsEven()    { return Math.floor(W / D); }
+  function colsOdd()     { return Math.floor((W - R) / D); }
   function colsForRow(r) { return r % 2 === 0 ? colsEven() : colsOdd(); }
 
-  // Centre the hex grid within the full canvas width
+  // Bubble centres packed wall-to-wall, edge bubbles touch the walls
   function cellXY(row, col) {
-    const isOdd  = row % 2 === 1;
-    const cols   = colsForRow(row);
-    const rowW   = cols * D + (isOdd ? R : 0);
-    const startX = (W - rowW) / 2 + R + (isOdd ? R : 0);
+    const xOff = row % 2 === 1 ? R : 0;   // odd rows shifted right by R
     return {
-      x: startX + col * D,
+      x: R + xOff + col * D,
       y: CEILING_PAD + row * ROW_H + R,
     };
   }
@@ -314,6 +312,7 @@ export default (() => {
     }
 
     group.userData = { ci, power };
+    _assignRotation(group);
     return group;
   }
 
@@ -345,6 +344,16 @@ export default (() => {
     const cv = cellXY(row, col);
     grp.position.copy(tw(cv.x, cv.y));
     grp.position.z = 0;
+  }
+
+  // Assign a unique slow random rotation axis+speed to a new bubble group
+  function _assignRotation(grp) {
+    grp.userData.rotAxis = new THREE.Vector3(
+      (Math.random()-0.5)*2,
+      (Math.random()-0.5)*2,
+      (Math.random()-0.5)*0.3   // mostly X/Y tumble, minimal Z spin
+    ).normalize();
+    grp.userData.rotSpeed = 0.0004 + Math.random()*0.0006; // rad/ms — very slow
   }
 
   function _getColorsInGrid() {
@@ -659,8 +668,18 @@ export default (() => {
       if (!placed&&ball&&ball.y>H+60) { scene.remove(ball.mesh); ball=null; }
     }
 
-    // Trail
-    trailPool.forEach(m=>scene.remove(m)); trailPool=[];
+    // Rotate all grid bubbles slowly so specular highlights animate
+    if (!paused) {
+      gridMeshes.forEach(bm => {
+        const ax = bm.mesh.userData.rotAxis;
+        const sp = bm.mesh.userData.rotSpeed;
+        if (ax && sp) bm.mesh.rotateOnAxis(ax, sp * dt);
+      });
+      // Also rotate the flying ball
+      if (ball && ball.mesh && ball.mesh.userData.rotAxis) {
+        ball.mesh.rotateOnAxis(ball.mesh.userData.rotAxis, ball.mesh.userData.rotSpeed * dt * 3);
+      }
+    }
     if (ball&&ball.trail.length) {
       ball.trail.forEach((tp,i)=>{
         const t=(i+1)/ball.trail.length;
@@ -741,17 +760,18 @@ export default (() => {
     // Power-up activates immediately on landing
     if (power) {
       _activatePower(power, row, col);
-      // Remove the power bubble from grid after effect
       _popCell(row, col, false, true);
+      // Drop anything now disconnected after the power effect
+      _dropAllFloating();
       _trimEmptyRows();
-      // Check if board is clear after power-up
       if (_countBubbles()===0) { setTimeout(_advanceLevel, 600); return; }
       updateUI(); return;
     }
 
-    SFX.land();
+      SFX.land();
     const group=_getMatchGroup(row,col);
     if (group.length>=3) {
+      // Get floaters BEFORE popping (treats group as already gone)
       const floaters=_getFloating(group);
       chain++; chainTimer=3000;
       const pts=group.length*group.length*10*level*chain+floaters.length*50*level*chain;
@@ -763,13 +783,16 @@ export default (() => {
 
       const avgCv=group.reduce((a,{r,c})=>{const cv=cellXY(r,c);a.x+=cv.x;a.y+=cv.y;return a;},{x:0,y:0});
       avgCv.x/=group.length; avgCv.y/=group.length;
+
       // Capture any power-up bubbles in the match before we pop them
       const powersInGroup = group
         .filter(({r,c})=>grid[r]&&grid[r][c]&&grid[r][c].power)
         .map(({r,c})=>({power:grid[r][c].power, r, c}));
 
+      // Pop the matched group
       group.forEach(({r,c})=>_popCell(r,c,false));
-      // Fire collected power effects (after popping their cells)
+
+      // Fire collected power effects
       powersInGroup.forEach(({power,r,c})=>{
         const cv=cellXY(r,c);
         setTimeout(()=>{
@@ -780,7 +803,9 @@ export default (() => {
           );
         }, 80);
       });
-      floaters.forEach(({r,c})=>_spawnFloater(r,c));
+
+      // Drop ALL bubbles now disconnected from ceiling (not just adjacent floaters)
+      _dropAllFloating();
       _trimEmptyRows();
       _addScoreSprite(avgCv.x,avgCv.y-20,chain>1?`CHAIN×${chain}! +${pts}`:`+${pts}`);
 
@@ -942,6 +967,29 @@ export default (() => {
 
   function _hexNeighbors(r,c){const e=r%2===0;return[[r-1,e?c-1:c],[r-1,e?c:c+1],[r,c-1],[r,c+1],[r+1,e?c-1:c],[r+1,e?c:c+1]];}
   function _trimEmptyRows(){while(grid.length&&(grid[grid.length-1]||[]).every(b=>!b))grid.pop();}
+
+  // Drop every bubble not connected to the ceiling — called after any mass-pop
+  function _dropAllFloating() {
+    const attached = new Set();
+    const q = [];
+    // Seed from row 0
+    for (let c=0; c<colsForRow(0); c++) {
+      if (grid[0]&&grid[0][c]) { q.push([0,c]); attached.add('0,'+c); }
+    }
+    while (q.length) {
+      const [r,c]=q.shift();
+      for (const [nr,nc] of _hexNeighbors(r,c)) {
+        const key=nr+','+nc;
+        if (attached.has(key)) continue;
+        if (nr<0||nr>=grid.length||nc<0||nc>=colsForRow(nr)) continue;
+        if (!grid[nr]||!grid[nr][nc]) continue;
+        attached.add(key); q.push([nr,nc]);
+      }
+    }
+    for (let r=0;r<grid.length;r++) for (let c=0;c<colsForRow(r);c++) {
+      if (grid[r]&&grid[r][c]&&!attached.has(r+','+c)) _spawnFloater(r,c);
+    }
+  }
 
   function _addNewTopRow() {
     const newRow=_buildNewTopRow();
