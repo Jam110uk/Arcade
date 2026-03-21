@@ -247,24 +247,28 @@ export default (() => {
   // Keyed strings: 'shell_0', 'inner_0', 'spec', 'spec2', 'clear_shell', 'clear_rim'
   const _sharedMats = {};
 
+  // Shell and inner are per-instance — opacity is mutated per-bubble during animations
   function _shellMat(ci) {
-    const k = 'shell_'+ci;
-    if (!_sharedMats[k]) _sharedMats[k] = new THREE.MeshPhongMaterial({
+    return new THREE.MeshPhongMaterial({
       color: ALL_COLORS[ci].hex, emissive: ALL_COLORS[ci].hex,
       emissiveIntensity: 0.08, shininess: 260, specular: 0xffffff,
       transparent: true, opacity: 0.55, side: THREE.FrontSide,
     });
-    return _sharedMats[k];
   }
   function _innerMat(ci) {
-    const k = 'inner_'+ci;
-    if (!_sharedMats[k]) _sharedMats[k] = new THREE.MeshPhongMaterial({
+    return new THREE.MeshPhongMaterial({
       color: ALL_COLORS[ci].hex, emissive: ALL_COLORS[ci].hex,
       emissiveIntensity: 0.45, shininess: 80,
       transparent: true, opacity: 0.72,
     });
-    return _sharedMats[k];
   }
+  function _clearShellMat() {
+    return new THREE.MeshPhongMaterial({
+      color:0xffffff, emissive:0x223355, emissiveIntensity:0.08,
+      shininess:300, specular:0xffffff, transparent:true, opacity:0.30, side:THREE.FrontSide,
+    });
+  }
+  // Specular blobs and rim are truly static — safe to share
   function _specMat()  {
     if (!_sharedMats.spec)  _sharedMats.spec  = new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.55 });
     return _sharedMats.spec;
@@ -272,13 +276,6 @@ export default (() => {
   function _spec2Mat() {
     if (!_sharedMats.spec2) _sharedMats.spec2 = new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.35 });
     return _sharedMats.spec2;
-  }
-  function _clearShellMat() {
-    if (!_sharedMats.clearShell) _sharedMats.clearShell = new THREE.MeshPhongMaterial({
-      color:0xffffff, emissive:0x223355, emissiveIntensity:0.08,
-      shininess:300, specular:0xffffff, transparent:true, opacity:0.30, side:THREE.FrontSide,
-    });
-    return _sharedMats.clearShell;
   }
   function _clearRimMat() {
     if (!_sharedMats.clearRim) _sharedMats.clearRim = new THREE.MeshBasicMaterial({ color:0x00f5ff, transparent:true, opacity:0.18, side:THREE.BackSide });
@@ -708,7 +705,7 @@ export default (() => {
         _addNewTopRow();
         if (_gridTooLow()) { doGameOver(); return; }
       }
-      elapsedMs+=dt;
+      elapsedMs += Math.max(0, dt);
     }
 
     if (ball) {
@@ -1371,7 +1368,7 @@ export default (() => {
     s('bam3d-best', Math.max(score,best).toLocaleString());
     s('bam3d-level',level);
     s('bam3d-chain',chain>1?`×${chain}`:'×1');
-    const secs=Math.floor(elapsedMs/1000);
+    const secs=Math.max(0,Math.floor(elapsedMs/1000));
     s('bam3d-time',`${Math.floor(secs/60)}:${String(secs%60).padStart(2,'0')}`);
 
     // Drop bar
