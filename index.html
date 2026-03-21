@@ -16231,23 +16231,6 @@ window.PERF = (() => {
   transition: background 0.3s;
 }
 
-/* Level progress bar */
-#bam3d-prog-track {
-  height: 6px;
-  background: rgba(57,255,20,0.08);
-  border: 1px solid rgba(57,255,20,0.22);
-  border-radius: 3px;
-  overflow: hidden;
-}
-#bam3d-prog-bar {
-  height: 100%;
-  width: 0%;
-  background: #39ff14;
-  border-radius: 3px;
-  box-shadow: 0 0 6px rgba(57,255,20,0.6);
-  transition: width 0.25s;
-}
-
 /* Boss HP wrap */
 #bam3d-boss-wrap {
   display: none;
@@ -16432,11 +16415,6 @@ window.PERF = (() => {
       <div class="bam3d-panel">
         <div class="bam3d-panel-label">DROP</div>
         <div id="bam3d-drop-track"><div id="bam3d-drop-bar"></div></div>
-      </div>
-      <div class="bam3d-panel">
-        <div class="bam3d-panel-label">LEVEL PROGRESS</div>
-        <div id="bam3d-prog-track"><div id="bam3d-prog-bar"></div></div>
-        <div id="bam3d-prog-label" style="font-size:0.45rem;color:rgba(57,255,20,0.7);text-align:center;margin-top:2px;font-family:'Share Tech Mono',monospace">0/0</div>
       </div>
       <div style="margin-top:auto">
         <div class="bam3d-preview-wrap">

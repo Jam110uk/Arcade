@@ -121,10 +121,6 @@ export default (() => {
   // Canvas → Three.js world (orthographic, Y-up, same pixel scale)
   function tw(cx, cy)    { return new THREE.Vector3(cx, H - cy, 0); }
 
-  // ── Level quota ───────────────────────────────────────────────
-  // Pops needed to clear the level — scales with level
-  function quotaForLevel(lvl) { return 10 + lvl * 6; }
-
   // ── Three.js state ────────────────────────────────────────────
   let renderer, scene, camera;
   let animId = null, container = null, _resizeObs = null;
@@ -168,8 +164,6 @@ export default (() => {
   let dropTimer     = DROP_SECS * 1000;
   let elapsedMs     = 0;
   let lastTs        = 0;
-  let popsThisLevel = 0;   // progress toward quota
-  let _quota        = quotaForLevel(1);
   let _aimDirty     = true, _aimLastAngle = null, _aimPts = null;
 
   let leftHeld = false, rightHeld = false;
@@ -482,8 +476,9 @@ export default (() => {
       if (grid[r]&&grid[r][c]) { _popCell(r,c,false); count++; }
     }
     _addScoreSprite(cellXY(row,col).x, cellXY(row,col).y-20, `🔥 +${count*25*level}`);
-    score+=count*25*level; popsThisLevel+=count;
+    score+=count*25*level;
     if(window.FX){FX.screenFlash('#ff6a00',0.3);FX.shake(5);}
+    _spawnPowerParticles('fire', cellXY(row,col).x, cellXY(row,col).y);
   }
 
   function _powerWater(row, col, ci) {
@@ -506,6 +501,7 @@ export default (() => {
     }
     _addScoreSprite(cellXY(row,col).x, cellXY(row,col).y-20, `💧 ×${count} recoloured`);
     if(window.FX) FX.screenFlash('#00f5ff',0.2);
+    _spawnPowerParticles('water', cellXY(row,col).x, cellXY(row,col).y);
   }
 
   function _powerLightning(row) {
@@ -515,8 +511,9 @@ export default (() => {
       if (grid[row]&&grid[row][c]) { _popCell(row,c,false); count++; }
     }
     _addScoreSprite(cannonX(), H-cellXY(row,0).y*0.5, `⚡ ROW CLEAR +${count*30*level}`);
-    score+=count*30*level; popsThisLevel+=count;
+    score+=count*30*level;
     if(window.FX){FX.screenFlash('#ffe600',0.35);FX.shake(6);}
+    _spawnPowerParticles('lightning', W/2, cellXY(row,0).y);
   }
 
   function _powerStar(ci) {
@@ -526,8 +523,9 @@ export default (() => {
       if (grid[r]&&grid[r][c]&&grid[r][c].ci===ci&&!grid[r][c].power) { _popCell(r,c,false); count++; }
     }
     _addScoreSprite(cannonX(), H*0.45, `⭐ COLOUR CLEAR +${count*40*level}`);
-    score+=count*40*level; popsThisLevel+=count;
+    score+=count*40*level;
     if(window.FX){FX.screenFlash('#ffe600',0.4);FX.shake(4);}
+    _spawnPowerParticles('star', W/2, H*0.5);
   }
 
   // ── Update (identical physics to pb.js) ──────────────────────
@@ -585,14 +583,37 @@ export default (() => {
       });
     }
 
-    // Pop particles
+    // Pop particles + floaters + power sparks
     popParticles.forEach(p=>{
       p.x+=p.vx; p.y+=p.vy;
-      if (p.isFloater){p.vy+=0.45;p.vx*=0.99;p.alpha=p.y>H*0.8?Math.max(0,1-(p.y-H*0.8)/(H*0.25)):1;p.scale=1;}
-      else{p.vy+=0.6;p.vx*=0.97;p.alpha-=0.025;p.scale=Math.max(0,p.scale-0.016);}
-      if (p.mesh){p.mesh.position.copy(tw(p.x,p.y));p.mesh.position.z=4;p.mesh.scale.setScalar(p.scale);p.mesh.material.opacity=Math.max(0,p.alpha);}
+      if (p.isFloater) {
+        // Gravity: vy increases (more downward in canvas space = increasing y)
+        p.vy+=0.45; p.vx*=0.99;
+        // Stay visible while falling, fade only near bottom
+        p.alpha = p.y > H*0.82 ? Math.max(0, 1-(p.y-H*0.82)/(H*0.22)) : 1;
+        p.scale = 1;
+      } else if (p.isSpark) {
+        p.vy+=0.3; p.vx*=0.96;
+        p.alpha-=0.038; p.scale=Math.max(0,p.scale-0.025);
+      } else {
+        p.vy+=0.6; p.vx*=0.97;
+        p.alpha-=0.025; p.scale=Math.max(0,p.scale-0.016);
+      }
+      if (p.mesh){
+        p.mesh.position.copy(tw(p.x,p.y)); p.mesh.position.z=4;
+        p.mesh.scale.setScalar(Math.max(0.01,p.scale));
+        if(p.mesh.children&&p.mesh.children.length){
+          // It's a full bubble group (floater) — fade via child materials
+          p.mesh.children.forEach(ch=>{ if(ch.material) ch.material.opacity=Math.max(0,p.alpha); });
+        } else if(p.mesh.material) {
+          p.mesh.material.opacity=Math.max(0,p.alpha);
+        }
+      }
     });
-    popParticles=popParticles.filter(p=>{if(p.alpha<=0||p.y>H+80){if(p.mesh)scene.remove(p.mesh);return false;}return true;});
+    popParticles=popParticles.filter(p=>{
+      if(p.alpha<=0||p.y>H+100){if(p.mesh)scene.remove(p.mesh);return false;}
+      return true;
+    });
 
     // Score sprites
     scoreSprites.forEach(s=>{s.mesh.position.y+=1.1;s.life-=dt;const t=Math.max(0,s.life/s.maxLife);if(s.mesh.material)s.mesh.material.opacity=t;});
@@ -635,7 +656,9 @@ export default (() => {
       // Remove the power bubble from grid after effect
       _popCell(row, col, false, true);
       _trimEmptyRows();
-      updateUI(); _checkLevelProgress(); return;
+      // Check if board is clear after power-up
+      if (_countBubbles()===0) { setTimeout(_advanceLevel, 600); return; }
+      updateUI(); return;
     }
 
     SFX.land();
@@ -645,7 +668,6 @@ export default (() => {
       chain++; chainTimer=3000;
       const pts=group.length*group.length*10*level*chain+floaters.length*50*level*chain;
       score+=pts; if(score>best)best=score;
-      popsThisLevel+=group.length+floaters.length;
 
       SFX.pop(group.length);
       if(floaters.length) setTimeout(()=>SFX.floaters(floaters.length),120);
@@ -654,7 +676,8 @@ export default (() => {
       const avgCv=group.reduce((a,{r,c})=>{const cv=cellXY(r,c);a.x+=cv.x;a.y+=cv.y;return a;},{x:0,y:0});
       avgCv.x/=group.length; avgCv.y/=group.length;
       group.forEach(({r,c})=>_popCell(r,c,false));
-      floaters.forEach(({r,c})=>_popCell(r,c,true));
+      // Floaters fall with gravity — spawn as falling bubbles not pop particles
+      floaters.forEach(({r,c})=>_spawnFloater(r,c));
       _trimEmptyRows();
       _addScoreSprite(avgCv.x,avgCv.y-20,chain>1?`CHAIN×${chain}! +${pts}`:`+${pts}`);
 
@@ -667,22 +690,18 @@ export default (() => {
       chain=0; chainTimer=0; SFX.land();
     }
 
-    updateUI(); _checkLevelProgress();
+    updateUI();
+    if (_countBubbles()===0) { setTimeout(_advanceLevel, 600); return; }
     if (_gridTooLow()){doGameOver();return;}
   }
 
-  function _checkLevelProgress() {
-    if (popsThisLevel >= _quota) {
-      _advanceLevel();
-    }
-    updateUI();
+  function _countBubbles() {
+    let n=0; for(const row of grid) for(const b of (row||[])) if(b) n++; return n;
   }
 
   function _advanceLevel() {
     score+=500*level; if(score>best)best=score;
     level++;
-    popsThisLevel=0;
-    _quota=quotaForLevel(level);
     dropTimer=DROP_SECS*1000;
     chain=0; chainTimer=0;
     heldSlot=null; canSwap=true; queue=[];
@@ -692,7 +711,7 @@ export default (() => {
     const newN  = numColorsForLevel(level);
     if (newN > prevN) {
       const newCol = ALL_COLORS[newN-1];
-      _addScoreSprite(W/2, H*0.42, `NEW: ${newCol.name}!`);
+      _addScoreSprite(W/2, H*0.42, `NEW COLOUR: ${newCol.name}!`);
     }
 
     generateLevel(); refillQueue(); SFX.levelUp();
@@ -712,6 +731,55 @@ export default (() => {
       const m=new THREE.Mesh(sphereGeo(R*0.45),new THREE.MeshBasicMaterial({color:ALL_COLORS[ci].hex,transparent:true,opacity:1}));
       m.position.copy(tw(cv.x,cv.y)); m.position.z=4; scene.add(m);
       popParticles.push({mesh:m,x:cv.x,y:cv.y,vx:Math.cos(ang)*spd,vy:isFloater?-(1+Math.random()*1.5):Math.sin(ang)*spd,alpha:1,scale:1,isFloater});
+    }
+  }
+
+  // Detached bubble — falls with gravity like pb.js floaters
+  function _spawnFloater(row, col) {
+    if (!grid[row]||!grid[row][col]) return;
+    const ci  = grid[row][col].ci;
+    const cv  = cellXY(row,col);
+    // Remove from grid immediately
+    const idx = gridMeshes.findIndex(bm=>bm.row===row&&bm.col===col);
+    if (idx!==-1){scene.remove(gridMeshes[idx].mesh);gridMeshes.splice(idx,1);}
+    grid[row][col]=null;
+    // Build a fresh bubble mesh for the falling animation
+    const mesh = _buildBubbleMesh(ci, null);
+    mesh.position.copy(tw(cv.x, cv.y)); mesh.position.z=4;
+    scene.add(mesh);
+    // Small upward nudge then gravity pulls it down (canvas Y convention: vy negative = up canvas = down world)
+    popParticles.push({
+      mesh, x:cv.x, y:cv.y,
+      vx:(Math.random()-0.5)*1.5,
+      vy:-(1+Math.random()*1.5),   // small up bounce then falls
+      alpha:1, scale:1,
+      isFloater:true,
+    });
+  }
+
+  // Power-up particle burst — coloured particles matching the power type
+  function _spawnPowerParticles(powerKey, cx, cy) {
+    const configs = {
+      fire:      { colors:[0xff6a00,0xff2d78,0xffe600], count:18, speed:5 },
+      water:     { colors:[0x00f5ff,0x0088ff,0xffffff], count:14, speed:4 },
+      lightning: { colors:[0xffe600,0xffffff,0xbf00ff], count:22, speed:7 },
+      star:      { colors:[0xffe600,0xffffff,0xffaaff], count:20, speed:6 },
+    };
+    const cfg = configs[powerKey] || configs.star;
+    for (let i=0; i<cfg.count; i++) {
+      const col = cfg.colors[Math.floor(Math.random()*cfg.colors.length)];
+      const r   = R * (0.18 + Math.random()*0.22);
+      const mesh = new THREE.Mesh(
+        sphereGeo(Math.max(2,Math.round(r))),
+        new THREE.MeshBasicMaterial({color:col, transparent:true, opacity:1})
+      );
+      mesh.position.copy(tw(cx,cy)); mesh.position.z=6; scene.add(mesh);
+      const ang  = Math.random()*Math.PI*2;
+      const spd  = cfg.speed*(0.5+Math.random());
+      // For lightning, shoot horizontally; for star, spray in all directions
+      const vxp  = powerKey==='lightning' ? Math.cos(ang)*spd*2 : Math.cos(ang)*spd;
+      const vyp  = powerKey==='lightning' ? (Math.random()-0.5)*spd : Math.sin(ang)*spd;
+      popParticles.push({mesh, x:cx, y:cy, vx:vxp, vy:vyp, alpha:1, scale:1, isFloater:false, isSpark:true});
     }
   }
 
@@ -813,7 +881,6 @@ export default (() => {
     level=1; chain=0; chainTimer=0; paused=false; dead=false;
     heldSlot=null; canSwap=true; queue=[];
     dropTimer=DROP_SECS*1000; elapsedMs=0; cannonAngle=-Math.PI/2;
-    popsThisLevel=0; _quota=quotaForLevel(1);
     if(ball){if(ball.mesh)scene.remove(ball.mesh);ball=null;}
     trailPool.forEach(m=>scene.remove(m)); trailPool=[];
     popParticles.forEach(p=>p.mesh&&scene.remove(p.mesh)); popParticles=[];
@@ -859,12 +926,6 @@ export default (() => {
     // Drop bar
     const dropBar=document.getElementById('bam3d-drop-bar');
     if(dropBar){const f=Math.max(0,dropTimer/(DROP_SECS*1000));dropBar.style.width=(f*100)+'%';dropBar.style.background=f<0.25?'#ff2d78':f<0.5?'#ffe600':'#00f5ff';}
-
-    // Level progress bar
-    const progBar=document.getElementById('bam3d-prog-bar');
-    const progLabel=document.getElementById('bam3d-prog-label');
-    if(progBar){const f=Math.min(1,popsThisLevel/_quota);progBar.style.width=(f*100)+'%';}
-    if(progLabel)progLabel.textContent=`${Math.min(popsThisLevel,_quota)}/${_quota}`;
 
     if(score>best){best=score;localStorage.setItem('bam3d-best',best);}
   }
