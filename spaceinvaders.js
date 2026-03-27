@@ -178,89 +178,124 @@ export default (() => {
   function buildPlayer() {
     playerGroup = new THREE.Group();
 
-    // Main fuselage — sleek vertical body pointing UP
-    const bodyGeo = new THREE.CylinderGeometry(0.18, 0.32, 1.0, 8);
-    const bodyMat = makeGlow(bodyGeo, COLORS.player, 1.2);
+    // ── Main fuselage ──
+    const bodyGeo = new THREE.CylinderGeometry(0.16, 0.30, 1.05, 10);
+    const bodyMat = makeGlow(bodyGeo, COLORS.player, 1.1);
     const body = new THREE.Mesh(bodyGeo, bodyMat);
-    body.position.y = 0.1;
+    body.position.y = 0.08;
     playerGroup.add(body);
+    // Panel wireframe
+    const bodyWF = makeWireframe(new THREE.CylinderGeometry(0.165, 0.305, 1.06, 10), COLORS.player);
+    bodyWF.position.y = 0.08;
+    playerGroup.add(bodyWF);
 
-    // Nose cone pointing up
-    const noseGeo = new THREE.ConeGeometry(0.18, 0.52, 8);
-    const noseMat = makeGlow(noseGeo, COLORS.player, 2.0);
+    // ── Nose cone ──
+    const noseGeo = new THREE.ConeGeometry(0.16, 0.58, 10);
+    const noseMat = makeGlow(noseGeo, COLORS.player, 2.2);
     const nose = new THREE.Mesh(noseGeo, noseMat);
-    nose.position.y = 0.87;
+    nose.position.y = 0.9;
     playerGroup.add(nose);
+    const noseWF = makeWireframe(new THREE.ConeGeometry(0.163, 0.59, 10), 0x00ffff);
+    noseWF.position.y = 0.9;
+    playerGroup.add(noseWF);
 
-    // Left wing
-    const lwGeo = new THREE.BufferGeometry();
-    const lwVerts = new Float32Array([
-       0,    0.15, 0,
-      -1.1, -0.45, 0,
-      -0.28,-0.55, 0,
-      -0.28, 0.15, 0,
-    ]);
-    const lwIdx = new Uint16Array([0,1,2, 0,2,3]);
-    lwGeo.setAttribute('position', new THREE.BufferAttribute(lwVerts, 3));
-    lwGeo.setIndex(new THREE.BufferAttribute(lwIdx, 1));
-    lwGeo.computeVertexNormals();
-    const lw = new THREE.Mesh(lwGeo, makeGlow(lwGeo, COLORS.player, 0.9));
-    playerGroup.add(lw);
+    // ── Gun barrel ──
+    const gunGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.45, 6);
+    const gunMat = new THREE.MeshStandardMaterial({ color: 0x88ddff, emissive: 0x00aaff, emissiveIntensity: 1.2, metalness: 0.8, roughness: 0.2 });
+    const gun = new THREE.Mesh(gunGeo, gunMat);
+    gun.position.y = 1.33;
+    playerGroup.add(gun);
+    // Gun tip glow
+    const tipGeo = new THREE.SphereGeometry(0.055, 6, 6);
+    const tip = new THREE.Mesh(tipGeo, makeGlow(tipGeo, 0x00ffff, 3.5));
+    tip.position.y = 1.57;
+    playerGroup.add(tip);
 
-    // Right wing (mirror)
-    const rwGeo = new THREE.BufferGeometry();
-    const rwVerts = new Float32Array([
-       0,    0.15, 0,
-       1.1, -0.45, 0,
-       0.28,-0.55, 0,
-       0.28, 0.15, 0,
-    ]);
-    const rwIdx = new Uint16Array([0,2,1, 0,3,2]);
-    rwGeo.setAttribute('position', new THREE.BufferAttribute(rwVerts, 3));
-    rwGeo.setIndex(new THREE.BufferAttribute(rwIdx, 1));
-    rwGeo.computeVertexNormals();
-    const rw = new THREE.Mesh(rwGeo, makeGlow(rwGeo, COLORS.player, 0.9));
-    playerGroup.add(rw);
-
-    // Wing neon edge lines
+    // ── Swept wings ──
     [-1, 1].forEach(sign => {
-      const pts = [
-        new THREE.Vector3(0, 0.15, 0),
-        new THREE.Vector3(sign * 1.1, -0.45, 0),
-        new THREE.Vector3(sign * 0.28, -0.55, 0),
+      const wGeo = new THREE.BufferGeometry();
+      const v = new Float32Array([
+        sign * 0.14,  0.22, 0,
+        sign * 1.15, -0.38, 0,
+        sign * 0.95, -0.60, 0,
+        sign * 0.28, -0.62, 0,
+        sign * 0.14, -0.10, 0,
+      ]);
+      const idx = sign > 0
+        ? new Uint16Array([0,1,4, 1,3,4, 1,2,3])
+        : new Uint16Array([0,4,1, 1,4,3, 1,3,2]);
+      wGeo.setAttribute('position', new THREE.BufferAttribute(v, 3));
+      wGeo.setIndex(new THREE.BufferAttribute(idx, 1));
+      wGeo.computeVertexNormals();
+      playerGroup.add(new THREE.Mesh(wGeo, makeGlow(wGeo, COLORS.player, 0.85)));
+
+      // Wing leading-edge neon line
+      const edgePts = [
+        new THREE.Vector3(sign * 0.14,  0.22, 0),
+        new THREE.Vector3(sign * 1.15, -0.38, 0),
+        new THREE.Vector3(sign * 0.95, -0.60, 0),
+        new THREE.Vector3(sign * 0.28, -0.62, 0),
       ];
-      const edgeGeo = new THREE.BufferGeometry().setFromPoints(pts);
-      const edgeMat = new THREE.LineBasicMaterial({ color: 0x00ffff, linewidth: 1 });
-      playerGroup.add(new THREE.Line(edgeGeo, edgeMat));
+      playerGroup.add(new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(edgePts),
+        new THREE.LineBasicMaterial({ color: 0x00ffff })
+      ));
+
+      // Wing-tip nav light (red port, green starboard)
+      const navGeo = new THREE.SphereGeometry(0.055, 6, 6);
+      const navMat = makeGlow(navGeo, sign < 0 ? 0xff3333 : 0x33ff66, 4.0);
+      const nav = new THREE.Mesh(navGeo, navMat);
+      nav.position.set(sign * 1.15, -0.38, 0);
+      playerGroup.add(nav);
     });
 
-    // Cockpit dome
-    const cockpitGeo = new THREE.SphereGeometry(0.14, 8, 6, 0, Math.PI * 2, 0, Math.PI * 0.6);
+    // ── Cockpit dome ──
+    const cockpitGeo = new THREE.SphereGeometry(0.13, 10, 7, 0, Math.PI * 2, 0, Math.PI * 0.55);
     const cockpitMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff, emissive: 0x44aaff, emissiveIntensity: 1.5,
-      transparent: true, opacity: 0.7,
+      color: 0xaaddff, emissive: 0x2255ff, emissiveIntensity: 1.8,
+      transparent: true, opacity: 0.72, metalness: 0.3, roughness: 0.1,
     });
     const cockpit = new THREE.Mesh(cockpitGeo, cockpitMat);
     cockpit.position.y = 0.62;
     playerGroup.add(cockpit);
 
-    // Twin engine exhausts
-    [-0.18, 0.18].forEach(xOff => {
-      const engGeo = new THREE.SphereGeometry(0.12, 8, 8);
-      const engMat = makeGlow(engGeo, 0xff6622, 4.0);
+    // ── Twin engine pods + exhausts ──
+    [-0.22, 0.22].forEach((xOff, i) => {
+      const podGeo = new THREE.CylinderGeometry(0.09, 0.11, 0.35, 8);
+      const podMat = new THREE.MeshStandardMaterial({ color: COLORS.player, emissive: COLORS.player, emissiveIntensity: 0.5, metalness: 0.6, roughness: 0.3 });
+      const pod = new THREE.Mesh(podGeo, podMat);
+      pod.position.set(xOff, -0.58, 0);
+      playerGroup.add(pod);
+
+      const engGeo = new THREE.SphereGeometry(0.10, 8, 8);
+      const engMat = makeGlow(engGeo, 0xff5500, 5.0);
       const eng = new THREE.Mesh(engGeo, engMat);
-      eng.position.set(xOff, -0.62, 0);
+      eng.position.set(xOff, -0.80, 0);
       playerGroup.add(eng);
-      if (xOff > 0) {
-        playerGroup._engineMat = engMat; // store one for animation
-      }
+      if (i === 1) playerGroup._engineMat = engMat;
+
+      // Bright inner core
+      const coreGeo = new THREE.SphereGeometry(0.055, 6, 6);
+      const core = new THREE.Mesh(coreGeo, makeGlow(coreGeo, 0xffdd88, 8.0));
+      core.position.set(xOff, -0.80, 0);
+      playerGroup.add(core);
     });
 
-    // Neon wireframe silhouette on nose
-    const wfGeo = new THREE.ConeGeometry(0.19, 0.54, 8);
-    const wf = makeWireframe(wfGeo, 0x00ffff);
-    wf.position.y = 0.87;
-    playerGroup.add(wf);
+    // ── Rear stabiliser fins ──
+    [-1, 1].forEach(sign => {
+      const fv = new Float32Array([
+        sign * 0.28, -0.48, 0,
+        sign * 0.60, -0.68, 0,
+        sign * 0.28, -0.75, 0,
+      ]);
+      const finGeo = new THREE.BufferGeometry();
+      finGeo.setAttribute('position', new THREE.BufferAttribute(fv, 3));
+      finGeo.setIndex(new THREE.BufferAttribute(new Uint16Array(sign > 0 ? [0,1,2] : [0,2,1]), 1));
+      finGeo.computeVertexNormals();
+      playerGroup.add(new THREE.Mesh(finGeo, makeGlow(finGeo, COLORS.player, 1.0)));
+      const fp = [new THREE.Vector3(sign*0.28,-0.48,0), new THREE.Vector3(sign*0.60,-0.68,0), new THREE.Vector3(sign*0.28,-0.75,0)];
+      playerGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(fp), new THREE.LineBasicMaterial({ color: 0x00ffff })));
+    });
 
     playerGroup.position.set(0, PLAYER_Y, 0);
     scene.add(playerGroup);
@@ -1059,11 +1094,13 @@ export default (() => {
 
   // ── Input ─────────────────────────────────────────────────────
   function onKey(e) {
-    // Prevent double-fire when both window and canvas wrap are listening
-    if (e._siHandled) return; e._siHandled = true;
-    keys[e.code] = e.type === 'keydown';
-    if (['Space'].includes(e.code)) e.preventDefault();
-    if (e.type === 'keydown') {
+    const down = e.type === 'keydown';
+    keys[e.code] = down;
+    if (e.code === 'Space' || e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (down) {
       if ((e.code === 'Space' || e.code === 'Enter') && gameState === 'idle') startGame();
       if (e.code === 'Escape') window.backToGameSelect?.();
     }
@@ -1229,14 +1266,12 @@ export default (() => {
     resizeOb = new ResizeObserver(onResize);
     resizeOb.observe(container);
 
-    // Input — make canvas focusable and register keydown on both window and canvas
+    // Input — use capture phase on window so parent page can't swallow keys first
     canvasWrap.tabIndex = 0;
     canvasWrap.style.outline = 'none';
     canvasWrap.addEventListener('click', () => canvasWrap.focus());
-    canvasWrap.addEventListener('keydown', onKey);
-    canvasWrap.addEventListener('keyup',   onKey);
-    window.addEventListener('keydown', onKey);
-    window.addEventListener('keyup',   onKey);
+    window.addEventListener('keydown', onKey, true);  // capture phase
+    window.addEventListener('keyup',   onKey, true);  // capture phase
     canvasWrap.addEventListener('touchstart', onTouchStart, { passive: false });
     canvasWrap.addEventListener('touchmove',  onTouchMove,  { passive: true });
     canvasWrap.addEventListener('touchend',   onTouchEnd);
@@ -1280,8 +1315,8 @@ export default (() => {
   function destroy() {
     destroyed = true;
     if (animId) { cancelAnimationFrame(animId); animId = null; }
-    window.removeEventListener('keydown', onKey);
-    window.removeEventListener('keyup',   onKey);
+    window.removeEventListener('keydown', onKey, true);
+    window.removeEventListener('keyup',   onKey, true);
     const cw = document.querySelector('#si-canvas-wrap');
     if (cw) { cw.removeEventListener('keydown', onKey); cw.removeEventListener('keyup', onKey); }
     if (resizeOb) { resizeOb.disconnect(); resizeOb = null; }
