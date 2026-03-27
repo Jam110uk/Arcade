@@ -75,6 +75,7 @@ export default (() => {
   let invincible = 0;    // invincibility frames after hit
   let flashTimer = 0;    // red screen flash
   let waveDelay  = 0;    // pause between waves
+  let waveClearPending = false; // prevents checkCollisions re-triggering wave clear every frame
   let enemyDir   = 1;
   let enemyStepTimer = 0;
   let enemyStepInterval = 1.2;
@@ -361,6 +362,7 @@ export default (() => {
   function spawnWave() {
     wave++;
     enemies = [];
+    waveClearPending = false;
     enemyDir = 1;
     enemyStepTimer = 0;
     enemyStepInterval = Math.max(0.35, 1.2 - wave * 0.08);
@@ -715,10 +717,13 @@ export default (() => {
 
   // ── Main game loop ────────────────────────────────────────────
   let lastT = 0;
+  let paused = false;
 
   function loop(t) {
     if (destroyed) return;
     animId = requestAnimationFrame(loop);
+
+    if (paused) { lastT = t; return; } // freeze dt when resuming
 
     const dt = Math.min((t - lastT) / 1000, 0.05);
     lastT = t;
@@ -1020,8 +1025,9 @@ export default (() => {
     // Clean dead enemies
     enemies = enemies.filter(e => !e.dead);
 
-    // Check wave clear
-    if (enemies.length === 0) {
+    // Check wave clear — only trigger once per wave
+    if (enemies.length === 0 && !waveClearPending) {
+      waveClearPending = true;
       waveDelay = 2.5;
       showOverlay(`
         <div class="si-ov-title" style="color:#ffe600;text-shadow:0 0 24px #ffe600">WAVE ${wave} CLEAR!</div>
@@ -1084,6 +1090,21 @@ export default (() => {
     camera.position.z = Math.max(fitH, fitW) + 1;
   }
 
+  function onBlur() {
+    if (gameState === 'playing') {
+      paused = true;
+      fireHeld = false;
+      keys = {};
+      showOverlay(`<div class="si-ov-title" style="color:#00e5ff;font-size:clamp(1.2rem,3vw,2rem)">PAUSED</div><div class="si-ov-sub">Click or focus window to resume</div>`);
+    }
+  }
+  function onFocus() {
+    if (paused) {
+      paused = false;
+      hideOverlay();
+    }
+  }
+
   // ── Input ─────────────────────────────────────────────────────
   function onKey(e) {
     const down = e.type === 'keydown';
@@ -1132,7 +1153,7 @@ export default (() => {
     px = 0; player.position.x = 0; player.visible = true;
     rapidTimer = 0; spreadTimer = 0; laserTimer = 0; slowTimer = 0;
     shieldHP = 0; invincible = 0; fireCooldown = -1; flashTimer = 0;
-    waveDelay = 0; enemyDir = 1;
+    waveDelay = 0; enemyDir = 1; waveClearPending = false;
 
     gameState = 'playing';
     spawnWave();
@@ -1274,6 +1295,8 @@ export default (() => {
     }, true);
     window.addEventListener('keydown', onKey, true);
     window.addEventListener('keyup',   onKey, true);
+    window.addEventListener('blur',  onBlur);
+    window.addEventListener('focus', onFocus);
     canvasWrap.addEventListener('touchstart', onTouchStart, { passive: false });
     canvasWrap.addEventListener('touchmove',  onTouchMove,  { passive: true });
     canvasWrap.addEventListener('touchend',   onTouchEnd);
@@ -1319,6 +1342,8 @@ export default (() => {
     if (animId) { cancelAnimationFrame(animId); animId = null; }
     window.removeEventListener('keydown', onKey, true);
     window.removeEventListener('keyup',   onKey, true);
+    window.removeEventListener('blur',  onBlur);
+    window.removeEventListener('focus', onFocus);
     const cw = document.querySelector('#si-canvas-wrap');
     if (cw) { cw.removeEventListener('keydown', onKey); cw.removeEventListener('keyup', onKey); }
     if (resizeOb) { resizeOb.disconnect(); resizeOb = null; }
