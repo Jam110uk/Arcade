@@ -14,138 +14,6 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.m
 
 export default (() => {
 
-  // ── GPU Quality Auto-Detect ───────────────────────────────────
-  // Runs a quick benchmark on first init: renders 600 spheres for 30 frames,
-  // measures average ms/frame, then picks LOW / MED / HIGH quality profile.
-  // Result is cached in sessionStorage so it only runs once per session.
-
-  const Q = (() => {
-    // Profiles — LOW matches previous iGPU optimisations, HIGH is original quality
-    const PROFILES = {
-      LOW: {
-        pixelRatio:      1,
-        powerPreference: 'low-power',
-        precision:       'mediump',
-        fps:             30,
-        sphereSegs:      [6, 5],
-        specHighlights:  false,
-        fireCount:       14,
-        fireFlashCount:  5,
-        lightningPtsPer: 3,
-        starBurstCount:  12,
-        shimmerEveryOther: true,
-        lights:          'hemi',   // AmbientLight + DirectionalLight + HemisphereLight
-      },
-      MED: {
-        pixelRatio:      Math.min(window.devicePixelRatio, 1.5),
-        powerPreference: 'default',
-        precision:       'mediump',
-        fps:             60,
-        sphereSegs:      [8, 6],
-        specHighlights:  true,
-        fireCount:       20,
-        fireFlashCount:  7,
-        lightningPtsPer: 4,
-        starBurstCount:  18,
-        shimmerEveryOther: false,
-        lights:          'full',   // original 3-light setup
-      },
-      HIGH: {
-        pixelRatio:      Math.min(window.devicePixelRatio, 2),
-        powerPreference: 'high-performance',
-        precision:       'highp',
-        fps:             60,
-        sphereSegs:      [10, 8],
-        specHighlights:  true,
-        fireCount:       28,
-        fireFlashCount:  10,
-        lightningPtsPer: 5,
-        starBurstCount:  24,
-        shimmerEveryOther: false,
-        lights:          'full',
-      },
-    };
-
-    // Check sessionStorage for a cached result
-    const CACHE_KEY = 'bam3d_gpu_profile';
-    const cached = sessionStorage.getItem(CACHE_KEY);
-    if (cached && PROFILES[cached]) {
-      console.log(`[BAM3D] GPU profile (cached): ${cached}`);
-      return { tier: cached, ...PROFILES[cached] };
-    }
-
-    // Renderer-string heuristic — fast path, no benchmark needed for known GPUs
-    function _detectFromRenderer(str) {
-      if (!str) return null;
-      const s = str.toLowerCase();
-      // Definitely discrete/dedicated
-      if (/nvidia|geforce|quadro|rtx|gtx/.test(s))  return 'HIGH';
-      if (/amd|radeon|rx\s*\d|vega/.test(s))         return 'HIGH';
-      if (/apple m[1-9]|apple gpu/.test(s))          return 'HIGH';
-      // Intel integrated
-      if (/intel|hd graphics|uhd graphics|iris/.test(s)) return 'LOW';
-      // Mobile
-      if (/adreno|mali|powervr|videocore/.test(s))   return 'LOW';
-      return null; // unknown — fall through to benchmark
-    }
-
-    // Try WebGL renderer string first
-    try {
-      const probe = document.createElement('canvas');
-      const gl = probe.getContext('webgl') || probe.getContext('experimental-webgl');
-      if (gl) {
-        const dbg = gl.getExtension('WEBGL_debug_renderer_info');
-        if (dbg) {
-          const rendStr = gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL);
-          const tier = _detectFromRenderer(rendStr);
-          if (tier) {
-            sessionStorage.setItem(CACHE_KEY, tier);
-            console.log(`[BAM3D] GPU profile (renderer string "${rendStr}"): ${tier}`);
-            return { tier, ...PROFILES[tier] };
-          }
-        }
-      }
-    } catch(_) {}
-
-    // Fallback: micro-benchmark — render 400 small spheres for 20 frames off-screen
-    console.log('[BAM3D] Running GPU benchmark...');
-    let tier = 'MED'; // default if benchmark can't run
-    try {
-      const bc = document.createElement('canvas');
-      bc.width = bc.height = 256;
-      const br = new THREE.WebGLRenderer({ canvas: bc, antialias: false, alpha: false });
-      br.setPixelRatio(1);
-      const bs = new THREE.Scene();
-      const bCam = new THREE.OrthographicCamera(0,256,256,0,-10,10);
-      bs.add(new THREE.AmbientLight(0xffffff, 1));
-      const geo = new THREE.SphereGeometry(8, 10, 8);
-      const mat = new THREE.MeshLambertMaterial({ color: 0x00f5ff });
-      for (let i = 0; i < 400; i++) {
-        const m = new THREE.Mesh(geo, mat);
-        m.position.set(Math.random()*256, Math.random()*256, 0);
-        bs.add(m);
-      }
-      // Warm up
-      for (let i = 0; i < 5; i++) br.render(bs, bCam);
-      // Time 20 frames
-      const t0 = performance.now();
-      for (let i = 0; i < 20; i++) br.render(bs, bCam);
-      const avgMs = (performance.now() - t0) / 20;
-      br.dispose();
-      console.log(`[BAM3D] Benchmark avg ms/frame: ${avgMs.toFixed(1)}`);
-      if      (avgMs < 4)  tier = 'HIGH';
-      else if (avgMs < 12) tier = 'MED';
-      else                 tier = 'LOW';
-    } catch(_) {}
-
-    sessionStorage.setItem(CACHE_KEY, tier);
-    console.log(`[BAM3D] GPU profile (benchmark): ${tier}`);
-    return { tier, ...PROFILES[tier] };
-  })();
-
-  // Convenience: FRAME_MS derived from detected fps cap
-  const FRAME_MS = 1000 / Q.fps;
-
   // ── SFX ──────────────────────────────────────────────────────
   const SFX = (() => {
     let ctx = null;
@@ -385,7 +253,7 @@ export default (() => {
 
   function sphereGeo(r) {
     const k = Math.round(r);
-    if (!_geoCache[k]) _geoCache[k] = new THREE.SphereGeometry(r, Q.sphereSegs[0], Q.sphereSegs[1]);
+    if (!_geoCache[k]) _geoCache[k] = new THREE.SphereGeometry(r, 10, 8);
     return _geoCache[k];
   }
 
@@ -469,15 +337,12 @@ export default (() => {
     } else {
       group.add(new THREE.Mesh(sphereGeo(R),        _shellMat(ci)));
       group.add(new THREE.Mesh(sphereGeo(R * 0.72), _innerMat(ci)));
-      // Specular highlight blobs — only on MED/HIGH quality
-      if (Q.specHighlights) {
-        const spec = new THREE.Mesh(sphereGeo(R * 0.22), _specMat());
-        spec.position.set(-R*0.32, R*0.34, R*0.55);
-        group.add(spec);
-        const spec2 = new THREE.Mesh(sphereGeo(R * 0.10), _spec2Mat());
-        spec2.position.set(-R*0.12, R*0.52, R*0.45);
-        group.add(spec2);
-      }
+      const spec = new THREE.Mesh(sphereGeo(R * 0.22), _specMat());
+      spec.position.set(-R*0.32, R*0.34, R*0.55);
+      group.add(spec);
+      const spec2 = new THREE.Mesh(sphereGeo(R * 0.10), _spec2Mat());
+      spec2.position.set(-R*0.12, R*0.52, R*0.45);
+      group.add(spec2);
       if (power) {
         const col = ALL_COLORS[ci];
         const tex = _getEmojiTex(power, col.hex);
@@ -894,9 +759,8 @@ export default (() => {
       if (!placed&&ball&&ball.y>H+60) { scene.remove(ball.mesh); ball=null; }
     }
 
-    // Shimmer power-up bubbles — LOW tier skips every other frame to halve CPU cost
+    // Shimmer power-up bubbles — pulse sprite opacity via cached reference (no child iteration)
     const now = performance.now();
-    if (!Q.shimmerEveryOther || (now & 1) === 0) {
     gridMeshes.forEach(bm => {
       if (!bm.power) return;
       const sprite = bm.mesh.userData.shimmerSprite;
@@ -907,7 +771,6 @@ export default (() => {
       const pulse = 0.65 + 0.25 * Math.sin(s) + 0.10 * Math.sin(s * 3.7);
       sprite.material.opacity = Math.max(0.4, Math.min(1.0, pulse));
     });
-    }
     // Trail — reuse pre-built pool, toggle visibility instead of create/destroy
     const TRAIL_SIZE = 5;
     if (!_trailMeshPool) {
@@ -1205,7 +1068,7 @@ export default (() => {
 
   // Fire swirl: ring of flame particles that spiral outward then fade
   function _vfxFire(cx, cy) {
-    const count = Q.fireCount;
+    const count = 28;
     for (let i = 0; i < count; i++) {
       const angle = (i / count) * Math.PI * 2;
       const col = [0xff4400, 0xff8800, 0xffcc00, 0xff2200][Math.floor(Math.random()*4)];
@@ -1216,14 +1079,14 @@ export default (() => {
       );
       mesh.position.copy(tw(cx, cy)); mesh.position.z = 6; scene.add(mesh);
       const spd = 1.8 + Math.random() * 2.5;
+      // Swirl: radial + tangential component
       const vx = Math.cos(angle) * spd + Math.sin(angle) * spd * 0.6;
       const vy = Math.sin(angle) * spd - Math.cos(angle) * spd * 0.6 - 1.5;
       popParticles.push({ mesh, x: cx, y: cy, vx, vy, alpha: 1, scale: 1.2, isFloater: false, isSpark: true, gravMult: 0.15 });
     }
     // Inner bright flash ring
-    const flashCount = Q.fireFlashCount;
-    for (let i = 0; i < flashCount; i++) {
-      const angle = (i / flashCount) * Math.PI * 2;
+    for (let i = 0; i < 10; i++) {
+      const angle = (i / 10) * Math.PI * 2;
       const mesh = new THREE.Mesh(
         sphereGeo(Math.max(3, Math.round(R * 0.28))),
         new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 })
@@ -1252,7 +1115,7 @@ export default (() => {
         setTimeout(() => {
           if (!scene) return;
           // Bolt flash at this bubble's position
-          for (let i = 0; i < Q.lightningPtsPer; i++) {
+          for (let i = 0; i < 5; i++) {
             const boltMesh = new THREE.Mesh(
               sphereGeo(Math.max(3, Math.round(R * 0.22))),
               new THREE.MeshBasicMaterial({ color: i%2===0 ? 0x44aaff : 0xffffff, transparent: true, opacity: 1 })
@@ -1309,8 +1172,8 @@ export default (() => {
       // Big star burst at centre
       const avgX = targetCells.reduce((s,{r,c})=>s+cellXY(r,c).x, 0) / targetCells.length;
       const avgY = targetCells.reduce((s,{r,c})=>s+cellXY(r,c).y, 0) / targetCells.length;
-      for (let i = 0; i < Q.starBurstCount; i++) {
-        const ang = (i/Q.starBurstCount)*Math.PI*2;
+      for (let i = 0; i < 24; i++) {
+        const ang = (i/24)*Math.PI*2;
         const col = [0xffe600, 0xffffff, 0xffaaff, 0xff88ff][Math.floor(Math.random()*4)];
         const mesh = new THREE.Mesh(
           sphereGeo(Math.max(2, Math.round(R*0.18))),
@@ -1560,15 +1423,8 @@ export default (() => {
   function initThree() {
     container=document.getElementById('bam3d-canvas-container');
     if(!container)return;
-    renderer=new THREE.WebGLRenderer({
-      antialias: Q.tier !== 'LOW',
-      alpha: false,
-      powerPreference: Q.powerPreference,
-      precision: Q.precision,
-      stencil: false,
-      depth: true,
-    });
-    renderer.setPixelRatio(Q.pixelRatio);
+    renderer=new THREE.WebGLRenderer({antialias:false, alpha:false, powerPreference:'high-performance'});
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1));
     renderer.setClearColor(0x010510,1);
     container.appendChild(renderer.domElement);
     scene=new THREE.Scene();
@@ -1578,15 +1434,10 @@ export default (() => {
     scene.add(new THREE.AmbientLight(0x223355,1.0));
     const key=new THREE.DirectionalLight(0xffffff,1.1);
     key.position.set(W*0.25,H*0.75,80); scene.add(key);
-    if (Q.lights === 'full') {
-      const fill=new THREE.DirectionalLight(0x4466aa,0.3);
-      fill.position.set(W*0.8,H*0.4,60); scene.add(fill);
-      const rim=new THREE.DirectionalLight(0xff2d78,0.15);
-      rim.position.set(W*0.5,0,-20); scene.add(rim);
-    } else {
-      // HemisphereLight replaces fill + rim at half the per-fragment cost
-      scene.add(new THREE.HemisphereLight(0x4466aa, 0xff2d78, 0.35));
-    }
+    const fill=new THREE.DirectionalLight(0x4466aa,0.3);
+    fill.position.set(W*0.8,H*0.4,60); scene.add(fill);
+    const rim=new THREE.DirectionalLight(0xff2d78,0.15);
+    rim.position.set(W*0.5,0,-20); scene.add(rim);
 
     _buildBackground();
     _buildCannon();
@@ -1649,15 +1500,14 @@ export default (() => {
   // ── Cannon ────────────────────────────────────────────────────
   function _buildCannon(){
     cannonGroup=new THREE.Group(); scene.add(cannonGroup);
-    const cSegs = Q.tier === 'HIGH' ? [24,32,12,8,16] : Q.tier === 'MED' ? [16,24,8,6,12] : [12,20,8,6,12];
-    const base=new THREE.Mesh(new THREE.CylinderGeometry(R*1.7,R*2,R*0.3,cSegs[0]),new THREE.MeshLambertMaterial({color:0x0a1e30,emissive:0x002244}));
+    const base=new THREE.Mesh(new THREE.CylinderGeometry(R*1.7,R*2,R*0.3,24),new THREE.MeshLambertMaterial({color:0x0a1e30,emissive:0x002244}));
     base.rotation.x=Math.PI/2; cannonGroup.add(base);
-    const ring=new THREE.Mesh(new THREE.TorusGeometry(R*1.8,R*0.06,cSegs[1]>8?8:6,cSegs[1]),new THREE.MeshLambertMaterial({color:0x00f5ff,emissive:0x00f5ff,emissiveIntensity:0.7}));
+    const ring=new THREE.Mesh(new THREE.TorusGeometry(R*1.8,R*0.06,8,32),new THREE.MeshLambertMaterial({color:0x00f5ff,emissive:0x00f5ff,emissiveIntensity:0.7}));
     ring.name='cannonRing'; cannonGroup.add(ring);
     cannonBarrel=new THREE.Group(); cannonGroup.add(cannonBarrel);
-    const bar=new THREE.Mesh(new THREE.CylinderGeometry(R*0.28,R*0.38,R*3.2,cSegs[2]),new THREE.MeshLambertMaterial({color:0x2266aa,emissive:0x001133}));
+    const bar=new THREE.Mesh(new THREE.CylinderGeometry(R*0.28,R*0.38,R*3.2,12),new THREE.MeshLambertMaterial({color:0x2266aa,emissive:0x001133}));
     bar.name='cannonBar'; bar.position.y=R*1.6; cannonBarrel.add(bar);
-    const muzzle=new THREE.Mesh(new THREE.TorusGeometry(R*0.32,R*0.09,cSegs[3],cSegs[4]),new THREE.MeshLambertMaterial({color:0x00f5ff,emissive:0x00f5ff,emissiveIntensity:0.9}));
+    const muzzle=new THREE.Mesh(new THREE.TorusGeometry(R*0.32,R*0.09,8,16),new THREE.MeshLambertMaterial({color:0x00f5ff,emissive:0x00f5ff,emissiveIntensity:0.9}));
     muzzle.name='cannonMuzzle'; muzzle.position.y=R*3.2; cannonBarrel.add(muzzle);
     _repositionCannon();
   }
@@ -1739,15 +1589,10 @@ export default (() => {
     aimLineMesh.material.color.setHex(qci >= 0 ? ALL_COLORS[qci].hex : 0xaaddff);
   }
 
-  // Target fps from detected GPU tier (LOW=30, MED/HIGH=60)
-  let _lastFrameTs = 0;
-
   // ── Render loop ───────────────────────────────────────────────
   function _loop(ts=0){
     animId=requestAnimationFrame(_loop);
     if(document.hidden)return;
-    if(ts - _lastFrameTs < FRAME_MS) return;
-    _lastFrameTs = ts;
     const dt=Math.min(ts-lastTs,50);lastTs=ts;
     const wasActive=!!ball||popParticles.length>0||scoreSprites.length>0;
     if(!paused&&!dead)update(dt);
