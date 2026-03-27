@@ -178,46 +178,88 @@ export default (() => {
   function buildPlayer() {
     playerGroup = new THREE.Group();
 
-    // Main hull — sleek wedge
-    const hullGeo = new THREE.ConeGeometry(0.55, 1.4, 6);
-    hullGeo.rotateZ(Math.PI);
-    const hullMat = makeGlow(hullGeo, COLORS.player, 1.2);
-    const hull = new THREE.Mesh(hullGeo, hullMat);
-    hull.rotation.z = Math.PI;
-    playerGroup.add(hull);
+    // Main fuselage — sleek vertical body pointing UP
+    const bodyGeo = new THREE.CylinderGeometry(0.18, 0.32, 1.0, 8);
+    const bodyMat = makeGlow(bodyGeo, COLORS.player, 1.2);
+    const body = new THREE.Mesh(bodyGeo, bodyMat);
+    body.position.y = 0.1;
+    playerGroup.add(body);
 
-    // Wing geometry
-    function makeWing(sign) {
-      const wGeo = new THREE.BufferGeometry();
-      const verts = new Float32Array([
-        0,  -0.1, 0,
-        sign * 1.2, -0.5, 0,
-        sign * 0.9,  0.3, 0,
-        0,  0.3, 0,
-      ]);
-      const idx = new Uint16Array([0,1,2, 0,2,3]);
-      wGeo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
-      wGeo.setIndex(new THREE.BufferAttribute(idx, 1));
-      wGeo.computeVertexNormals();
-      const w = new THREE.Mesh(wGeo, makeGlow(wGeo, COLORS.player, 0.8));
-      return w;
-    }
-    playerGroup.add(makeWing(1));
-    playerGroup.add(makeWing(-1));
+    // Nose cone pointing up
+    const noseGeo = new THREE.ConeGeometry(0.18, 0.52, 8);
+    const noseMat = makeGlow(noseGeo, COLORS.player, 2.0);
+    const nose = new THREE.Mesh(noseGeo, noseMat);
+    nose.position.y = 0.87;
+    playerGroup.add(nose);
 
-    // Engine glow
-    const engGeo = new THREE.SphereGeometry(0.18, 8, 8);
-    const engMat = makeGlow(engGeo, 0xffa040, 3.0);
-    const eng = new THREE.Mesh(engGeo, engMat);
-    eng.position.y = -0.75;
-    playerGroup.add(eng);
-    playerGroup._engine = eng;
-    playerGroup._engineMat = engMat;
+    // Left wing
+    const lwGeo = new THREE.BufferGeometry();
+    const lwVerts = new Float32Array([
+       0,    0.15, 0,
+      -1.1, -0.45, 0,
+      -0.28,-0.55, 0,
+      -0.28, 0.15, 0,
+    ]);
+    const lwIdx = new Uint16Array([0,1,2, 0,2,3]);
+    lwGeo.setAttribute('position', new THREE.BufferAttribute(lwVerts, 3));
+    lwGeo.setIndex(new THREE.BufferAttribute(lwIdx, 1));
+    lwGeo.computeVertexNormals();
+    const lw = new THREE.Mesh(lwGeo, makeGlow(lwGeo, COLORS.player, 0.9));
+    playerGroup.add(lw);
 
-    // Wireframe overlay for that neon feel
-    const wfGeo = new THREE.ConeGeometry(0.56, 1.42, 6);
+    // Right wing (mirror)
+    const rwGeo = new THREE.BufferGeometry();
+    const rwVerts = new Float32Array([
+       0,    0.15, 0,
+       1.1, -0.45, 0,
+       0.28,-0.55, 0,
+       0.28, 0.15, 0,
+    ]);
+    const rwIdx = new Uint16Array([0,2,1, 0,3,2]);
+    rwGeo.setAttribute('position', new THREE.BufferAttribute(rwVerts, 3));
+    rwGeo.setIndex(new THREE.BufferAttribute(rwIdx, 1));
+    rwGeo.computeVertexNormals();
+    const rw = new THREE.Mesh(rwGeo, makeGlow(rwGeo, COLORS.player, 0.9));
+    playerGroup.add(rw);
+
+    // Wing neon edge lines
+    [-1, 1].forEach(sign => {
+      const pts = [
+        new THREE.Vector3(0, 0.15, 0),
+        new THREE.Vector3(sign * 1.1, -0.45, 0),
+        new THREE.Vector3(sign * 0.28, -0.55, 0),
+      ];
+      const edgeGeo = new THREE.BufferGeometry().setFromPoints(pts);
+      const edgeMat = new THREE.LineBasicMaterial({ color: 0x00ffff, linewidth: 1 });
+      playerGroup.add(new THREE.Line(edgeGeo, edgeMat));
+    });
+
+    // Cockpit dome
+    const cockpitGeo = new THREE.SphereGeometry(0.14, 8, 6, 0, Math.PI * 2, 0, Math.PI * 0.6);
+    const cockpitMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff, emissive: 0x44aaff, emissiveIntensity: 1.5,
+      transparent: true, opacity: 0.7,
+    });
+    const cockpit = new THREE.Mesh(cockpitGeo, cockpitMat);
+    cockpit.position.y = 0.62;
+    playerGroup.add(cockpit);
+
+    // Twin engine exhausts
+    [-0.18, 0.18].forEach(xOff => {
+      const engGeo = new THREE.SphereGeometry(0.12, 8, 8);
+      const engMat = makeGlow(engGeo, 0xff6622, 4.0);
+      const eng = new THREE.Mesh(engGeo, engMat);
+      eng.position.set(xOff, -0.62, 0);
+      playerGroup.add(eng);
+      if (xOff > 0) {
+        playerGroup._engineMat = engMat; // store one for animation
+      }
+    });
+
+    // Neon wireframe silhouette on nose
+    const wfGeo = new THREE.ConeGeometry(0.19, 0.54, 8);
     const wf = makeWireframe(wfGeo, 0x00ffff);
-    wf.rotation.z = Math.PI;
+    wf.position.y = 0.87;
     playerGroup.add(wf);
 
     playerGroup.position.set(0, PLAYER_Y, 0);
@@ -571,8 +613,9 @@ export default (() => {
     hudTex = tex;
     const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
     hudSprite = new THREE.Sprite(mat);
-    hudSprite.scale.set(W * 0.98, W * 0.98 * (128 / 512), 1);
-    hudSprite.position.set(0, H / 2 - 0.72, 0.5);
+    // Scale to cover full world width; position near top but well inside frustum
+    hudSprite.scale.set(W * 0.96, W * 0.96 * (128 / 512), 1);
+    hudSprite.position.set(0, H / 2 - 1.4, 0.5);
     scene.add(hudSprite);
   }
 
@@ -1006,16 +1049,18 @@ export default (() => {
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
 
-    // Adjust camera distance so world fits
+    // Adjust camera distance so world fits with some padding for HUD
     const aspect = w / h;
     const fovRad = camera.fov * Math.PI / 180;
-    const fitH = H / (2 * Math.tan(fovRad / 2));
-    const fitW = (W / aspect) / (2 * Math.tan(fovRad / 2));
+    const fitH = (H + 2.5) / (2 * Math.tan(fovRad / 2));
+    const fitW = ((W + 1) / aspect) / (2 * Math.tan(fovRad / 2));
     camera.position.z = Math.max(fitH, fitW) + 1;
   }
 
   // ── Input ─────────────────────────────────────────────────────
   function onKey(e) {
+    // Prevent double-fire when both window and canvas wrap are listening
+    if (e._siHandled) return; e._siHandled = true;
     keys[e.code] = e.type === 'keydown';
     if (['Space'].includes(e.code)) e.preventDefault();
     if (e.type === 'keydown') {
@@ -1057,7 +1102,7 @@ export default (() => {
     health = 3; score = 0; wave = 0;
     px = 0; player.position.x = 0; player.visible = true;
     rapidTimer = 0; spreadTimer = 0; laserTimer = 0; slowTimer = 0;
-    shieldHP = 0; invincible = 0; fireCooldown = 0; flashTimer = 0;
+    shieldHP = 0; invincible = 0; fireCooldown = -1; flashTimer = 0;
     waveDelay = 0; enemyDir = 1;
 
     gameState = 'playing';
@@ -1184,7 +1229,12 @@ export default (() => {
     resizeOb = new ResizeObserver(onResize);
     resizeOb.observe(container);
 
-    // Input
+    // Input — make canvas focusable and register keydown on both window and canvas
+    canvasWrap.tabIndex = 0;
+    canvasWrap.style.outline = 'none';
+    canvasWrap.addEventListener('click', () => canvasWrap.focus());
+    canvasWrap.addEventListener('keydown', onKey);
+    canvasWrap.addEventListener('keyup',   onKey);
     window.addEventListener('keydown', onKey);
     window.addEventListener('keyup',   onKey);
     canvasWrap.addEventListener('touchstart', onTouchStart, { passive: false });
@@ -1232,6 +1282,8 @@ export default (() => {
     if (animId) { cancelAnimationFrame(animId); animId = null; }
     window.removeEventListener('keydown', onKey);
     window.removeEventListener('keyup',   onKey);
+    const cw = document.querySelector('#si-canvas-wrap');
+    if (cw) { cw.removeEventListener('keydown', onKey); cw.removeEventListener('keyup', onKey); }
     if (resizeOb) { resizeOb.disconnect(); resizeOb = null; }
     if (renderer) { renderer.dispose(); renderer = null; }
     scene = null; camera = null;
