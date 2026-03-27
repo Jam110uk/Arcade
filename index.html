@@ -4932,6 +4932,12 @@
       <div class="game-desc">Time your drop — stack blocks perfectly and climb as high as you can!</div>
     </div>
 
+    <div class="game-card" style="--card-accent:#ff2d78" onclick="selectGame('spaceinvaders')">
+      <span class="game-icon">👾</span>
+      <div class="game-name">SPACE INVADERS</div>
+      <div class="game-desc">Blast waves of alien invaders — 5 enemy types, 6 power-ups, endless waves!</div>
+    </div>
+
   </div>
 
   <!-- MULTIPLAYER section -->
@@ -6399,7 +6405,7 @@ const GAME_SCREEN_IDS = new Set([
   'bubblebreaker-screen','racer-screen','wordle-screen','hangman-screen',
   'solitaire-screen','minesweeper-screen','pool-screen','scrabble-screen',
   'trivia-screen','trivia-wait-screen','connectfour-screen','zuma-screen',
-  'placement-screen','hm-set-screen','poker-screen','chess-screen','guesswho-screen','guesswho-lobby-screen','pacman-screen','tron-screen','tron-lobby-screen','monopoly-screen','plinko-screen','orbit-screen','claw-screen','stackit-screen',
+  'placement-screen','hm-set-screen','poker-screen','chess-screen','guesswho-screen','guesswho-lobby-screen','pacman-screen','tron-screen','tron-lobby-screen','monopoly-screen','plinko-screen','orbit-screen','claw-screen','stackit-screen','spaceinvaders-screen',
 ]);
 
 function showScreen(id) {
@@ -7594,6 +7600,7 @@ window.selectGame = async function(game) {
     minesweeper:   ['💣 MINESWEEPER',     'CLEAR THE MINEFIELD'],
     claw:          ['🕹 CLAW MACHINE',    'GRAB — LIFT — SCORE'],
     stackit:       ['🧱 STACK IT',        'STACK — PERFECT — CLIMB'],
+    spaceinvaders: ['👾 SPACE INVADERS',  'SHOOT — DODGE — SURVIVE'],
   };
 
   const [title, subtitle] = meta[game] || [game.toUpperCase(), ''];
@@ -16429,6 +16436,8 @@ window.PERF = (() => {
   width: auto;
 }
 </style>
+
+<div class="screen game-screen" id="spaceinvaders-screen"></div>
 
 <div class="screen game-screen" id="stackit-screen"></div>
 

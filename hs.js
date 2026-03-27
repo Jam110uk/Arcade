@@ -25,6 +25,7 @@ export default (() => {
     { key: 'chess',        label: 'CHESS',          unit: 'wins' },
     { key: 'tron',         label: 'TRON',           unit: 'wins' },
     { key: 'stackit',      label: 'STACK IT',       unit: 'pts', extraKey: 'rows', extraLabel: 'ROWS' },
+    { key: 'spaceinvaders',label: 'SPACE INVADERS', unit: 'pts' },
   ];
 
   let pendingGame  = null;
