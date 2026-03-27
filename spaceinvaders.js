@@ -389,7 +389,7 @@ export default (() => {
         const hp = type === 2 ? 3 : type === 4 ? 2 : 1;
         enemies.push({
           mesh, type, x, y, hp, maxHp: hp,
-          fireTimer: 1.5 + Math.random() * 4,
+          fireTimer: 3.5 + Math.random() * 4,
           zigTimer: 0, zigDir: 1,
           dead: false,
         });
@@ -873,8 +873,8 @@ export default (() => {
       if (e.dead) return;
       e.fireTimer -= dt * slow;
       if (e.fireTimer <= 0) {
-        const rateBoost = Math.min(wave * 0.1, 0.6);
-        e.fireTimer = Math.max(0.8, 1.8 - rateBoost) + Math.random() * 2;
+        const rateBoost = Math.min(wave * 0.06, 0.4);
+        e.fireTimer = Math.max(2.0, 3.5 - rateBoost) + Math.random() * 3;
         spawnEnemyBullet(e);
       }
     });
@@ -1161,6 +1161,9 @@ export default (() => {
           flex-direction: column;
           align-items: center; justify-content: center;
           gap: 14px; z-index: 20;
+          pointer-events: none;
+        }
+        #si-overlay button, #si-overlay a {
           pointer-events: all;
         }
         .si-ov-title {
@@ -1258,19 +1261,19 @@ export default (() => {
     resizeOb = new ResizeObserver(onResize);
     resizeOb.observe(container);
 
-    // Input — use capture phase on window so parent page can't swallow keys first
+    // Input — attach mouse listeners to the root container so overlay doesn't block them
+    const siRoot = container.querySelector('#si-root');
     canvasWrap.tabIndex = 0;
     canvasWrap.style.outline = 'none';
-    canvasWrap.style.cursor = 'crosshair';
-    canvasWrap.addEventListener('mousedown', e => {
-      if (e.button === 0) {
-        canvasWrap.focus();
-        if (gameState === 'idle') { startGame(); return; }
-        fireHeld = true;
-      }
+    siRoot.addEventListener('mousedown', e => {
+      if (e.button !== 0) return;
+      try { ac().resume(); } catch(err) {}
+      canvasWrap.focus();
+      if (gameState === 'idle') { startGame(); return; }
+      fireHeld = true;
     });
-    canvasWrap.addEventListener('mouseup',    e => { if (e.button === 0) fireHeld = false; });
-    canvasWrap.addEventListener('mouseleave', () => { fireHeld = false; });
+    siRoot.addEventListener('mouseup',    e => { if (e.button === 0) fireHeld = false; });
+    siRoot.addEventListener('mouseleave', () => { fireHeld = false; });
     window.addEventListener('keydown', onKey, true);  // capture phase
     window.addEventListener('keyup',   onKey, true);  // capture phase
     canvasWrap.addEventListener('touchstart', onTouchStart, { passive: false });
