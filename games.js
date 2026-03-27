@@ -24,6 +24,7 @@ export const GAMES = {
   plinko:       { label: '🪙 Plinko',           module: './plinko.js', screen: 'plinko-screen',       init: m => m.init() },
   orbit:        { label: '🪐 Orbit',            module: './orbit.js',  screen: 'orbit-screen',        init: m => requestAnimationFrame(() => m.init()) },
   claw:         { label: '🕹 Claw Machine',     module: './claw.js',   screen: 'claw-screen',         init: m => requestAnimationFrame(() => { m.init(); requestAnimationFrame(() => window.dispatchEvent(new Event('resize'))); }) },
+  stackit:      { label: '🧱 Stack It',         module: './stackit.js',screen: 'stackit-screen',      init: m => m.init() },
 
   // ── VS AI games ────────────────────────────────────────────
   poker:        { label: '🃏 Poker',            module: './pkr.js',    screen: 'poker-screen',        init: m => m.initSolo() },

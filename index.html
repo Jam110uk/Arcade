@@ -4926,6 +4926,12 @@
       <div class="game-desc">Position the claw, drop it and grab a prize — 20 tries to max your score!</div>
     </div>
 
+    <div class="game-card" style="--card-accent:#00e5ff" onclick="selectGame('stackit')">
+      <span class="game-icon">🧱</span>
+      <div class="game-name">STACK IT</div>
+      <div class="game-desc">Time your drop — stack blocks perfectly and climb as high as you can!</div>
+    </div>
+
   </div>
 
   <!-- MULTIPLAYER section -->
@@ -6393,7 +6399,7 @@ const GAME_SCREEN_IDS = new Set([
   'bubblebreaker-screen','racer-screen','wordle-screen','hangman-screen',
   'solitaire-screen','minesweeper-screen','pool-screen','scrabble-screen',
   'trivia-screen','trivia-wait-screen','connectfour-screen','zuma-screen',
-  'placement-screen','hm-set-screen','poker-screen','chess-screen','guesswho-screen','guesswho-lobby-screen','pacman-screen','tron-screen','tron-lobby-screen','monopoly-screen','plinko-screen','orbit-screen','claw-screen',
+  'placement-screen','hm-set-screen','poker-screen','chess-screen','guesswho-screen','guesswho-lobby-screen','pacman-screen','tron-screen','tron-lobby-screen','monopoly-screen','plinko-screen','orbit-screen','claw-screen','stackit-screen',
 ]);
 
 function showScreen(id) {
@@ -7587,6 +7593,7 @@ window.selectGame = async function(game) {
     solitaire:     ['🃏 SOLITAIRE',       'CLASSIC PATIENCE'],
     minesweeper:   ['💣 MINESWEEPER',     'CLEAR THE MINEFIELD'],
     claw:          ['🕹 CLAW MACHINE',    'GRAB — LIFT — SCORE'],
+    stackit:       ['🧱 STACK IT',        'STACK — PERFECT — CLIMB'],
   };
 
   const [title, subtitle] = meta[game] || [game.toUpperCase(), ''];
@@ -16422,6 +16429,8 @@ window.PERF = (() => {
   width: auto;
 }
 </style>
+
+<div class="screen game-screen" id="stackit-screen"></div>
 
 <div class="screen game-screen" id="bustamove3d-screen">
   <div class="bam3d-root">
