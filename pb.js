@@ -150,6 +150,10 @@ export default (function() {
 
   // Cached background offscreen canvas — rebuilt on resize only
   let _pbBgCache = null;
+  // Cached scanline overlay — rebuilt on resize only
+  let _scanlineCache = null;
+  // Cached danger gradient — rebuilt when dangerY changes (i.e. on resize)
+  let _dangerGradCache = null, _dangerGradY = null;
   // Cached column counts per row — invalidated on resize
   let _colsEvenCache = 0, _colsOddCache = 0;
 
@@ -200,6 +204,8 @@ export default (function() {
     _colsOddCache  = Math.floor((_playW() - R) / D);
     // Rebuild background cache
     _buildBgCache();
+    _scanlineCache = null;   // will be rebuilt on first draw at new size
+    _dangerGradCache = null; _dangerGradY = null;
     rebuildGridPositions();
     draw();
   }
@@ -829,20 +835,26 @@ export default (function() {
     // Stars (twinkle only — positions are stable)
     bgStars.forEach(s => {
       s.tw += s.ts;
-      const a = s.a * (0.5 + 0.5*Math.sin(s.tw));
-      ctx.fillStyle = `rgba(180,220,255,${a.toFixed(2)})`;
-      ctx.fillRect(s.x*W - s.r, s.y*H - s.r, s.r*2, s.r*2); // fillRect ~3x faster than arc for tiny dots
+      const a = (s.a * (0.5 + 0.5*Math.sin(s.tw)));
+      // Build fill string only when alpha changes enough (quantise to 2dp avoids constant churn)
+      const aq = (a * 100 | 0) / 100;
+      if (s._lastA !== aq) { s._fs = `rgba(180,220,255,${aq})`; s._lastA = aq; }
+      ctx.fillStyle = s._fs || 'rgba(180,220,255,0.1)';
+      ctx.fillRect(s.x*W - s.r, s.y*H - s.r, s.r*2, s.r*2);
     });
 
     // Danger line — golden bar showing where bubbles must not reach (like Bust-a-Move)
     const dangerY = cannonY() - ROW_H * CLEAR_ROWS;
     const pulse = 0.4 + 0.4 * Math.sin(now * 0.004);
-    // Outer glow band
-    const dangerGrad = ctx.createLinearGradient(0, dangerY - 4, 0, dangerY + 4);
-    dangerGrad.addColorStop(0, 'transparent');
-    dangerGrad.addColorStop(0.5, `rgba(255,230,0,${0.18 + pulse * 0.1})`);
-    dangerGrad.addColorStop(1, 'transparent');
-    ctx.fillStyle = dangerGrad;
+    // Outer glow band — gradient rebuilt only when dangerY changes (resize)
+    if (_dangerGradY !== dangerY) {
+      _dangerGradCache = ctx.createLinearGradient(0, dangerY - 4, 0, dangerY + 4);
+      _dangerGradCache.addColorStop(0, 'transparent');
+      _dangerGradCache.addColorStop(0.5, 'rgba(255,230,0,0.25)');
+      _dangerGradCache.addColorStop(1, 'transparent');
+      _dangerGradY = dangerY;
+    }
+    ctx.fillStyle = _dangerGradCache;
     ctx.fillRect(0, dangerY - 4, W, 8);
     // The line itself
     ctx.strokeStyle = `rgba(255,200,0,${0.55 + pulse * 0.3})`;
@@ -916,21 +928,32 @@ export default (function() {
       ctx.restore();
     }
 
-    // Score popups
+    // Score popups — cheap outline instead of shadowBlur
     scorePopups.forEach(p => {
       ctx.save();
       ctx.globalAlpha = p.alpha;
       ctx.font = `bold ${p.size||11}px Orbitron, monospace`;
       ctx.textAlign = 'center';
+      // Cheap 1px outline for legibility (no shadowBlur cost)
+      ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+      ctx.lineWidth = 3;
+      ctx.strokeText(p.text, p.x, p.y);
       ctx.fillStyle = p.color || '#ffe600';
-      ctx.shadowColor = p.color || '#ffe600'; ctx.shadowBlur = 10;
       ctx.fillText(p.text, p.x, p.y);
       ctx.restore();
     });
 
-    // Scanlines
+    // Scanlines — blit cached strip instead of 135 fillRect calls per frame
+    if (!_scanlineCache) {
+      const sc = document.createElement('canvas');
+      sc.width = W; sc.height = H;
+      const scc = sc.getContext('2d');
+      scc.fillStyle = '#000';
+      for (let y = 0; y < H; y += 4) scc.fillRect(0, y, W, 2);
+      _scanlineCache = sc;
+    }
     ctx.save(); ctx.globalAlpha = 0.035;
-    for (let y=0; y<H; y+=4) { ctx.fillStyle='#000'; ctx.fillRect(0,y,W,2); }
+    ctx.drawImage(_scanlineCache, 0, 0);
     ctx.restore();
   }
 
@@ -1048,9 +1071,9 @@ export default (function() {
     const ci = queue[0] ?? 0;
     const pulse = 0.5 + 0.5 * Math.sin(now * 0.003);
 
-    // Base (static sprite, just blitted)
+    // Base (static sprite — blit with alpha pulse instead of shadowBlur)
     ctx.save();
-    ctx.shadowColor = '#00f5ff'; ctx.shadowBlur = 8 * pulse;
+    ctx.globalAlpha = 0.7 + 0.3 * pulse;
     ctx.drawImage(_cannonBaseSprite, cx - 30, cy - 30);
     ctx.restore();
 
@@ -1063,10 +1086,7 @@ export default (function() {
     ctx.restore();
 
     // Bubble in the cannon
-    ctx.save();
-    ctx.shadowColor = GLOWS[ci]; ctx.shadowBlur = 8;
     drawBubble(cx, cy, R - 2, ci, 1);
-    ctx.restore();
 
     // NEXT bubble indicator — shown to the right of the cannon base
     if (queue.length > 1) {

@@ -63,7 +63,24 @@
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
-  /* Scanline effect */
+  /* ── GPU / paint performance hints ───────────────────────────────────── */
+  /* Promote game canvases to their own compositor layers so JS-driven
+     repaints don't force a full-page composite on Intel iGPU. */
+  canvas {
+    will-change: transform;
+    image-rendering: auto;
+  }
+  /* Screens that are not active must not consume any layout cost */
+  .screen:not(.active) {
+    display: none !important;
+    contain: strict;
+  }
+  /* Active game screens get their own layer and skip overflow checks */
+  .screen.active.game-screen {
+    contain: layout style;
+  }
+
+  /* Scanline effect — isolated layer so it never triggers main-thread repaints */
   body::before {
     content: '';
     position: fixed;
@@ -77,6 +94,8 @@
     );
     pointer-events: none;
     z-index: 9999;
+    will-change: transform;   /* promote to own compositor layer */
+    contain: strict;          /* skip layout/style recalc for this element */
   }
 
   .header {
@@ -128,6 +147,7 @@
     font-size: 0.58rem; font-weight: 700; color: #ffd700;
     text-shadow: 0 0 6px #ffd700, 0 0 12px rgba(255,215,0,0.5);
     letter-spacing: 0.18em; line-height: 1; padding: 0;
+    will-change: transform;
   }
   @keyframes hs-banner-scroll {
     0%   { transform: translateX(0); }
@@ -1138,7 +1158,7 @@
     position: absolute;
     inset: 0;
     background: rgba(1,4,16,0.93);
-    backdrop-filter: blur(4px);
+    
     flex-direction: column;
     align-items: center;
     justify-content: center;
@@ -4105,7 +4125,7 @@
   /* ── OVERLAY ───────────────────────────────────────────────── */
   .overlay, .game-overlay {
     background: rgba(1,4,16,0.96);
-    backdrop-filter: blur(4px);
+    
   }
   .overlay-content h2.win, .hm-ov-title.win, .tet-ov-title.start, .snk-ov-title.start, .wrd-ov-title.win, .c4-ov-title.win, .pb-ov-title.win {
     color: var(--neon-cyan);
@@ -4606,7 +4626,7 @@
     position: absolute;
     inset: 0;
     background: rgba(0,8,4,0.92);
-    backdrop-filter: blur(4px);
+    
     flex-direction: column;
     align-items: center;
     justify-content: center;
@@ -10621,7 +10641,12 @@ let _topScoreUnsub = null;
 function _clearTopScoreBanner() {
   if (_topScoreUnsub) { try { _topScoreUnsub(); } catch(e) {} _topScoreUnsub = null; }
   const el = document.getElementById('hs-top-banner');
-  if (el) el.style.display = 'none';
+  if (el) {
+    el.style.display = 'none';
+    // Stop the CSS animation so the GPU isn't compositing an invisible element
+    const track = document.getElementById('hs-top-banner-track');
+    if (track) track.style.animation = 'none';
+  }
 }
 
 function _updateTopScoreBanner(gameKey) {
@@ -14473,7 +14498,7 @@ document.addEventListener('click', (e) => {
   padding: 6px 10px 5px;
   border-radius: 6px;
   min-width: 148px;
-  backdrop-filter: blur(4px);
+  
   box-shadow: 0 2px 12px rgba(0,0,0,0.5);
 }
 .pkm-hpbar-wrap.opp {
@@ -15985,6 +16010,16 @@ document.addEventListener('visibilitychange', () => {
       const screenId = screen ? screen.id : 'game-select-screen';
       if (screenId === 'game-select-screen') startStarLoop();
     }
+    // Resume banner animation if it was showing
+    const banner = document.getElementById('hs-top-banner');
+    const track  = document.getElementById('hs-top-banner-track');
+    if (banner && track && banner.style.display !== 'none' && track.dataset.animDur) {
+      track.style.animationPlayState = 'running';
+    }
+  } else {
+    // Tab is hidden — pause the banner CSS animation to save GPU compositing
+    const track = document.getElementById('hs-top-banner-track');
+    if (track) track.style.animationPlayState = 'paused';
   }
   // When hidden: all loops check document.hidden at the top of their RAF
   // callbacks and skip work (but keep the RAF handle alive so they resume cleanly).
@@ -15999,27 +16034,22 @@ document.addEventListener('visibilitychange', () => {
 // A small indicator badge shows the current mode.
 
 window.PERF = (() => {
-  let lowQuality   = false;
-  let _frameTimes  = [];
-  let _rafId       = null;
-  let _monitoring  = false;
+  let lowQuality    = false;
+  let _badge        = null;
   let _recheckTimer = null;
-  let _badge       = null;
 
-  // ── Prototype patch ───────────────────────────────────────────────────
-  // Store the real descriptor once
-  const _proto = CanvasRenderingContext2D.prototype;
+  // ── Prototype patch: suppress shadowBlur in low-quality mode ─────────
+  // This is done once at startup — no ongoing loop needed.
+  const _proto    = CanvasRenderingContext2D.prototype;
   const _realDesc = Object.getOwnPropertyDescriptor(_proto, 'shadowBlur') ||
                     Object.getOwnPropertyDescriptor(Object.getPrototypeOf(_proto), 'shadowBlur');
-
-  let _realSetter = _realDesc ? _realDesc.set : null;
-  let _realGetter = _realDesc ? _realDesc.get : null;
+  const _realSetter = _realDesc ? _realDesc.set : null;
+  const _realGetter = _realDesc ? _realDesc.get : null;
 
   if (_realSetter) {
     Object.defineProperty(_proto, 'shadowBlur', {
       get() { return _realGetter ? _realGetter.call(this) : this._sb || 0; },
       set(v) {
-        // In low-quality mode, only allow setting to 0 (resets still work)
         const val = (lowQuality && v > 0) ? 0 : v;
         if (_realSetter) _realSetter.call(this, val);
         else this._sb = val;
@@ -16028,24 +16058,16 @@ window.PERF = (() => {
     });
   }
 
-  // ── Badge UI ─────────────────────────────────────────────────────────
+  // ── Badge UI ──────────────────────────────────────────────────────────
   function createBadge() {
     if (_badge) return;
     _badge = document.createElement('div');
     _badge.id = 'perf-badge';
     Object.assign(_badge.style, {
-      position:   'fixed',
-      bottom:     '6px',
-      left:       '6px',
-      zIndex:     '99999',
-      fontFamily: "'Share Tech Mono', monospace",
-      fontSize:   '10px',
-      letterSpacing: '0.1em',
-      padding:    '3px 7px',
-      borderRadius: '2px',
-      pointerEvents: 'none',
-      opacity:    '0',
-      transition: 'opacity 0.4s',
+      position: 'fixed', bottom: '6px', left: '6px', zIndex: '99999',
+      fontFamily: "'Share Tech Mono', monospace", fontSize: '10px',
+      letterSpacing: '0.1em', padding: '3px 7px', borderRadius: '2px',
+      pointerEvents: 'none', opacity: '0', transition: 'opacity 0.4s',
     });
     document.body.appendChild(_badge);
   }
@@ -16058,72 +16080,65 @@ window.PERF = (() => {
     _badge.style.border = `1px solid ${color}`;
     _badge.style.opacity = '1';
     clearTimeout(_badge._hideTimer);
-    if (duration > 0) {
-      _badge._hideTimer = setTimeout(() => { _badge.style.opacity = '0'; }, duration);
-    }
+    if (duration > 0) _badge._hideTimer = setTimeout(() => { _badge.style.opacity = '0'; }, duration);
   }
 
-  // ── FPS sampling ──────────────────────────────────────────────────────
-  function startMonitor(frames = 180) {
-    if (_monitoring) return;
-    _monitoring = true;
-    _frameTimes = [];
-    let last = 0;
+  // ── FPS measurement: piggybacks on an EXISTING game RAF loop ──────────
+  // Instead of spinning its own RAF loop (which causes the browser spinner),
+  // we measure timing by sampling two rAF callbacks spaced ~1s apart.
+  // This only runs once after load, and once after the tab becomes visible.
+  // It does NOT keep a permanent RAF alive.
+  let _measuring = false;
+  function measureFPS() {
+    if (_measuring) return;
+    _measuring = true;
+    const SAMPLE_DURATION = 1000; // ms
+    let count = 0;
+    const t0 = performance.now();
 
     function tick(ts) {
-      if (last > 0) _frameTimes.push(ts - last);
-      last = ts;
-      if (_frameTimes.length < frames) {
-        _rafId = requestAnimationFrame(tick);
+      count++;
+      if (ts - t0 < SAMPLE_DURATION) {
+        requestAnimationFrame(tick);
       } else {
-        _monitoring = false;
-        evaluate();
+        _measuring = false;
+        const fps = count / ((ts - t0) / 1000);
+        evaluate(fps);
       }
     }
-    _rafId = requestAnimationFrame(tick);
+    requestAnimationFrame(tick);
   }
 
-  function medianFPS(times) {
-    if (!times.length) return 60;
-    const sorted = [...times].sort((a, b) => a - b);
-    const mid = sorted[Math.floor(sorted.length / 2)];
-    return mid > 0 ? 1000 / mid : 60;
-  }
-
-  function evaluate() {
-    const fps = medianFPS(_frameTimes);
-    const wasLow = lowQuality;
-
+  function evaluate(fps) {
     if (fps < 45 && !lowQuality) {
       lowQuality = true;
       showBadge('⚡ PERFORMANCE MODE', '#f59e0b', 4000);
-      console.log(`[PERF] Low quality enabled — median FPS: ${fps.toFixed(1)}`);
+      console.log(`[PERF] Low quality enabled — FPS: ${fps.toFixed(1)}`);
     } else if (fps >= 55 && lowQuality) {
       lowQuality = false;
       showBadge('✓ QUALITY RESTORED', '#4ade80', 3000);
-      console.log(`[PERF] Quality restored — median FPS: ${fps.toFixed(1)}`);
+      console.log(`[PERF] Quality restored — FPS: ${fps.toFixed(1)}`);
     }
-
-    // Re-check every 30 seconds in case conditions change
+    // Re-check after 60s (was 30s — reduces idle wake-ups)
     clearTimeout(_recheckTimer);
-    _recheckTimer = setTimeout(() => startMonitor(120), 30000);
+    _recheckTimer = setTimeout(measureFPS, 60000);
   }
 
-  // Start monitoring once DOM is ready
+  // Measure once, 2s after load (gives page time to settle first)
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => startMonitor());
+    document.addEventListener('DOMContentLoaded', () => setTimeout(measureFPS, 2000));
   } else {
-    startMonitor();
+    setTimeout(measureFPS, 2000);
   }
 
-  // Re-check when tab becomes visible after being hidden (GPU may have throttled)
+  // Re-measure when tab becomes visible after being hidden
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) setTimeout(() => startMonitor(90), 1000);
+    if (!document.hidden) setTimeout(measureFPS, 1500);
   });
 
   return {
     isLowQuality: () => lowQuality,
-    forceHigh:    () => { lowQuality = false; showBadge('✓ QUALITY ON',  '#4ade80', 2000); },
+    forceHigh:    () => { lowQuality = false; showBadge('✓ QUALITY ON',   '#4ade80', 2000); },
     forceLow:     () => { lowQuality = true;  showBadge('⚡ PERF MODE ON', '#f59e0b', 2000); },
   };
 })();
@@ -16368,7 +16383,7 @@ window.PERF = (() => {
   align-items: center;
   justify-content: center;
   gap: 12px;
-  backdrop-filter: blur(3px);
+  
 }
 #bam3d-overlay.active { display: flex; }
 

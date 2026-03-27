@@ -211,7 +211,11 @@ export default (() => {
   function cannonCY()     { return H - CANNON_PAD - R; }   // canvas Y
 
   // Canvas → Three.js world (orthographic, Y-up, same pixel scale)
+  // tw()   — always allocates a new Vector3 (use for stored positions)
+  // twTo() — writes into a provided Vector3 (use for transient/hot-path copies)
   function tw(cx, cy)    { return new THREE.Vector3(cx, H - cy, 0); }
+  const _twVec = new THREE.Vector3();
+  function twTo(cx, cy, v) { v.set(cx, H - cy, 0); return v; }
 
   // ── Three.js state ────────────────────────────────────────────
   let renderer, scene, camera;
@@ -239,7 +243,7 @@ export default (() => {
 
   function sphereGeo(r) {
     const k = Math.round(r);
-    if (!_geoCache[k]) _geoCache[k] = new THREE.SphereGeometry(r, 16, 12);
+    if (!_geoCache[k]) _geoCache[k] = new THREE.SphereGeometry(r, 10, 8);
     return _geoCache[k];
   }
 
@@ -249,23 +253,23 @@ export default (() => {
 
   // Shell and inner are per-instance — opacity is mutated per-bubble during animations
   function _shellMat(ci) {
-    return new THREE.MeshPhongMaterial({
+    return new THREE.MeshLambertMaterial({
       color: ALL_COLORS[ci].hex, emissive: ALL_COLORS[ci].hex,
-      emissiveIntensity: 0.08, shininess: 260, specular: 0xffffff,
+      emissiveIntensity: 0.12,
       transparent: true, opacity: 0.55, side: THREE.FrontSide,
     });
   }
   function _innerMat(ci) {
-    return new THREE.MeshPhongMaterial({
+    return new THREE.MeshLambertMaterial({
       color: ALL_COLORS[ci].hex, emissive: ALL_COLORS[ci].hex,
-      emissiveIntensity: 0.45, shininess: 80,
+      emissiveIntensity: 0.50,
       transparent: true, opacity: 0.72,
     });
   }
   function _clearShellMat() {
-    return new THREE.MeshPhongMaterial({
-      color:0xffffff, emissive:0x223355, emissiveIntensity:0.08,
-      shininess:300, specular:0xffffff, transparent:true, opacity:0.30, side:THREE.FrontSide,
+    return new THREE.MeshLambertMaterial({
+      color:0xffffff, emissive:0x223355, emissiveIntensity:0.12,
+      transparent:true, opacity:0.30, side:THREE.FrontSide,
     });
   }
   // Specular blobs and rim are truly static — safe to share
@@ -297,6 +301,9 @@ export default (() => {
   let elapsedMs     = 0;
   let lastTs        = 0;
   let _aimDirty     = true, _aimLastAngle = null, _aimPts = null;
+  // Pre-allocated aim line buffer — updated in-place to avoid per-frame GC
+  const AIM_MAX_PTS = 512;
+  let _aimPositionsBuf = null; // Float32Array, lazy-init
 
   let leftHeld = false, rightHeld = false;
   const AIM_SPEED = 0.035;
@@ -330,6 +337,7 @@ export default (() => {
         sprite.scale.set(R*1.1, R*1.1, 1);
         sprite.position.set(0, 0, R*0.15);
         group.add(sprite);
+        group.userData.shimmerSprite = sprite;  // cache for O(1) shimmer access
       }
     }
 
@@ -339,6 +347,7 @@ export default (() => {
       sprite.scale.set(R*1.4, R*1.4, 1);
       sprite.position.set(0, 0, R*0.2);
       group.add(sprite);
+      group.userData.shimmerSprite = sprite;  // cache for O(1) shimmer access
     }
 
     group.userData = { ci, power };
@@ -508,6 +517,10 @@ export default (() => {
   function _syncCannonBubble() {
     if (!cannonGroup || !queue[0]) return;
     const old = cannonGroup.getObjectByName('cannonBubble');
+    // Skip expensive rebuild if the bubble identity hasn't changed
+    if (old && old.userData.ci === queue[0].ci && old.userData.power === queue[0].power) {
+      _syncCannonColor(queue[0]); return;
+    }
     if (old) cannonGroup.remove(old);
     const cb = _buildBubbleMesh(queue[0].ci, queue[0].power);
     cb.name = 'cannonBubble';
@@ -728,25 +741,21 @@ export default (() => {
           if (dx*dx+dy*dy<D*D){_placeBall();placed=true;break outer;}
         }
       }
-      if (!placed&&ball) { ball.mesh.position.copy(tw(ball.x,ball.y)); ball.mesh.position.z=3; }
+      if (!placed&&ball) { twTo(ball.x, ball.y, ball.mesh.position); ball.mesh.position.z=3; }
       if (!placed&&ball&&ball.y>H+60) { scene.remove(ball.mesh); ball=null; }
     }
 
-    // Shimmer power-up bubbles — pulse their sprite opacity
+    // Shimmer power-up bubbles — pulse sprite opacity via cached reference (no child iteration)
     const now = performance.now();
     gridMeshes.forEach(bm => {
       if (!bm.power) return;
-      bm.mesh.children.forEach(ch => {
-        if (ch instanceof THREE.Sprite) {
-          // Each power bubble gets its own shimmer phase stored in userData
-          if (!bm.mesh.userData.shimmerPhase) bm.mesh.userData.shimmerPhase = Math.random() * Math.PI * 2;
-          bm.mesh.userData.shimmerPhase += dt * 0.004;
-          const s = bm.mesh.userData.shimmerPhase;
-          // Base pulse + occasional bright flash
-          const pulse = 0.65 + 0.25 * Math.sin(s) + 0.10 * Math.sin(s * 3.7);
-          ch.material.opacity = Math.max(0.4, Math.min(1.0, pulse));
-        }
-      });
+      const sprite = bm.mesh.userData.shimmerSprite;
+      if (!sprite) return;
+      if (!bm.mesh.userData.shimmerPhase) bm.mesh.userData.shimmerPhase = Math.random() * Math.PI * 2;
+      bm.mesh.userData.shimmerPhase += dt * 0.004;
+      const s = bm.mesh.userData.shimmerPhase;
+      const pulse = 0.65 + 0.25 * Math.sin(s) + 0.10 * Math.sin(s * 3.7);
+      sprite.material.opacity = Math.max(0.4, Math.min(1.0, pulse));
     });
     // Trail — reuse pre-built pool, toggle visibility instead of create/destroy
     const TRAIL_SIZE = 5;
@@ -769,7 +778,7 @@ export default (() => {
         const t = (i+1) / ball.trail.length;
         poolMesh.material.color.setHex(trailColor);
         poolMesh.material.opacity = t * 0.3;
-        poolMesh.position.copy(tw(tp.x, tp.y)); poolMesh.position.z = 2.5;
+        twTo(tp.x, tp.y, poolMesh.position); poolMesh.position.z = 2.5;
         poolMesh.visible = true;
       });
     }
@@ -792,7 +801,7 @@ export default (() => {
         p.alpha-=0.025; p.scale=Math.max(0,p.scale-0.016);
       }
       if (p.mesh){
-        p.mesh.position.copy(tw(p.x,p.y)); p.mesh.position.z=4;
+        twTo(p.x, p.y, p.mesh.position); p.mesh.position.z=4;
         p.mesh.scale.setScalar(Math.max(0.01,p.scale));
         if(p.mesh.children&&p.mesh.children.length){
           // It's a full bubble group (floater) — fade via child materials
@@ -1400,8 +1409,8 @@ export default (() => {
   function initThree() {
     container=document.getElementById('bam3d-canvas-container');
     if(!container)return;
-    renderer=new THREE.WebGLRenderer({antialias:true, alpha:false, powerPreference:'high-performance'});
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer=new THREE.WebGLRenderer({antialias:false, alpha:false, powerPreference:'high-performance'});
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1));
     renderer.setClearColor(0x010510,1);
     container.appendChild(renderer.domElement);
     scene=new THREE.Scene();
@@ -1477,14 +1486,14 @@ export default (() => {
   // ── Cannon ────────────────────────────────────────────────────
   function _buildCannon(){
     cannonGroup=new THREE.Group(); scene.add(cannonGroup);
-    const base=new THREE.Mesh(new THREE.CylinderGeometry(R*1.7,R*2,R*0.3,24),new THREE.MeshPhongMaterial({color:0x0a1e30,emissive:0x002244,shininess:80}));
+    const base=new THREE.Mesh(new THREE.CylinderGeometry(R*1.7,R*2,R*0.3,24),new THREE.MeshLambertMaterial({color:0x0a1e30,emissive:0x002244}));
     base.rotation.x=Math.PI/2; cannonGroup.add(base);
-    const ring=new THREE.Mesh(new THREE.TorusGeometry(R*1.8,R*0.06,8,32),new THREE.MeshPhongMaterial({color:0x00f5ff,emissive:0x00f5ff,emissiveIntensity:0.7}));
+    const ring=new THREE.Mesh(new THREE.TorusGeometry(R*1.8,R*0.06,8,32),new THREE.MeshLambertMaterial({color:0x00f5ff,emissive:0x00f5ff,emissiveIntensity:0.7}));
     ring.name='cannonRing'; cannonGroup.add(ring);
     cannonBarrel=new THREE.Group(); cannonGroup.add(cannonBarrel);
-    const bar=new THREE.Mesh(new THREE.CylinderGeometry(R*0.28,R*0.38,R*3.2,12),new THREE.MeshPhongMaterial({color:0x2266aa,emissive:0x001133,shininess:120}));
+    const bar=new THREE.Mesh(new THREE.CylinderGeometry(R*0.28,R*0.38,R*3.2,12),new THREE.MeshLambertMaterial({color:0x2266aa,emissive:0x001133}));
     bar.name='cannonBar'; bar.position.y=R*1.6; cannonBarrel.add(bar);
-    const muzzle=new THREE.Mesh(new THREE.TorusGeometry(R*0.32,R*0.09,8,16),new THREE.MeshPhongMaterial({color:0x00f5ff,emissive:0x00f5ff,emissiveIntensity:0.9}));
+    const muzzle=new THREE.Mesh(new THREE.TorusGeometry(R*0.32,R*0.09,8,16),new THREE.MeshLambertMaterial({color:0x00f5ff,emissive:0x00f5ff,emissiveIntensity:0.9}));
     muzzle.name='cannonMuzzle'; muzzle.position.y=R*3.2; cannonBarrel.add(muzzle);
     _repositionCannon();
   }
@@ -1493,7 +1502,11 @@ export default (() => {
 
   // ── Aim line ──────────────────────────────────────────────────
   function _buildAimLine(){
-    aimLineMesh=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0)]),new THREE.LineDashedMaterial({color:0xffffff,dashSize:6,gapSize:9,transparent:true,opacity:0.5}));
+    _aimPositionsBuf = new Float32Array(AIM_MAX_PTS * 3);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(_aimPositionsBuf, 3));
+    geo.setDrawRange(0, 0);
+    aimLineMesh=new THREE.Line(geo, new THREE.LineDashedMaterial({color:0xffffff,dashSize:6,gapSize:9,transparent:true,opacity:0.5}));
     scene.add(aimLineMesh);
   }
   function _invalidateAim(){_aimDirty=true;}
@@ -1504,28 +1517,40 @@ export default (() => {
     if(_aimDirty||_aimLastAngle!==cannonAngle){
       let vx=Math.cos(cannonAngle),vy=Math.sin(cannonAngle);
       let x=cannonX(),y=cannonCY();
-      const pillarW=0, wallL=R, wallR=W-R;
-      const pts=[];
+      const wallL=R, wallR=W-R;
+      // Write directly into the pre-allocated Float32Array — no Vector3 allocation per point
+      if (!_aimPositionsBuf) _aimPositionsBuf = new Float32Array(AIM_MAX_PTS * 3);
+      let ptCount = 0;
+      const writePt = (px, py) => {
+        if (ptCount >= AIM_MAX_PTS) return;
+        const i = ptCount * 3;
+        _aimPositionsBuf[i]   = px;
+        _aimPositionsBuf[i+1] = H - py;
+        _aimPositionsBuf[i+2] = 0;
+        ptCount++;
+      };
+      writePt(x, y);
       for(let i=0;i<Math.ceil(H/SHOOT_SPEED)*6;i++){
         x+=vx*SHOOT_SPEED; y+=vy*SHOOT_SPEED;
-        if(x<wallL){x=wallL;vx=Math.abs(vx);pts.push(tw(x,y));}
-        if(x>wallR){x=wallR;vx=-Math.abs(vx);pts.push(tw(x,y));}
-        if(y<CEILING_PAD+R*2){pts.push(tw(x,CEILING_PAD+R));break;}
-        pts.push(tw(x,y));
+        if(x<wallL){x=wallL;vx=Math.abs(vx);writePt(x,y);}
+        if(x>wallR){x=wallR;vx=-Math.abs(vx);writePt(x,y);}
+        if(y<CEILING_PAD+R*2){writePt(x,CEILING_PAD+R);break;}
+        writePt(x,y);
         let hit=false;
         for(let r=0;r<grid.length&&!hit;r++) for(let c=0;c<colsForRow(r)&&!hit;c++){
           if(!grid[r]||!grid[r][c])continue;
           const cv=cellXY(r,c),dx=x-cv.x,dy=y-cv.y;
-          if(dx*dx+dy*dy<(D*1.05)*(D*1.05)){pts.push(tw(x,y));hit=true;}
+          if(dx*dx+dy*dy<(D*1.05)*(D*1.05)){writePt(x,y);hit=true;}
         }
         if(hit)break;
       }
-      _aimPts=pts.length?pts:[tw(cannonX(),cannonCY())];
+      // Update buffer in-place — no dispose, no allocation
+      const posAttr = aimLineMesh.geometry.attributes.position;
+      posAttr.needsUpdate = true;
+      aimLineMesh.geometry.setDrawRange(0, ptCount);
+      aimLineMesh.computeLineDistances();
       _aimLastAngle=cannonAngle; _aimDirty=false;
     }
-    aimLineMesh.geometry.dispose();
-    aimLineMesh.geometry=new THREE.BufferGeometry().setFromPoints(_aimPts);
-    aimLineMesh.computeLineDistances();
     const qci = queue[0]?.ci ?? 0;
     aimLineMesh.material.color.setHex(qci >= 0 ? ALL_COLORS[qci].hex : 0xaaddff);
   }

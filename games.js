@@ -50,6 +50,9 @@ export const GAMES = {
 // Cache of already-loaded modules (avoid re-importing)
 const _cache = {};
 
+// Track which game module is currently active so we can destroy it cleanly
+let _activeGameKey = null;
+
 // Short aliases used by inline onclick handlers in index.html
 // e.g. BJW.newGame(), ZM.init(), RC.restart() etc.
 const SHORT_ALIASES = {
@@ -78,6 +81,19 @@ const SHORT_ALIASES = {
 };
 
 /**
+ * Destroy the currently active game (cancel its RAF loops, remove listeners).
+ * Called automatically before loading a new game and on backToGameSelect().
+ */
+export function destroyActiveGame() {
+  if (!_activeGameKey) return;
+  const api = _cache[_activeGameKey];
+  if (api && typeof api.destroy === 'function') {
+    try { api.destroy(); } catch(e) { console.warn(`[games] destroy error for ${_activeGameKey}:`, e); }
+  }
+  _activeGameKey = null;
+}
+
+/**
  * Preload a game module without calling its init function.
  * Used by multiplayer lobbies to ensure the module is ready before launch.
  */
@@ -95,6 +111,7 @@ export async function preloadGame(gameKey) {
     console.error(`[games] Failed to preload ${gameKey}:`, err);
   }
 }
+
 export async function loadGame(gameKey) {
   const def = GAMES[gameKey];
   if (!def) {
@@ -102,12 +119,16 @@ export async function loadGame(gameKey) {
     return;
   }
 
+  // Destroy any currently running game before starting the new one
+  destroyActiveGame();
+
   // No module = handled entirely by index.html (multiplayer lobbies etc.)
   // Still call init() so games like solitaire can auto-start.
   if (!def.module) { def.init({}); return; }
 
   // Return cached module if already loaded
   if (_cache[gameKey]) {
+    _activeGameKey = gameKey;
     def.init(_cache[gameKey]);
     return;
   }
@@ -125,6 +146,7 @@ export async function loadGame(gameKey) {
     // Run any post-load setup hooks registered by index.html
     const setupFn = window[`_setup${gameKey.toUpperCase()}`];
     if (typeof setupFn === 'function') setupFn(api);
+    _activeGameKey = gameKey;
     def.init(api);
   } catch (err) {
     console.error(`[games] Failed to load ${gameKey}:`, err);
