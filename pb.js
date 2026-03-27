@@ -27,14 +27,23 @@ export default (function() {
         osc.start(t); osc.stop(t + dur + 0.01);
       } catch(e) {}
     }
+    // Pre-allocated noise buffer — created once, reused for every noise() call
+    let _noiseBuf = null;
+    function _getNoiseBuf(c) {
+      if (!_noiseBuf || _noiseBuf.sampleRate !== c.sampleRate) {
+        const maxDur = 0.2;
+        _noiseBuf = c.createBuffer(1, Math.ceil(c.sampleRate * maxDur), c.sampleRate);
+        const d = _noiseBuf.getChannelData(0);
+        for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      }
+      return _noiseBuf;
+    }
     function noise(dur, vol=0.12, delay=0) {
       try {
         const c = getCtx();
-        const buf = c.createBuffer(1, c.sampleRate * dur, c.sampleRate);
-        const d = buf.getChannelData(0);
-        for (let i=0; i<d.length; i++) d[i] = Math.random()*2-1;
         const src = c.createBufferSource();
-        src.buffer = buf;
+        src.buffer = _getNoiseBuf(c);
+        src.loop = false;
         const gain = c.createGain();
         src.connect(gain); gain.connect(c.destination);
         const t = c.currentTime + delay;
@@ -288,6 +297,7 @@ export default (function() {
       }
     }
     ensurePlayable(pal);
+    _invalidateAim();
   }
 
   function ensurePlayable(pal) {
@@ -957,9 +967,21 @@ export default (function() {
     ctx.restore();
   }
 
-  // Aim line cache — recompute only when angle changes
+  // Aim line cache — recompute only when angle changes or grid is modified
   let _aimCache = null, _aimLastAngle = null, _aimDirty = true;
-  function _invalidateAim() { _aimDirty = true; }
+  // Flat bubble list for aim sim — rebuilt on grid change, avoids nested loop per sim step
+  let _aimBubbleList = [];
+  function _invalidateAim() {
+    _aimDirty = true;
+    _aimBubbleList = [];
+    for (let r = 0; r < grid.length; r++) {
+      if (!grid[r]) continue;
+      for (let c = 0; c < grid[r].length; c++) {
+        const b = grid[r][c];
+        if (b) _aimBubbleList.push(b);
+      }
+    }
+  }
 
   function drawAimLine() {
     const cx = cannonX(), cy = cannonY();
@@ -974,6 +996,7 @@ export default (function() {
       const points = [{x, y}];
       let ghostX = null, ghostY = null;
       const simSteps = Math.ceil(H / SHOOT_SPEED) * 4;
+      const hitRadSq = (D * 1.05) * (D * 1.05);
 
       for (let i = 0; i < simSteps; i++) {
         x += vx * SHOOT_SPEED;
@@ -984,15 +1007,15 @@ export default (function() {
           ghostX = x; ghostY = CEILING_PAD + R;
           points.push({x, y: ghostY}); break;
         }
+        // Flat pre-built list with y-band cull — much cheaper than nested row/col loops
         let hit = false;
-        for (let r = 0; r < grid.length; r++) {
-          for (let c = 0; c < colsForRow(r); c++) {
-            const b = grid[r] && grid[r][c];
-            if (!b) continue;
-            const dx = x - b.x, dy = y - b.y;
-            if (dx*dx + dy*dy < (D * 1.05)*(D * 1.05)) { ghostX = x; ghostY = y; hit = true; break; }
-          }
-          if (hit) break;
+        const bubbles = _aimBubbleList;
+        for (let bi = 0; bi < bubbles.length; bi++) {
+          const b = bubbles[bi];
+          const dy = y - b.y;
+          if (dy > D * 2 || dy < -D * 2) continue; // skip bubbles far from sim y
+          const dx = x - b.x;
+          if (dx * dx + dy * dy < hitRadSq) { ghostX = x; ghostY = y; hit = true; break; }
         }
         if (hit) { points.push({x: ghostX, y: ghostY}); break; }
         points.push({x, y});
