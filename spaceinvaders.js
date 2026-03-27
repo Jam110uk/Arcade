@@ -459,8 +459,12 @@ export default (() => {
   const PW_LABELS = { shield:'⛨', rapid:'⚡', spread:'✦', laser:'▌', nuke:'☢', slow:'❄' };
 
   function spawnPowerUp(x, y) {
-    if (Math.random() > 0.22) return; // 22% drop chance
-    const type = PW_TYPES[Math.floor(Math.random() * PW_TYPES.length)];
+    if (Math.random() > 0.06) return; // 6% drop chance
+    // Nuke is rare — separate 1-in-20 chance within the drop
+    const roll = Math.random();
+    const type = roll < 0.05
+      ? 'nuke'
+      : ['shield', 'rapid', 'spread', 'laser', 'slow'][Math.floor(Math.random() * 5)];
     const color = PW_COLORS[type];
 
     const geo = new THREE.OctahedronGeometry(0.28, 0);
@@ -1029,6 +1033,9 @@ export default (() => {
     if (enemies.length === 0 && !waveClearPending) {
       waveClearPending = true;
       waveDelay = 2.5;
+      // Remove any uncollected power-ups
+      powerUps.forEach(p => scene.remove(p.mesh));
+      powerUps = [];
       showOverlay(`
         <div class="si-ov-title" style="color:#ffe600;text-shadow:0 0 24px #ffe600">WAVE ${wave} CLEAR!</div>
         <div class="si-ov-sub">Next wave incoming…</div>
