@@ -14,6 +14,22 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.m
 
 export default (() => {
 
+  // ── Integrated GPU detection ──────────────────────────────────
+  // Reads the WebGL renderer string from a throwaway canvas — zero cost,
+  // no benchmark, no renderer changes. Only used to throttle the game loop
+  // and reduce particle counts on known integrated / mobile GPUs.
+  const _igpu = (() => {
+    try {
+      const c = document.createElement('canvas');
+      const gl = c.getContext('webgl') || c.getContext('experimental-webgl');
+      if (!gl) return false;
+      const ext = gl.getExtension('WEBGL_debug_renderer_info');
+      if (!ext) return false;
+      const r = gl.getParameter(ext.UNMASKED_RENDERER_WEBGL).toLowerCase();
+      return /intel|hd graphics|uhd graphics|iris|adreno|mali|powervr|videocore/.test(r);
+    } catch (_) { return false; }
+  })();
+
   // ── SFX ──────────────────────────────────────────────────────
   const SFX = (() => {
     let ctx = null;
@@ -760,7 +776,9 @@ export default (() => {
     }
 
     // Shimmer power-up bubbles — pulse sprite opacity via cached reference (no child iteration)
+    // On iGPU: update every other frame to halve this CPU cost. On discrete: every frame.
     const now = performance.now();
+    if (!_igpu || (Math.round(now / 16) & 1) === 0) {
     gridMeshes.forEach(bm => {
       if (!bm.power) return;
       const sprite = bm.mesh.userData.shimmerSprite;
@@ -771,6 +789,7 @@ export default (() => {
       const pulse = 0.65 + 0.25 * Math.sin(s) + 0.10 * Math.sin(s * 3.7);
       sprite.material.opacity = Math.max(0.4, Math.min(1.0, pulse));
     });
+    }
     // Trail — reuse pre-built pool, toggle visibility instead of create/destroy
     const TRAIL_SIZE = 5;
     if (!_trailMeshPool) {
@@ -1068,7 +1087,7 @@ export default (() => {
 
   // Fire swirl: ring of flame particles that spiral outward then fade
   function _vfxFire(cx, cy) {
-    const count = 28;
+    const count = _igpu ? 14 : 28;
     for (let i = 0; i < count; i++) {
       const angle = (i / count) * Math.PI * 2;
       const col = [0xff4400, 0xff8800, 0xffcc00, 0xff2200][Math.floor(Math.random()*4)];
@@ -1085,8 +1104,9 @@ export default (() => {
       popParticles.push({ mesh, x: cx, y: cy, vx, vy, alpha: 1, scale: 1.2, isFloater: false, isSpark: true, gravMult: 0.15 });
     }
     // Inner bright flash ring
-    for (let i = 0; i < 10; i++) {
-      const angle = (i / 10) * Math.PI * 2;
+    const _flashCount = _igpu ? 5 : 10;
+    for (let i = 0; i < _flashCount; i++) {
+      const angle = (i / _flashCount) * Math.PI * 2;
       const mesh = new THREE.Mesh(
         sphereGeo(Math.max(3, Math.round(R * 0.28))),
         new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 })
@@ -1115,7 +1135,7 @@ export default (() => {
         setTimeout(() => {
           if (!scene) return;
           // Bolt flash at this bubble's position
-          for (let i = 0; i < 5; i++) {
+          for (let i = 0; i < (_igpu ? 3 : 5); i++) {
             const boltMesh = new THREE.Mesh(
               sphereGeo(Math.max(3, Math.round(R * 0.22))),
               new THREE.MeshBasicMaterial({ color: i%2===0 ? 0x44aaff : 0xffffff, transparent: true, opacity: 1 })
@@ -1172,8 +1192,9 @@ export default (() => {
       // Big star burst at centre
       const avgX = targetCells.reduce((s,{r,c})=>s+cellXY(r,c).x, 0) / targetCells.length;
       const avgY = targetCells.reduce((s,{r,c})=>s+cellXY(r,c).y, 0) / targetCells.length;
-      for (let i = 0; i < 24; i++) {
-        const ang = (i/24)*Math.PI*2;
+      const _burstCount = _igpu ? 12 : 24;
+      for (let i = 0; i < _burstCount; i++) {
+        const ang = (i/_burstCount)*Math.PI*2;
         const col = [0xffe600, 0xffffff, 0xffaaff, 0xff88ff][Math.floor(Math.random()*4)];
         const mesh = new THREE.Mesh(
           sphereGeo(Math.max(2, Math.round(R*0.18))),
@@ -1590,9 +1611,15 @@ export default (() => {
   }
 
   // ── Render loop ───────────────────────────────────────────────
+  // On iGPU: cap to 30 fps to halve GPU load. On discrete GPU: uncapped, exactly as original.
+  let _lastFrameTs = 0;
+  const _frameBudget = _igpu ? 1000 / 30 : 0;
+
   function _loop(ts=0){
     animId=requestAnimationFrame(_loop);
     if(document.hidden)return;
+    if(_igpu && ts - _lastFrameTs < _frameBudget) return;
+    _lastFrameTs = ts;
     const dt=Math.min(ts-lastTs,50);lastTs=ts;
     const wasActive=!!ball||popParticles.length>0||scoreSprites.length>0;
     if(!paused&&!dead)update(dt);
