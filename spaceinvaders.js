@@ -400,7 +400,7 @@ export default (() => {
   // ── Bullets ───────────────────────────────────────────────────
   function spawnPlayerBullet(ox = 0, vy = BULLET_SPEED) {
     if (playerBullets.length >= MAX_PLAYER_BULLETS) return;
-    const geo = new THREE.CapsuleGeometry(0.05, 0.38, 4, 8);
+    const geo = new THREE.CylinderGeometry(0.05, 0.05, 0.45, 6);
     const mat = new THREE.MeshStandardMaterial({
       color: COLORS.bullet, emissive: COLORS.bullet, emissiveIntensity: 3,
     });
@@ -1261,21 +1261,19 @@ export default (() => {
     resizeOb = new ResizeObserver(onResize);
     resizeOb.observe(container);
 
-    // Input — attach mouse listeners to the root container so overlay doesn't block them
-    const siRoot = container.querySelector('#si-root');
+    // Input — mousedown/up on window so nothing can block it
     canvasWrap.tabIndex = 0;
     canvasWrap.style.outline = 'none';
-    siRoot.addEventListener('mousedown', e => {
+    window.addEventListener('mousedown', e => {
       if (e.button !== 0) return;
       try { ac().resume(); } catch(err) {}
-      canvasWrap.focus();
-      if (gameState === 'idle') { startGame(); return; }
-      fireHeld = true;
-    });
-    siRoot.addEventListener('mouseup',    e => { if (e.button === 0) fireHeld = false; });
-    siRoot.addEventListener('mouseleave', () => { fireHeld = false; });
-    window.addEventListener('keydown', onKey, true);  // capture phase
-    window.addEventListener('keyup',   onKey, true);  // capture phase
+      if (gameState === 'playing') fireHeld = true;
+    }, true);
+    window.addEventListener('mouseup', e => {
+      if (e.button === 0) fireHeld = false;
+    }, true);
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('keyup',   onKey, true);
     canvasWrap.addEventListener('touchstart', onTouchStart, { passive: false });
     canvasWrap.addEventListener('touchmove',  onTouchMove,  { passive: true });
     canvasWrap.addEventListener('touchend',   onTouchEnd);
