@@ -179,47 +179,43 @@ export default (() => {
     playerGroup = new THREE.Group();
 
     // ── Main fuselage ──
-    const bodyGeo = new THREE.CylinderGeometry(0.16, 0.30, 1.05, 10);
+    const bodyGeo = new THREE.CylinderGeometry(0.16, 0.30, 0.62, 10);
     const bodyMat = makeGlow(bodyGeo, COLORS.player, 1.1);
     const body = new THREE.Mesh(bodyGeo, bodyMat);
-    body.position.y = 0.08;
+    body.position.y = 0.04;
     playerGroup.add(body);
-    // Panel wireframe
-    const bodyWF = makeWireframe(new THREE.CylinderGeometry(0.165, 0.305, 1.06, 10), COLORS.player);
-    bodyWF.position.y = 0.08;
+    const bodyWF = makeWireframe(new THREE.CylinderGeometry(0.165, 0.305, 0.63, 10), COLORS.player);
+    bodyWF.position.y = 0.04;
     playerGroup.add(bodyWF);
 
     // ── Nose cone ──
-    const noseGeo = new THREE.ConeGeometry(0.16, 0.58, 10);
-    const noseMat = makeGlow(noseGeo, COLORS.player, 2.2);
-    const nose = new THREE.Mesh(noseGeo, noseMat);
-    nose.position.y = 0.9;
+    const noseGeo = new THREE.ConeGeometry(0.16, 0.36, 10);
+    const nose = new THREE.Mesh(noseGeo, makeGlow(noseGeo, COLORS.player, 2.2));
+    nose.position.y = 0.49;
     playerGroup.add(nose);
-    const noseWF = makeWireframe(new THREE.ConeGeometry(0.163, 0.59, 10), 0x00ffff);
-    noseWF.position.y = 0.9;
+    const noseWF = makeWireframe(new THREE.ConeGeometry(0.163, 0.37, 10), 0x00ffff);
+    noseWF.position.y = 0.49;
     playerGroup.add(noseWF);
 
     // ── Gun barrel ──
-    const gunGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.45, 6);
-    const gunMat = new THREE.MeshStandardMaterial({ color: 0x88ddff, emissive: 0x00aaff, emissiveIntensity: 1.2, metalness: 0.8, roughness: 0.2 });
-    const gun = new THREE.Mesh(gunGeo, gunMat);
-    gun.position.y = 1.33;
+    const gunGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.28, 6);
+    const gun = new THREE.Mesh(gunGeo, new THREE.MeshStandardMaterial({ color: 0x88ddff, emissive: 0x00aaff, emissiveIntensity: 1.2, metalness: 0.8, roughness: 0.2 }));
+    gun.position.y = 0.81;
     playerGroup.add(gun);
-    // Gun tip glow
     const tipGeo = new THREE.SphereGeometry(0.055, 6, 6);
     const tip = new THREE.Mesh(tipGeo, makeGlow(tipGeo, 0x00ffff, 3.5));
-    tip.position.y = 1.57;
+    tip.position.y = 0.96;
     playerGroup.add(tip);
 
     // ── Swept wings ──
     [-1, 1].forEach(sign => {
       const wGeo = new THREE.BufferGeometry();
       const v = new Float32Array([
-        sign * 0.14,  0.22, 0,
-        sign * 1.15, -0.38, 0,
-        sign * 0.95, -0.60, 0,
-        sign * 0.28, -0.62, 0,
-        sign * 0.14, -0.10, 0,
+        sign * 0.14,  0.14, 0,
+        sign * 1.15, -0.26, 0,
+        sign * 0.95, -0.42, 0,
+        sign * 0.28, -0.44, 0,
+        sign * 0.14, -0.06, 0,
       ]);
       const idx = sign > 0
         ? new Uint16Array([0,1,4, 1,3,4, 1,2,3])
@@ -229,71 +225,67 @@ export default (() => {
       wGeo.computeVertexNormals();
       playerGroup.add(new THREE.Mesh(wGeo, makeGlow(wGeo, COLORS.player, 0.85)));
 
-      // Wing leading-edge neon line
       const edgePts = [
-        new THREE.Vector3(sign * 0.14,  0.22, 0),
-        new THREE.Vector3(sign * 1.15, -0.38, 0),
-        new THREE.Vector3(sign * 0.95, -0.60, 0),
-        new THREE.Vector3(sign * 0.28, -0.62, 0),
+        new THREE.Vector3(sign * 0.14,  0.14, 0),
+        new THREE.Vector3(sign * 1.15, -0.26, 0),
+        new THREE.Vector3(sign * 0.95, -0.42, 0),
+        new THREE.Vector3(sign * 0.28, -0.44, 0),
       ];
       playerGroup.add(new THREE.Line(
         new THREE.BufferGeometry().setFromPoints(edgePts),
         new THREE.LineBasicMaterial({ color: 0x00ffff })
       ));
 
-      // Wing-tip nav light (red port, green starboard)
+      // Nav lights
       const navGeo = new THREE.SphereGeometry(0.055, 6, 6);
-      const navMat = makeGlow(navGeo, sign < 0 ? 0xff3333 : 0x33ff66, 4.0);
-      const nav = new THREE.Mesh(navGeo, navMat);
-      nav.position.set(sign * 1.15, -0.38, 0);
+      const nav = new THREE.Mesh(navGeo, makeGlow(navGeo, sign < 0 ? 0xff3333 : 0x33ff66, 4.0));
+      nav.position.set(sign * 1.15, -0.26, 0);
       playerGroup.add(nav);
     });
 
     // ── Cockpit dome ──
     const cockpitGeo = new THREE.SphereGeometry(0.13, 10, 7, 0, Math.PI * 2, 0, Math.PI * 0.55);
-    const cockpitMat = new THREE.MeshStandardMaterial({
+    const cockpit = new THREE.Mesh(cockpitGeo, new THREE.MeshStandardMaterial({
       color: 0xaaddff, emissive: 0x2255ff, emissiveIntensity: 1.8,
       transparent: true, opacity: 0.72, metalness: 0.3, roughness: 0.1,
-    });
-    const cockpit = new THREE.Mesh(cockpitGeo, cockpitMat);
-    cockpit.position.y = 0.62;
+    }));
+    cockpit.position.y = 0.30;
     playerGroup.add(cockpit);
 
     // ── Twin engine pods + exhausts ──
     [-0.22, 0.22].forEach((xOff, i) => {
-      const podGeo = new THREE.CylinderGeometry(0.09, 0.11, 0.35, 8);
-      const podMat = new THREE.MeshStandardMaterial({ color: COLORS.player, emissive: COLORS.player, emissiveIntensity: 0.5, metalness: 0.6, roughness: 0.3 });
-      const pod = new THREE.Mesh(podGeo, podMat);
-      pod.position.set(xOff, -0.58, 0);
+      const pod = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.09, 0.11, 0.22, 8),
+        new THREE.MeshStandardMaterial({ color: COLORS.player, emissive: COLORS.player, emissiveIntensity: 0.5, metalness: 0.6, roughness: 0.3 })
+      );
+      pod.position.set(xOff, -0.38, 0);
       playerGroup.add(pod);
 
       const engGeo = new THREE.SphereGeometry(0.10, 8, 8);
       const engMat = makeGlow(engGeo, 0xff5500, 5.0);
       const eng = new THREE.Mesh(engGeo, engMat);
-      eng.position.set(xOff, -0.80, 0);
+      eng.position.set(xOff, -0.53, 0);
       playerGroup.add(eng);
       if (i === 1) playerGroup._engineMat = engMat;
 
-      // Bright inner core
-      const coreGeo = new THREE.SphereGeometry(0.055, 6, 6);
-      const core = new THREE.Mesh(coreGeo, makeGlow(coreGeo, 0xffdd88, 8.0));
-      core.position.set(xOff, -0.80, 0);
+      const core = new THREE.Mesh(new THREE.SphereGeometry(0.055, 6, 6), makeGlow(null, 0xffdd88, 8.0));
+      core.position.set(xOff, -0.53, 0);
       playerGroup.add(core);
     });
 
     // ── Rear stabiliser fins ──
     [-1, 1].forEach(sign => {
       const fv = new Float32Array([
-        sign * 0.28, -0.48, 0,
-        sign * 0.60, -0.68, 0,
-        sign * 0.28, -0.75, 0,
+        sign * 0.28, -0.30, 0,
+        sign * 0.60, -0.44, 0,
+        sign * 0.28, -0.50, 0,
       ]);
       const finGeo = new THREE.BufferGeometry();
       finGeo.setAttribute('position', new THREE.BufferAttribute(fv, 3));
       finGeo.setIndex(new THREE.BufferAttribute(new Uint16Array(sign > 0 ? [0,1,2] : [0,2,1]), 1));
       finGeo.computeVertexNormals();
       playerGroup.add(new THREE.Mesh(finGeo, makeGlow(finGeo, COLORS.player, 1.0)));
-      const fp = [new THREE.Vector3(sign*0.28,-0.48,0), new THREE.Vector3(sign*0.60,-0.68,0), new THREE.Vector3(sign*0.28,-0.75,0)];
+      const fp = [new THREE.Vector3(sign*0.28,-0.30,0), new THREE.Vector3(sign*0.60,-0.44,0), new THREE.Vector3(sign*0.28,-0.50,0)];
       playerGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(fp), new THREE.LineBasicMaterial({ color: 0x00ffff })));
     });
 
@@ -1269,7 +1261,16 @@ export default (() => {
     // Input — use capture phase on window so parent page can't swallow keys first
     canvasWrap.tabIndex = 0;
     canvasWrap.style.outline = 'none';
-    canvasWrap.addEventListener('click', () => canvasWrap.focus());
+    canvasWrap.style.cursor = 'crosshair';
+    canvasWrap.addEventListener('mousedown', e => {
+      if (e.button === 0) {
+        canvasWrap.focus();
+        if (gameState === 'idle') { startGame(); return; }
+        fireHeld = true;
+      }
+    });
+    canvasWrap.addEventListener('mouseup',    e => { if (e.button === 0) fireHeld = false; });
+    canvasWrap.addEventListener('mouseleave', () => { fireHeld = false; });
     window.addEventListener('keydown', onKey, true);  // capture phase
     window.addEventListener('keyup',   onKey, true);  // capture phase
     canvasWrap.addEventListener('touchstart', onTouchStart, { passive: false });
@@ -1283,7 +1284,7 @@ export default (() => {
       <div class="si-ov-sub">Power-ups · 5 enemy types · endless waves</div>
       <button class="si-ov-btn" id="si-start-btn">▶ START GAME</button>
       <div class="si-ov-controls">
-        ← → / A D &nbsp;MOVE &nbsp;·&nbsp; SPACE / Z &nbsp;FIRE &nbsp;·&nbsp; ESC &nbsp;EXIT<br>
+        ← → / A D &nbsp;MOVE &nbsp;·&nbsp; LEFT CLICK &nbsp;FIRE &nbsp;·&nbsp; ESC &nbsp;EXIT<br>
         Power-ups: ⛨ SHIELD &nbsp;⚡ RAPID &nbsp;✦ SPREAD &nbsp;▌ LASER &nbsp;☢ NUKE &nbsp;❄ SLOW
       </div>
     `);
