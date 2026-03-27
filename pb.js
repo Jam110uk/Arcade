@@ -3,6 +3,22 @@
 
 export default (function() {
 
+  // ── Integrated GPU detection ──────────────────────────────────
+  // Reads the WebGL renderer string from a throwaway canvas — instant, zero cost.
+  // Used only to throttle the game loop and skip expensive per-frame effects on
+  // known integrated / mobile GPUs. Discrete GPUs are completely unaffected.
+  const _igpu = (() => {
+    try {
+      const c = document.createElement('canvas');
+      const gl = c.getContext('webgl') || c.getContext('experimental-webgl');
+      if (!gl) return false;
+      const ext = gl.getExtension('WEBGL_debug_renderer_info');
+      if (!ext) return false;
+      const r = gl.getParameter(ext.UNMASKED_RENDERER_WEBGL).toLowerCase();
+      return /intel|hd graphics|uhd graphics|iris|adreno|mali|powervr|videocore/.test(r);
+    } catch (_) { return false; }
+  })();
+
   // ── SFX Engine ────────────────────────────────────────────────
   const SFX = (() => {
     let ctx = null;
@@ -191,8 +207,8 @@ export default (function() {
     document.addEventListener('keydown', onKeyDown);
     document.addEventListener('keyup',   onKeyUp);
 
-    // Generate bg stars
-    bgStars = Array.from({length:60}, () => ({
+    // Generate bg stars — half as many on iGPU to save per-frame trig cost
+    bgStars = Array.from({length: _igpu ? 30 : 60}, () => ({
       x: Math.random(), y: Math.random(),
       r: Math.random()*1.2+0.3, a: Math.random()*0.5+0.1,
       tw: Math.random()*Math.PI*2, ts: Math.random()*0.03+0.005,
@@ -820,8 +836,14 @@ export default (function() {
   }
 
   // ── Game loop ──────────────────────────────────────────────────
+  // iGPU: cap to 30 fps. Discrete GPU: uncapped, exactly as original.
+  let _lastFrameTs = 0;
+  const _frameBudget = _igpu ? 1000 / 30 : 0;
+
   function loop(ts = 0) {
     raf = requestAnimationFrame(loop);
+    if (_igpu && ts - _lastFrameTs < _frameBudget) return;
+    _lastFrameTs = ts;
     const dt = Math.min(ts - lastTs, 50);
     lastTs = ts;
     if (!paused && !dead) update(dt);
@@ -954,17 +976,20 @@ export default (function() {
     });
 
     // Scanlines — blit cached strip instead of 135 fillRect calls per frame
-    if (!_scanlineCache) {
-      const sc = document.createElement('canvas');
-      sc.width = W; sc.height = H;
-      const scc = sc.getContext('2d');
-      scc.fillStyle = '#000';
-      for (let y = 0; y < H; y += 4) scc.fillRect(0, y, W, 2);
-      _scanlineCache = sc;
+    // On iGPU: skip entirely — saves the drawImage composite cost each frame
+    if (!_igpu) {
+      if (!_scanlineCache) {
+        const sc = document.createElement('canvas');
+        sc.width = W; sc.height = H;
+        const scc = sc.getContext('2d');
+        scc.fillStyle = '#000';
+        for (let y = 0; y < H; y += 4) scc.fillRect(0, y, W, 2);
+        _scanlineCache = sc;
+      }
+      ctx.save(); ctx.globalAlpha = 0.035;
+      ctx.drawImage(_scanlineCache, 0, 0);
+      ctx.restore();
     }
-    ctx.save(); ctx.globalAlpha = 0.035;
-    ctx.drawImage(_scanlineCache, 0, 0);
-    ctx.restore();
   }
 
   // Aim line cache — recompute only when angle changes or grid is modified
@@ -1032,8 +1057,7 @@ export default (function() {
     ctx.setLineDash([6, 10]);
     ctx.lineWidth = 2;
     ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-    ctx.shadowColor = GLOWS[curCi];
-    ctx.shadowBlur = 5;
+    if (!_igpu) { ctx.shadowColor = GLOWS[curCi]; ctx.shadowBlur = 5; }
     ctx.beginPath();
     ctx.moveTo(points[0].x, points[0].y);
     for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
@@ -1046,7 +1070,8 @@ export default (function() {
       ctx.save();
       ctx.beginPath(); ctx.arc(ghostX, ghostY,Math.max(0,R), 0, Math.PI*2);
       ctx.strokeStyle = COLORS[curCi]; ctx.lineWidth = 2;
-      ctx.globalAlpha = 0.6; ctx.shadowColor = GLOWS[curCi]; ctx.shadowBlur = 8;
+      ctx.globalAlpha = 0.6;
+      if (!_igpu) { ctx.shadowColor = GLOWS[curCi]; ctx.shadowBlur = 8; }
       ctx.stroke();
       ctx.beginPath(); ctx.arc(ghostX, ghostY,Math.max(0,R), 0, Math.PI*2);
       ctx.fillStyle = COLORS[curCi]; ctx.globalAlpha = 0.12; ctx.fill();
