@@ -168,9 +168,16 @@ export default (() => {
 
   function buildTabs() {
     const container = document.getElementById('hs-tabs');
-    container.innerHTML = GAMES.map(g =>
-      `<button class="hs-tab${g.key === currentTab ? ' active' : ''}" onclick="hsTabSelect('${g.key}')">${g.label}</button>`
-    ).join('');
+    // First call: build the tab buttons once and never touch innerHTML again
+    if (!container.children.length) {
+      container.innerHTML = GAMES.map(g =>
+        `<button class="hs-tab" data-key="${g.key}" onclick="hsTabSelect('${g.key}')">${g.label}</button>`
+      ).join('');
+    }
+    // Toggle active class without destroying/recreating any nodes
+    Array.from(container.children).forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.key === currentTab);
+    });
   }
 
   function tabSelect(key) {

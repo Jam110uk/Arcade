@@ -37,6 +37,12 @@ export const GAMES = {
     const s = document.createElement('script');
     s.src = './pool.js';
     document.head.appendChild(s);
+    // Register a destroy hook so navigating away cleans up pool's RAF/listeners
+    window._nullGameDestroy['pool'] = () => {
+      if (typeof window.POOL?.destroy === 'function') {
+        try { window.POOL.destroy(); } catch(e) {}
+      }
+    };
   } },
   scrabble:     { label: '🔤 Scrabble',          module: null,          screen: 'scrabble-lobby-screen', init: () => {} },
   trivia:       { label: '🧠 Trivia',            module: null,          screen: 'trivia-lobby-screen', init: () => {} },
@@ -52,6 +58,11 @@ const _cache = {};
 
 // Track which game module is currently active so we can destroy it cleanly
 let _activeGameKey = null;
+
+// Destroy hooks for games that use module:null (inline scripts in index.html).
+// index.html can register a cleanup function here for any null-module game.
+// e.g. window._nullGameDestroy['minesweeper'] = () => { cancelAnimationFrame(myRaf); }
+window._nullGameDestroy = window._nullGameDestroy || {};
 
 // Short aliases used by inline onclick handlers in index.html
 // e.g. BJW.newGame(), ZM.init(), RC.restart() etc.
@@ -86,9 +97,15 @@ const SHORT_ALIASES = {
  */
 export function destroyActiveGame() {
   if (!_activeGameKey) return;
+  // Module-based games: call destroy() on the cached API
   const api = _cache[_activeGameKey];
   if (api && typeof api.destroy === 'function') {
     try { api.destroy(); } catch(e) { console.warn(`[games] destroy error for ${_activeGameKey}:`, e); }
+  }
+  // Null-module games: call any destroy hook registered by index.html
+  const nullHook = window._nullGameDestroy[_activeGameKey];
+  if (typeof nullHook === 'function') {
+    try { nullHook(); } catch(e) { console.warn(`[games] null-destroy error for ${_activeGameKey}:`, e); }
   }
   _activeGameKey = null;
 }
@@ -124,7 +141,8 @@ export async function loadGame(gameKey) {
 
   // No module = handled entirely by index.html (multiplayer lobbies etc.)
   // Still call init() so games like solitaire can auto-start.
-  if (!def.module) { def.init({}); return; }
+  // Must set _activeGameKey here too so destroyActiveGame() targets the right game next time.
+  if (!def.module) { _activeGameKey = gameKey; def.init({}); return; }
 
   // Return cached module if already loaded
   if (_cache[gameKey]) {
