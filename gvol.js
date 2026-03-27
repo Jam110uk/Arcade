@@ -279,4 +279,3 @@ const GVol = {
 };
 
 window.GVol = GVol;
-export default GVol;
