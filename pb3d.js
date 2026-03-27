@@ -47,14 +47,24 @@ export default (() => {
     }
 
     // Soft filtered noise burst
+    // Pre-allocated noise buffer — created once at max duration, reused every call.
+    // Previously allocated a fresh PCM buffer on every bounce/land/pop, causing GC
+    // pressure and brief CPU spikes on rapid pops.
+    const NOISE_MAX_DUR = 0.3; // seconds — covers all softNoise() call-sites
+    let _noiseBuf = null;
+    function _ensureNoiseBuf() {
+      if (_noiseBuf) return;
+      const c = gc();
+      _noiseBuf = c.createBuffer(1, Math.ceil(c.sampleRate * NOISE_MAX_DUR), c.sampleRate);
+      const data = _noiseBuf.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    }
     function softNoise(d, vol=0.06, delay=0) {
       try {
         const c=gc();
-        const buf=c.createBuffer(1,c.sampleRate*d,c.sampleRate);
-        const data=buf.getChannelData(0);
-        for(let i=0;i<data.length;i++) data[i]=Math.random()*2-1;
+        _ensureNoiseBuf();
         const src=c.createBufferSource();
-        src.buffer=buf;
+        src.buffer=_noiseBuf; // reuse pre-filled buffer; no createBuffer() per call
         const filt=c.createBiquadFilter();
         filt.type='bandpass'; filt.frequency.value=800; filt.Q.value=0.8;
         const g=c.createGain();
@@ -304,6 +314,10 @@ export default (() => {
   // Pre-allocated aim line buffer — updated in-place to avoid per-frame GC
   const AIM_MAX_PTS = 512;
   let _aimPositionsBuf = null; // Float32Array, lazy-init
+  // Flat bubble list for aim collision — rebuilt only when the grid changes,
+  // not on every simulation step. Avoids the O(grid²) nested row×col scan
+  // that ran on every mousemove frame.
+  let _aimBubbleList = []; // [{x, y}] world-space centres of occupied cells
 
   let leftHeld = false, rightHeld = false;
   const AIM_SPEED = 0.035;
@@ -1509,7 +1523,20 @@ export default (() => {
     aimLineMesh=new THREE.Line(geo, new THREE.LineDashedMaterial({color:0xffffff,dashSize:6,gapSize:9,transparent:true,opacity:0.5}));
     scene.add(aimLineMesh);
   }
-  function _invalidateAim(){_aimDirty=true;}
+  // Rebuild flat bubble list from grid — called once on grid change, not per frame.
+  // Replaces the O(grid²) nested row×col scan that ran at every aim sim step.
+  function _rebuildAimBubbleList() {
+    _aimBubbleList = [];
+    for (let r = 0; r < grid.length; r++) {
+      for (let c = 0; c < colsForRow(r); c++) {
+        if (grid[r] && grid[r][c]) {
+          const cv = cellXY(r, c);
+          _aimBubbleList.push({ x: cv.x, y: cv.y });
+        }
+      }
+    }
+  }
+  function _invalidateAim() { _aimDirty = true; _rebuildAimBubbleList(); }
   function _updateAimLine(){
     if(!aimLineMesh)return;
     if(!queue.length||dead||paused||ball){aimLineMesh.visible=false;return;}
@@ -1529,6 +1556,10 @@ export default (() => {
         _aimPositionsBuf[i+2] = 0;
         ptCount++;
       };
+      // Collision threshold squared — computed once outside the loop
+      const hitR2 = (D * 1.05) * (D * 1.05);
+      // y-band half-width: bubbles further than 2×D vertically are skipped (~90% culled)
+      const yCull = D * 2;
       writePt(x, y);
       for(let i=0;i<Math.ceil(H/SHOOT_SPEED)*6;i++){
         x+=vx*SHOOT_SPEED; y+=vy*SHOOT_SPEED;
@@ -1537,10 +1568,13 @@ export default (() => {
         if(y<CEILING_PAD+R*2){writePt(x,CEILING_PAD+R);break;}
         writePt(x,y);
         let hit=false;
-        for(let r=0;r<grid.length&&!hit;r++) for(let c=0;c<colsForRow(r)&&!hit;c++){
-          if(!grid[r]||!grid[r][c])continue;
-          const cv=cellXY(r,c),dx=x-cv.x,dy=y-cv.y;
-          if(dx*dx+dy*dy<(D*1.05)*(D*1.05)){writePt(x,y);hit=true;}
+        // Flat list scan with y-band cull — O(n) with ~90% skipped immediately
+        for(let b=0;b<_aimBubbleList.length&&!hit;b++){
+          const bub=_aimBubbleList[b];
+          const dy=y-bub.y;
+          if(dy>yCull||dy<-yCull)continue; // cheap vertical reject
+          const dx=x-bub.x;
+          if(dx*dx+dy*dy<hitR2){writePt(x,y);hit=true;}
         }
         if(hit)break;
       }
