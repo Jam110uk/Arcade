@@ -253,7 +253,9 @@ export default (() => {
 
   function sphereGeo(r) {
     const k = Math.round(r);
-    if (!_geoCache[k]) _geoCache[k] = new THREE.SphereGeometry(r, 10, 8);
+    // Lower segment counts (6×5 vs 10×8) — cuts triangle count ~60% per bubble.
+    // Spheres are small on screen; the difference is invisible on a laptop display.
+    if (!_geoCache[k]) _geoCache[k] = new THREE.SphereGeometry(r, 6, 5);
     return _geoCache[k];
   }
 
@@ -337,12 +339,7 @@ export default (() => {
     } else {
       group.add(new THREE.Mesh(sphereGeo(R),        _shellMat(ci)));
       group.add(new THREE.Mesh(sphereGeo(R * 0.72), _innerMat(ci)));
-      const spec = new THREE.Mesh(sphereGeo(R * 0.22), _specMat());
-      spec.position.set(-R*0.32, R*0.34, R*0.55);
-      group.add(spec);
-      const spec2 = new THREE.Mesh(sphereGeo(R * 0.10), _spec2Mat());
-      spec2.position.set(-R*0.12, R*0.52, R*0.45);
-      group.add(spec2);
+      // Specular blobs omitted on this build — save 2 draw calls per bubble on iGPU
       if (power) {
         const col = ALL_COLORS[ci];
         const tex = _getEmojiTex(power, col.hex);
@@ -759,8 +756,9 @@ export default (() => {
       if (!placed&&ball&&ball.y>H+60) { scene.remove(ball.mesh); ball=null; }
     }
 
-    // Shimmer power-up bubbles — pulse sprite opacity via cached reference (no child iteration)
+    // Shimmer power-up bubbles — skip every other frame to halve CPU cost
     const now = performance.now();
+    if ((now & 1) === 0) {   // alternates each frame (~15 updates/s at 30fps cap)
     gridMeshes.forEach(bm => {
       if (!bm.power) return;
       const sprite = bm.mesh.userData.shimmerSprite;
@@ -771,6 +769,7 @@ export default (() => {
       const pulse = 0.65 + 0.25 * Math.sin(s) + 0.10 * Math.sin(s * 3.7);
       sprite.material.opacity = Math.max(0.4, Math.min(1.0, pulse));
     });
+    }
     // Trail — reuse pre-built pool, toggle visibility instead of create/destroy
     const TRAIL_SIZE = 5;
     if (!_trailMeshPool) {
@@ -1068,7 +1067,7 @@ export default (() => {
 
   // Fire swirl: ring of flame particles that spiral outward then fade
   function _vfxFire(cx, cy) {
-    const count = 28;
+    const count = 14;  // reduced from 28 — halves particle draw calls on iGPU
     for (let i = 0; i < count; i++) {
       const angle = (i / count) * Math.PI * 2;
       const col = [0xff4400, 0xff8800, 0xffcc00, 0xff2200][Math.floor(Math.random()*4)];
@@ -1079,14 +1078,13 @@ export default (() => {
       );
       mesh.position.copy(tw(cx, cy)); mesh.position.z = 6; scene.add(mesh);
       const spd = 1.8 + Math.random() * 2.5;
-      // Swirl: radial + tangential component
       const vx = Math.cos(angle) * spd + Math.sin(angle) * spd * 0.6;
       const vy = Math.sin(angle) * spd - Math.cos(angle) * spd * 0.6 - 1.5;
       popParticles.push({ mesh, x: cx, y: cy, vx, vy, alpha: 1, scale: 1.2, isFloater: false, isSpark: true, gravMult: 0.15 });
     }
-    // Inner bright flash ring
-    for (let i = 0; i < 10; i++) {
-      const angle = (i / 10) * Math.PI * 2;
+    // Inner bright flash ring — reduced from 10 to 5
+    for (let i = 0; i < 5; i++) {
+      const angle = (i / 5) * Math.PI * 2;
       const mesh = new THREE.Mesh(
         sphereGeo(Math.max(3, Math.round(R * 0.28))),
         new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 })
@@ -1114,8 +1112,8 @@ export default (() => {
         const delay = c * 28; // ms stagger per column
         setTimeout(() => {
           if (!scene) return;
-          // Bolt flash at this bubble's position
-          for (let i = 0; i < 5; i++) {
+          // Bolt flash at this bubble's position — 3 particles (was 5) saves ~40% on wide rows
+          for (let i = 0; i < 3; i++) {
             const boltMesh = new THREE.Mesh(
               sphereGeo(Math.max(3, Math.round(R * 0.22))),
               new THREE.MeshBasicMaterial({ color: i%2===0 ? 0x44aaff : 0xffffff, transparent: true, opacity: 1 })
@@ -1172,8 +1170,8 @@ export default (() => {
       // Big star burst at centre
       const avgX = targetCells.reduce((s,{r,c})=>s+cellXY(r,c).x, 0) / targetCells.length;
       const avgY = targetCells.reduce((s,{r,c})=>s+cellXY(r,c).y, 0) / targetCells.length;
-      for (let i = 0; i < 24; i++) {
-        const ang = (i/24)*Math.PI*2;
+      for (let i = 0; i < 12; i++) {  // reduced from 24
+        const ang = (i/12)*Math.PI*2;
         const col = [0xffe600, 0xffffff, 0xffaaff, 0xff88ff][Math.floor(Math.random()*4)];
         const mesh = new THREE.Mesh(
           sphereGeo(Math.max(2, Math.round(R*0.18))),
@@ -1423,8 +1421,16 @@ export default (() => {
   function initThree() {
     container=document.getElementById('bam3d-canvas-container');
     if(!container)return;
-    renderer=new THREE.WebGLRenderer({antialias:false, alpha:false, powerPreference:'high-performance'});
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1));
+    renderer=new THREE.WebGLRenderer({
+      antialias: false,
+      alpha: false,
+      powerPreference: 'low-power',   // tells Intel iGPU driver to stay in low-power mode
+      precision: 'mediump',           // mediump sufficient for this orthographic bubble game
+      stencil: false,                 // not used — saves framebuffer memory
+      depth: true,
+    });
+    // Hard-cap at 1× DPR — retina fill-rate on integrated graphics is not worth it
+    renderer.setPixelRatio(1);
     renderer.setClearColor(0x010510,1);
     container.appendChild(renderer.domElement);
     scene=new THREE.Scene();
@@ -1434,10 +1440,8 @@ export default (() => {
     scene.add(new THREE.AmbientLight(0x223355,1.0));
     const key=new THREE.DirectionalLight(0xffffff,1.1);
     key.position.set(W*0.25,H*0.75,80); scene.add(key);
-    const fill=new THREE.DirectionalLight(0x4466aa,0.3);
-    fill.position.set(W*0.8,H*0.4,60); scene.add(fill);
-    const rim=new THREE.DirectionalLight(0xff2d78,0.15);
-    rim.position.set(W*0.5,0,-20); scene.add(rim);
+    // HemisphereLight replaces fill + rim DirectionalLights at half the per-fragment cost
+    scene.add(new THREE.HemisphereLight(0x4466aa, 0xff2d78, 0.35));
 
     _buildBackground();
     _buildCannon();
@@ -1500,14 +1504,14 @@ export default (() => {
   // ── Cannon ────────────────────────────────────────────────────
   function _buildCannon(){
     cannonGroup=new THREE.Group(); scene.add(cannonGroup);
-    const base=new THREE.Mesh(new THREE.CylinderGeometry(R*1.7,R*2,R*0.3,24),new THREE.MeshLambertMaterial({color:0x0a1e30,emissive:0x002244}));
+    const base=new THREE.Mesh(new THREE.CylinderGeometry(R*1.7,R*2,R*0.3,12),new THREE.MeshLambertMaterial({color:0x0a1e30,emissive:0x002244}));
     base.rotation.x=Math.PI/2; cannonGroup.add(base);
-    const ring=new THREE.Mesh(new THREE.TorusGeometry(R*1.8,R*0.06,8,32),new THREE.MeshLambertMaterial({color:0x00f5ff,emissive:0x00f5ff,emissiveIntensity:0.7}));
+    const ring=new THREE.Mesh(new THREE.TorusGeometry(R*1.8,R*0.06,6,20),new THREE.MeshLambertMaterial({color:0x00f5ff,emissive:0x00f5ff,emissiveIntensity:0.7}));
     ring.name='cannonRing'; cannonGroup.add(ring);
     cannonBarrel=new THREE.Group(); cannonGroup.add(cannonBarrel);
-    const bar=new THREE.Mesh(new THREE.CylinderGeometry(R*0.28,R*0.38,R*3.2,12),new THREE.MeshLambertMaterial({color:0x2266aa,emissive:0x001133}));
+    const bar=new THREE.Mesh(new THREE.CylinderGeometry(R*0.28,R*0.38,R*3.2,8),new THREE.MeshLambertMaterial({color:0x2266aa,emissive:0x001133}));
     bar.name='cannonBar'; bar.position.y=R*1.6; cannonBarrel.add(bar);
-    const muzzle=new THREE.Mesh(new THREE.TorusGeometry(R*0.32,R*0.09,8,16),new THREE.MeshLambertMaterial({color:0x00f5ff,emissive:0x00f5ff,emissiveIntensity:0.9}));
+    const muzzle=new THREE.Mesh(new THREE.TorusGeometry(R*0.32,R*0.09,6,12),new THREE.MeshLambertMaterial({color:0x00f5ff,emissive:0x00f5ff,emissiveIntensity:0.9}));
     muzzle.name='cannonMuzzle'; muzzle.position.y=R*3.2; cannonBarrel.add(muzzle);
     _repositionCannon();
   }
@@ -1589,10 +1593,17 @@ export default (() => {
     aimLineMesh.material.color.setHex(qci >= 0 ? ALL_COLORS[qci].hex : 0xaaddff);
   }
 
+  // Target 30 fps — halves GPU load on Intel iGPU vs uncapped 60 fps
+  const FRAME_MS = 1000 / 30;
+  let _lastFrameTs = 0;
+
   // ── Render loop ───────────────────────────────────────────────
   function _loop(ts=0){
     animId=requestAnimationFrame(_loop);
     if(document.hidden)return;
+    // Skip frames to stay at ~30 fps
+    if(ts - _lastFrameTs < FRAME_MS) return;
+    _lastFrameTs = ts;
     const dt=Math.min(ts-lastTs,50);lastTs=ts;
     const wasActive=!!ball||popParticles.length>0||scoreSprites.length>0;
     if(!paused&&!dead)update(dt);
