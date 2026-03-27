@@ -54,10 +54,12 @@ const _masterGains = [];
     const ctx = new Native(...args);
 
     // Grab the hardware destination BEFORE we shadow it
-    const hwDest = ctx.destination;
+    const hwDest = Native.prototype.destination
+      ? Object.getOwnPropertyDescriptor(Native.prototype, 'destination').get.call(ctx)
+      : ctx.destination;
 
     // Insert master gain → hardware destination
-    const master = ctx.createGain();
+    const master = Native.prototype.createGain.call(ctx);
     master.gain.value = _muted ? 0 : _volume;
     master.connect(hwDest);
 
@@ -256,16 +258,14 @@ function _watchScreens() {
 }
 
 // ── Boot ──────────────────────────────────────────────────
+// Always wait for DOMContentLoaded — as a plain <script> in <head>
+// we run before <body> exists, so document.body is null here.
 function _boot() {
   _buildWidget();
   _watchScreens();
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', _boot);
-} else {
-  _boot();
-}
+document.addEventListener('DOMContentLoaded', _boot);
 
 // ── Export ────────────────────────────────────────────────
 const GVol = {
@@ -277,4 +277,3 @@ const GVol = {
 };
 
 window.GVol = GVol;
-export default GVol;
