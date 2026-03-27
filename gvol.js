@@ -54,12 +54,10 @@ const _masterGains = [];
     const ctx = new Native(...args);
 
     // Grab the hardware destination BEFORE we shadow it
-    const hwDest = Native.prototype.destination
-      ? Object.getOwnPropertyDescriptor(Native.prototype, 'destination').get.call(ctx)
-      : ctx.destination;
+    const hwDest = ctx.destination;
 
     // Insert master gain → hardware destination
-    const master = Native.prototype.createGain.call(ctx);
+    const master = ctx.createGain();
     master.gain.value = _muted ? 0 : _volume;
     master.connect(hwDest);
 
@@ -279,3 +277,4 @@ const GVol = {
 };
 
 window.GVol = GVol;
+export default GVol;
