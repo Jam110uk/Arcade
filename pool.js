@@ -1571,8 +1571,10 @@ function poolPhysicsStep() {
       }
     }
 
-    // Pocket detection
-    const pocketThreshSq = (pr * 1.1) * (pr * 1.1);
+    // Pocket detection — ball centre must be within (pocketRadius - ballRadius)
+    // so the whole ball is geometrically inside the pocket, not just near it.
+    const pocketThresh = Math.max(1, pr - r);
+    const pocketThreshSq = pocketThresh * pocketThresh;
     POOL.balls.forEach(ball => {
       if (ball.potted) return;
       POOL.POCKETS.forEach(p => {
