@@ -55,17 +55,25 @@ let SCR = {
   blanksOnBoard: {}, // idx -> chosen letter
 };
 
-// ?? Word List (curated ~4000 common valid words) ????????????
-// We'll use the free Datamuse API for word validation
+// ?? Word validation via Datamuse API ????????????????????????????????
+const _scrValidCache = {};
+
 async function scrIsValidWord(word) {
   if (word.length < 2) return false;
+  const w = word.toUpperCase();
+  // Return cached result if we've checked this word before
+  if (w in _scrValidCache) return _scrValidCache[w];
+  // Fast path: check local list first
+  if (SCR_WORD_SET.has(w)) { _scrValidCache[w] = true; return true; }
   try {
-    const r = await fetch(`https://api.datamuse.com`);
+    const r = await fetch(`https://api.datamuse.com/words?sp=${encodeURIComponent(w.toLowerCase())}&max=1`);
     const d = await r.json();
-    return d.length > 0 && d[0].word.toLowerCase() === word.toLowerCase();
+    const valid = d.length > 0 && d[0].word.toLowerCase() === w.toLowerCase();
+    _scrValidCache[w] = valid;
+    return valid;
   } catch(e) {
-    // fallback: allow all words if API fails
-    return true;
+    // Fallback to local list if API fails
+    return SCR_WORD_SET.has(w);
   }
 }
 
@@ -472,10 +480,12 @@ window.scrPlayWord = async function() {
   if (!words) { scrLog('Invalid tile placement — must be in a straight line with no gaps!', 'err'); return; }
   if (words.length === 0) { scrLog('No valid word formed!', 'err'); return; }
 
-  // Validate all words
+  // Validate all words (async — checks Datamuse API with local list fallback)
+  scrLog('Checking words…', 'sys');
   for (const w of words) {
-    if (!scrWordValid(w.word)) {
-      scrLog(`"${w.word}" is not a valid word!`, 'err');
+    const valid = await scrIsValidWord(w.word);
+    if (!valid) {
+      scrLog(`"${w.word}" is not a valid Scrabble word!`, 'err');
       window.scrRecall();
       return;
     }
