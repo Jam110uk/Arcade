@@ -441,21 +441,22 @@ export default (() => {
     return { x:s.clientX-r.left, y:s.clientY-r.top };
   }
 
-  // Direction derived from pixel-space drag.
-  // Drag from A→B: the ball shoots in the direction you dragged.
-  // (b - a) gives the drag vector; map screen-x→world-right, screen-y→world-fwd.
+  // Slingshot model: drag BACK from where you want to shoot.
+  // shoot direction = opposite of drag vector (a→b reversed), projected onto ground plane.
+  // Guard against zero-length drag (produces NaN from normalize on zero vector).
   function dragDir(a,b) {
+    const dx=a.x-b.x, dy=a.y-b.y; // reversed: shoot opposite of drag
+    if (Math.hypot(dx,dy)<1) return new window.THREE.Vector3(0,0,-1); // safe fallback
     const T3=window.THREE;
     const fwd=new T3.Vector3(); camera.getWorldDirection(fwd); fwd.y=0; fwd.normalize();
     const right=new T3.Vector3().crossVectors(fwd,new T3.Vector3(0,1,0)).normalize();
-    const dx=b.x-a.x, dy=b.y-a.y;
     return new T3.Vector3()
-      .addScaledVector(fwd,  dy)   // drag down  → shoot away (forward)
-      .addScaledVector(right, dx)  // drag right → shoot right
+      .addScaledVector(fwd,  -dy)  // drag up    → shoot forward (away)
+      .addScaledVector(right, dx)  // drag left  → shoot right
       .setY(0).normalize();
   }
 
-  // 200px drag = full power. Dragging back toward start genuinely reduces power.
+  // 200px drag = full power. Drag toward start reduces power (slingshot pullback).
   function dragPow(a,b) {
     const px=Math.hypot(a.x-b.x, a.y-b.y);
     return Math.min(px/200*MAX_POWER, MAX_POWER);
