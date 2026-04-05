@@ -1,0 +1,214 @@
+<!-- ═══════════════════════════════════════════════════════════
+  MINIGOLF — paste this entire block just before </body> in index.html
+  ═══════════════════════════════════════════════════════════ -->
+
+<style>
+/* ── Canvas wrap ─────────────────────────────────────────── */
+#golf-canvas-wrap {
+  position:absolute; inset:0; overflow:hidden;
+  background:#87CEEB; touch-action:none; cursor:crosshair;
+}
+#golf-canvas-wrap canvas { width:100%!important; height:100%!important; display:block; }
+
+/* ── HUD strip ───────────────────────────────────────────── */
+#gf-hud {
+  position:absolute; top:0; left:0; right:0; z-index:10;
+  display:flex; align-items:center; gap:8px;
+  padding:9px 12px;
+  background:linear-gradient(to bottom,rgba(0,0,0,0.52),transparent);
+  pointer-events:none;
+  font-family:'Orbitron','Share Tech Mono',monospace;
+}
+#gf-hud > * { pointer-events:auto; }
+#gf-hud-info {
+  flex:1; font-size:clamp(0.55rem,1.8vw,0.8rem);
+  color:#fff; text-shadow:0 1px 4px rgba(0,0,0,.7); letter-spacing:.05em;
+}
+#gf-mp-hud {
+  display:none; font-size:.7rem; color:#fde68a;
+  font-weight:700; letter-spacing:.06em;
+}
+
+/* ── HUD buttons ─────────────────────────────────────────── */
+.gf-hud-btn {
+  padding:4px 9px;
+  font-family:'Orbitron',monospace; font-size:.58rem; font-weight:700;
+  background:rgba(255,255,255,.13); color:#fff;
+  border:1px solid rgba(255,255,255,.28); border-radius:5px;
+  cursor:pointer; letter-spacing:.05em; backdrop-filter:blur(4px);
+  transition:background .15s;
+}
+.gf-hud-btn:hover { background:rgba(255,255,255,.28); }
+
+/* ── Power bar ───────────────────────────────────────────── */
+#gf-power-wrap {
+  position:absolute; bottom:22px; left:50%; transform:translateX(-50%);
+  display:flex; align-items:center; gap:8px; z-index:10; pointer-events:none;
+}
+#gf-power-label {
+  font-family:'Orbitron',monospace; font-size:.6rem; color:#fff;
+  text-shadow:0 1px 3px rgba(0,0,0,.8); letter-spacing:.1em;
+}
+#gf-power-bar {
+  width:130px; height:10px;
+  background:rgba(255,255,255,.22); border-radius:5px;
+  border:1px solid rgba(255,255,255,.35); overflow:hidden;
+}
+#gf-power-fill { height:100%; width:0%; background:#4ade80; border-radius:5px; }
+
+/* ── Flash status ────────────────────────────────────────── */
+#gf-status {
+  position:absolute; top:50%; left:50%;
+  transform:translate(-50%,-50%) scale(.85);
+  font-family:'Orbitron',monospace; font-weight:900;
+  font-size:clamp(1.3rem,4.5vw,2.4rem); color:#fff;
+  text-shadow:0 2px 18px rgba(0,0,0,.7),0 0 30px #fbbf24;
+  pointer-events:none; opacity:0; z-index:20; white-space:nowrap;
+  transition:opacity .25s,transform .25s;
+  letter-spacing:.05em;
+}
+#gf-status.visible { opacity:1; transform:translate(-50%,-50%) scale(1); }
+
+/* ── Shared modal backdrop ───────────────────────────────── */
+.gf-modal {
+  display:none; position:absolute; inset:0;
+  background:rgba(0,0,0,.62); z-index:50;
+  align-items:center; justify-content:center;
+  backdrop-filter:blur(7px);
+}
+.gf-modal.active { display:flex; }
+.gf-modal-box {
+  background:linear-gradient(160deg,#1e293b,#0f172a);
+  border:2px solid rgba(74,222,128,.38); border-radius:18px;
+  padding:26px 30px; width:min(380px,90vw);
+  max-height:85vh; overflow-y:auto;
+  box-shadow:0 20px 60px rgba(0,0,0,.6);
+  position:relative; text-align:center;
+  color:#f1f5f9; font-family:'Orbitron',monospace;
+}
+.gf-modal-box h2 { margin:0 0 18px; font-size:1.2rem; color:#4ade80; letter-spacing:.1em; }
+.gf-modal-box h3 { font-size:.75rem; color:#94a3b8; margin:0 0 7px; letter-spacing:.1em; }
+.gf-modal-close {
+  position:absolute; top:10px; right:13px;
+  background:none; border:none; color:#94a3b8; font-size:1rem; cursor:pointer;
+}
+.gf-modal-close:hover { color:#f87171; }
+
+/* ── Inputs ──────────────────────────────────────────────── */
+.gf-input {
+  width:100%; padding:9px 13px; margin:5px 0 9px;
+  background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.18);
+  border-radius:7px; color:#fff;
+  font-family:'Orbitron',monospace; font-size:.8rem;
+  letter-spacing:.1em; text-align:center; box-sizing:border-box;
+  text-transform:uppercase;
+}
+.gf-input:focus { outline:none; border-color:#4ade80; }
+.gf-input::placeholder { color:rgba(255,255,255,.28); }
+
+/* ── Buttons ─────────────────────────────────────────────── */
+.gf-btn {
+  display:block; width:100%; padding:11px 18px; margin:7px 0;
+  background:linear-gradient(135deg,#4ade80,#22c55e);
+  color:#14532d; border:none; border-radius:9px;
+  font-family:'Orbitron',monospace; font-size:.8rem;
+  font-weight:800; letter-spacing:.1em; cursor:pointer;
+  box-shadow:0 4px 12px rgba(0,0,0,.22);
+  transition:transform .1s,box-shadow .1s;
+}
+.gf-btn:hover  { transform:translateY(-2px); box-shadow:0 6px 16px rgba(0,0,0,.32); }
+.gf-btn:active { transform:translateY(0); }
+.gf-btn-sec { background:linear-gradient(135deg,#818cf8,#6366f1); color:#fff; }
+
+/* ── MP UI ───────────────────────────────────────────────── */
+.gf-mp-section { margin:11px 0; }
+.gf-divider { color:#475569; font-size:.65rem; margin:7px 0; letter-spacing:.2em; }
+#gf-room-code {
+  font-size:2.3rem; font-weight:900; color:#fbbf24;
+  letter-spacing:.3em; margin:12px 0;
+  text-shadow:0 0 20px rgba(251,191,36,.5);
+}
+.gf-waiting-txt { color:#94a3b8; font-size:.7rem; }
+
+/* ── Scorecard ───────────────────────────────────────────── */
+.gf-sc-table { width:100%; border-collapse:collapse; margin:10px 0; font-size:.75rem; }
+.gf-sc-table th { color:#94a3b8; padding:3px 7px; border-bottom:1px solid rgba(255,255,255,.1); }
+.gf-sc-table td { padding:4px 7px; border-bottom:1px solid rgba(255,255,255,.05); }
+.gf-birdie { color:#4ade80; font-weight:bold; }
+.gf-par    { color:#f1f5f9; }
+.gf-bogey  { color:#f87171; }
+.gf-total  { font-size:1.05rem; font-weight:900; color:#fbbf24; margin:10px 0; letter-spacing:.1em; }
+.gf-mp-result { font-size:.85rem; color:#4ade80; margin:8px 0 14px; line-height:1.6; }
+</style>
+
+<!-- ── Golf screen ───────────────────────────────────────── -->
+<div class="screen game-screen" id="golf-screen">
+
+  <!-- Three.js renders here -->
+  <div id="golf-canvas-wrap"></div>
+
+  <!-- HUD -->
+  <div id="gf-hud">
+    <div id="gf-hud-info">HOLE 1/9  ·  PAR 2  ·  STROKES 0</div>
+    <div id="gf-mp-hud"></div>
+    <button class="gf-hud-btn" onclick="window.backToGameSelect?.()">✕ EXIT</button>
+    <button class="gf-hud-btn" onclick="window._golfCamReset?.()">📷 CAM</button>
+    <button class="gf-hud-btn" onclick="window._golfOpenMP?.()">👥 MP</button>
+  </div>
+
+  <!-- Power bar -->
+  <div id="gf-power-wrap">
+    <div id="gf-power-label">POWER</div>
+    <div id="gf-power-bar"><div id="gf-power-fill"></div></div>
+  </div>
+
+  <!-- Flash message -->
+  <div id="gf-status"></div>
+
+  <!-- Multiplayer modal -->
+  <div id="golf-mp-modal" class="gf-modal">
+    <div class="gf-modal-box">
+      <button class="gf-modal-close" onclick="document.getElementById('golf-mp-modal').classList.remove('active')">✕</button>
+      <h2>⛳ MULTIPLAYER</h2>
+
+      <div id="gf-mp-lobby">
+        <label style="font-size:.6rem;color:#94a3b8;letter-spacing:.1em;display:block;text-align:left;margin-bottom:2px">YOUR NAME</label>
+        <input id="gf-mp-name" class="gf-input" placeholder="ENTER NAME" maxlength="12" />
+        <div class="gf-mp-section">
+          <h3>HOST A GAME</h3>
+          <button class="gf-btn" onclick="window._golfHost?.()">🎮 CREATE ROOM</button>
+        </div>
+        <div class="gf-divider">— OR —</div>
+        <div class="gf-mp-section">
+          <h3>JOIN A GAME</h3>
+          <input id="gf-join-code" class="gf-input" placeholder="ROOM CODE" maxlength="5" />
+          <button class="gf-btn" onclick="window._golfJoin?.()">🔗 JOIN ROOM</button>
+        </div>
+      </div>
+
+      <div id="gf-mp-waiting" style="display:none">
+        <p style="font-size:.75rem;color:#94a3b8;margin-bottom:8px">Share this code with your opponent:</p>
+        <div id="gf-room-code">—</div>
+        <p class="gf-waiting-txt">Waiting for opponent<span class="waiting-dots"></span></p>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Scorecard modal -->
+  <div id="golf-scorecard-modal" class="gf-modal">
+    <div class="gf-modal-box">
+      <h2>⛳ SCORECARD</h2>
+      <table class="gf-sc-table">
+        <thead><tr><th>HOLE</th><th>PAR</th><th>SCORE</th></tr></thead>
+        <tbody id="gf-sc-rows"></tbody>
+      </table>
+      <div class="gf-total">TOTAL: <span id="gf-sc-total">—</span></div>
+      <div id="gf-mp-result"></div>
+      <button class="gf-btn" onclick="window._golfRestart?.()">🔄 PLAY AGAIN</button>
+      <button class="gf-btn gf-btn-sec" onclick="window.backToGameSelect?.()">🏠 MENU</button>
+    </div>
+  </div>
+
+</div>
+<!-- /golf-screen -->
