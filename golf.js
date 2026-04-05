@@ -436,10 +436,8 @@ export default (() => {
     const r=canvas.getBoundingClientRect(), s=e.touches?e.touches[0]:e;
     return { x:s.clientX-r.left, y:s.clientY-r.top };
   }
-  function toNDC(pos) {
-    const r=canvas.getBoundingClientRect();
-    return { x:(pos.x/r.width)*2-1, y:(pos.y/r.height)*2-1 };
-  }
+
+  // Direction derived from pixel-space drag so it works regardless of aspect ratio.
   function dragDir(a,b) {
     const T3=window.THREE;
     const fwd=new T3.Vector3(); camera.getWorldDirection(fwd); fwd.y=0; fwd.normalize();
@@ -449,36 +447,62 @@ export default (() => {
       .addScaledVector(right,-(a.x-b.x))
       .setY(0).normalize();
   }
-  function dragPow(a,b) { return Math.min(Math.hypot(a.x-b.x,a.y-b.y)*MAX_POWER*2.8, MAX_POWER); }
+
+  // 200px drag = full power. Dragging back toward start genuinely reduces power.
+  function dragPow(a,b) {
+    const px=Math.hypot(a.x-b.x, a.y-b.y);
+    return Math.min(px/200*MAX_POWER, MAX_POWER);
+  }
 
   function onPtrDown(e) {
+    if (e.button!==undefined && e.button!==0) return; // left-click / touch only
     if (ballInMotion||gameOver) return;
     if (mpMode&&mpTurn!==myId) return;
-    isAiming=true; aimStart=toNDC(ptrPos(e)); aimCurrent={...aimStart};
+    isAiming=true;
+    aimStart=ptrPos(e); aimCurrent={...aimStart};
     e.preventDefault();
   }
+
   function onPtrMove(e) {
-    const pos=ptrPos(e), ndc=toNDC(pos);
+    const pos=ptrPos(e);
     if (isAiming) {
-      aimCurrent=ndc;
-      drawAimLine(dragDir(aimStart,aimCurrent), dragPow(aimStart,aimCurrent));
-      setPower(dragPow(aimStart,aimCurrent)/MAX_POWER);
-    } else if (isDraggingCam&&lastPtr) {
-      camTheta-=(pos.x-lastPtr.x)*0.010;
-      camPhi=Math.max(0.22,Math.min(Math.PI/2.1,camPhi+(pos.y-lastPtr.y)*0.010));
+      aimCurrent=pos;
+      const pow=dragPow(aimStart,aimCurrent);
+      drawAimLine(dragDir(aimStart,aimCurrent), pow);
+      setPower(pow/MAX_POWER);
     }
-    lastPtr=pos; e.preventDefault();
+    lastPtr=pos;
+    e.preventDefault();
   }
+
   function onPtrUp() {
     if (isAiming&&aimStart&&aimCurrent) {
       const pow=dragPow(aimStart,aimCurrent);
-      if (pow>0.4) shoot(dragDir(aimStart,aimCurrent),pow);
+      if (pow>0.5) shoot(dragDir(aimStart,aimCurrent),pow);
       clearAimLine(); setPower(0);
     }
-    isAiming=isDraggingCam=false; lastPtr=null; aimStart=null;
+    isAiming=false; aimStart=null; aimCurrent=null;
+    if (!isDraggingCam) lastPtr=null;
   }
+
   function onWheel(e) { camRadius=Math.max(4,Math.min(20,camRadius+e.deltaY*0.018)); }
-  function onMouseDown(e) { if(e.button===2){isDraggingCam=true;lastPtr=ptrPos(e);} }
+
+  // Right-click drag rotates camera — handled separately from pointer events
+  // so it never conflicts with left-click aiming.
+  function onMouseDown(e) {
+    if (e.button===2) { isDraggingCam=true; lastPtr=ptrPos(e); }
+  }
+  function onMouseMove(e) {
+    if (isDraggingCam&&lastPtr) {
+      const pos=ptrPos(e);
+      camTheta-=(pos.x-lastPtr.x)*0.010;
+      camPhi=Math.max(0.22,Math.min(Math.PI/2.1,camPhi+(pos.y-lastPtr.y)*0.010));
+      lastPtr=pos;
+    }
+  }
+  function onMouseUp(e) {
+    if (e.button===2) { isDraggingCam=false; lastPtr=null; }
+  }
 
   function shoot(dir,power) {
     if (!ball||ballInMotion||strokes>=MAX_STROKES) return;
@@ -669,11 +693,13 @@ export default (() => {
   function init() {
     window.showScreen?.('golf-screen');
     if (!bootThree()) { console.error('[golf] Three.js not found'); return; }
-    canvas.addEventListener('pointerdown', onPtrDown, {passive:false});
-    canvas.addEventListener('pointermove', onPtrMove, {passive:false});
-    canvas.addEventListener('pointerup',   onPtrUp,   {passive:false});
+    canvas.addEventListener('pointerdown', onPtrDown,  {passive:false});
+    canvas.addEventListener('pointermove', onPtrMove,  {passive:false});
+    canvas.addEventListener('pointerup',   onPtrUp,    {passive:false});
     canvas.addEventListener('pointerleave',onPtrUp);
     canvas.addEventListener('mousedown',   onMouseDown);
+    canvas.addEventListener('mousemove',   onMouseMove);
+    canvas.addEventListener('mouseup',     onMouseUp);
     canvas.addEventListener('contextmenu', e=>e.preventDefault());
     canvas.addEventListener('wheel',       onWheel, {passive:true});
     const saved=localStorage.getItem('golf-player-name')||localStorage.getItem('hs-player-name')||'';
@@ -687,8 +713,14 @@ export default (() => {
     cancelAnimationFrame(animId); animId=null;
     window.removeEventListener('resize',doResize);
     if (canvas) {
-      ['pointerdown','pointermove','pointerup','pointerleave','mousedown','contextmenu','wheel']
-        .forEach(ev => canvas.removeEventListener(ev, ev==='pointerdown'?onPtrDown:ev==='pointermove'?onPtrMove:ev==='pointerup'||ev==='pointerleave'?onPtrUp:ev==='mousedown'?onMouseDown:null));
+      canvas.removeEventListener('pointerdown',  onPtrDown);
+      canvas.removeEventListener('pointermove',  onPtrMove);
+      canvas.removeEventListener('pointerup',    onPtrUp);
+      canvas.removeEventListener('pointerleave', onPtrUp);
+      canvas.removeEventListener('mousedown',    onMouseDown);
+      canvas.removeEventListener('mousemove',    onMouseMove);
+      canvas.removeEventListener('mouseup',      onMouseUp);
+      canvas.removeEventListener('wheel',        onWheel);
     }
     mpUnsubs.forEach(u=>{try{u();}catch(e){}});
     mpUnsubs=[];
