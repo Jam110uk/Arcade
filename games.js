@@ -91,7 +91,6 @@ const SHORT_ALIASES = {
   chess:        'CHESS',
   plinko:       'PLINKO',
   uno:          'UNO',
-  golf:         'GOLF',
 };
 
 /**
