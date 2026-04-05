@@ -9,7 +9,7 @@
 export default (() => {
 
   // ── Constants ──────────────────────────────────────────────
-  const MAX_STROKES = 10;
+  const MAX_STROKES = 12;
   const BALL_R      = 0.18;
   const GRAVITY     = -20;
   const FRICTION    = 0.988;
@@ -211,9 +211,9 @@ export default (() => {
   }
   function hole3() {
     floor(13,3.2, 0,0); sideWalls(13,0,0); endCap(-6.5,0); endCap(6.5,0);
-    // Walls offset to opposite sides, each moves 0.9 units — always a gap ≥0.7 units
-    addMovingWall(-2.5,0,'x',0.9,1.4,0);
-    addMovingWall( 2.5,0,'x',0.9,1.4,Math.PI);
+    // Walls slide along Z (across the fairway), phase-offset so they never both block simultaneously
+    addMovingWall(-2.5,0,'z',0.7,1.4,0);
+    addMovingWall( 2.5,0,'z',0.7,1.4,Math.PI);
     placeCup(5.5,0);
   }
   function hole4() {
@@ -246,8 +246,8 @@ export default (() => {
     floor(3.2,7.5, 5,3.25);
     wall(0.28,1.1,7.5, 3.5,0.55,3.25); wall(0.28,1.1,7.5, 6.5,0.55,3.25);
     wall(3.2,1.1,0.28, 5,0.55,7);
-    // Bumpers in vert arm
-    [[4.5,1],[4.5,-0.5],[5.5,2.5],[4.5,4]].forEach(([x,z])=>addBumper(x,z));
+    // Bumpers in vert arm — kept away from walls (z must stay within ±1.0)
+    [[4.5,0.8],[5.5,0],[4.5,-0.8]].forEach(([x,z])=>addBumper(x,z));
     placeCup(5,6.5);
   }
   function hole6() {
@@ -274,7 +274,7 @@ export default (() => {
     wall(1.4,0.6,0.28, 2.2,0.3, 1.1); wall(1.4,0.6,0.28, 2.2,0.3,-1.1);
     // Green: x:[2.9,6.1]
     floor(3.2,3.2, 4.5,0); sideWalls(3.2,4.5,0); endCap(6.5,0);
-    addBumper(4.5,0);
+    addBumper(4.5,0.9);
     // Water hazard (visual only — ball falling triggers penalty via y<-2.5)
     const T3 = window.THREE;
     const wt = new T3.Mesh(
@@ -287,7 +287,7 @@ export default (() => {
   }
   function hole9() {
     floor(15,3.2, 0,0); sideWalls(15,0,0); endCap(-7.5,0); endCap(7.5,0);
-    addMovingWall(-4.5,0,'x',0.8,2.1,0);          // reduced range: always a gap
+    addMovingWall(-4.5,0,'z',0.8,2.1,0);          // slides across fairway, always a gap
     buildWindmill(0,0,2.2);
     buildTunnel(4.5,0,3.5);
     [[-2,0.7],[-2,-0.7],[2,0.7],[2,-0.7]].forEach(([x,z])=>addBumper(x+0.5,z));
@@ -302,7 +302,7 @@ export default (() => {
     { par:3, tee:[-5,-4],   teeY:0,    camT:Math.PI*0.75,  build:hole5 },
     { par:2, tee:[-5.5,0],  teeY:0,    camT:Math.PI,       build:hole6 },
     { par:3, tee:[-6.5,0],  teeY:0,    camT:Math.PI,       build:hole7 },
-    { par:3, tee:[-5.5,0],  teeY:0,    camT:Math.PI,       build:hole8 },
+    { par:3, tee:[-4.5,0],  teeY:0,    camT:Math.PI,       build:hole8 },
     { par:3, tee:[-6.5,0],  teeY:0,    camT:Math.PI,       build:hole9 },
   ];
 
@@ -348,12 +348,13 @@ export default (() => {
   // ────────────────────────────────────────────────────────────
   function groundY(x) {
     if (currentHole===3) {
-      // Stair steps: each 0.8 wide starting at x=-1.3
+      // Stair steps: floor centres at x=-0.9,-0.1,0.7,1.5 each 0.8 wide
+      // Left edges: -1.3, -0.5, 0.3, 1.1 — right edges: -0.5, 0.3, 1.1, 1.9
       if (x>=-1.3 && x<-0.5) return 0.34;
       if (x>=-0.5 && x< 0.3) return 0.68;
       if (x>= 0.3 && x< 1.1) return 1.01;
       if (x>= 1.1 && x< 1.9) return 1.35;
-      if (x>=1.9) return 1.35;
+      if (x>= 1.9) return 1.35;  // elevated green (centre 4.0, extends left to ~1.75)
     }
     return 0.0;
   }
@@ -411,7 +412,7 @@ export default (() => {
     const wp=holeCup?._wp;
     if (wp) {
       const dx=ball.position.x-wp.x, dz=ball.position.z-wp.z;
-      if (strokes>0 && Math.hypot(dx,dz)<0.28 && Math.abs(ball.position.y-wp.y)<0.28 && ballVel.length()<6) {
+      if (strokes>0 && Math.hypot(dx,dz)<0.30 && Math.abs(ball.position.y-wp.y)<0.50 && ballVel.length()<7) {
         onSunk();
       }
     }
@@ -532,7 +533,15 @@ export default (() => {
   }
 
   function shoot(dir,power) {
-    if (!ball||ballInMotion||strokes>=MAX_STROKES) return;
+    if (!ball||ballInMotion) return;
+    if (strokes>=MAX_STROKES) {
+      // Force-complete: record max strokes and move on
+      scorecard[currentHole]=MAX_STROKES;
+      flash(`MAX STROKES — HOLE ${currentHole+1} OVER`);
+      if (mpMode) fbSubmitScore(currentHole,MAX_STROKES);
+      setTimeout(()=>{ if(mpMode){if(currentHole<8)mpCheckAdvance();else showScorecard();}else showHoleResult('😱 MAX STROKES'); },1200);
+      return;
+    }
     strokes++;
     ballVel.set(dir.x*power, power*0.12, dir.z*power);
     ballOnGround=false; ballInMotion=true; ball.visible=true;
