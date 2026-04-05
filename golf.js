@@ -194,20 +194,20 @@ export default (() => {
     placeCup(5.5,0);
   }
   function hole2() {
-    // Horizontal arm
+    // Horizontal arm: x:[-6,5], z:[-6.6,-3.4]
     floor(11,3.2, -0.5,-5); sideWalls(11,-0.5,-5);
-    endCap(-6,-5);
-    // Corner
-    floor(3.2,3.2, 5,-3.5);
-    // Close the open corner gaps
-    wall(0.28,1.1,3.2, 3.5,0.55,-3.5); // left wall of corner
-    wall(3.2,1.1,0.28, 5,0.55,-2.1);   // bottom of corner / top of horiz arm join
-    // Vertical arm
-    floor(3.2,8, 5,0.5);
-    wall(0.28,1.1,8, 3.5,0.55,0.5); wall(0.28,1.1,8, 6.5,0.55,0.5);
-    wall(3.2,1.1,0.28, 5,0.55,4.5);
-    buildWindmill(5,-3.5,1.4);
-    placeCup(5,3.5);
+    endCap(-6.5,-5);                              // left end cap
+    // Corner fill: x:[3.4,6.6], z:[-6.6,-1.9] — overlap both arms
+    floor(3.2,5, 5,-4.25);                        // wider corner covering the join
+    wall(0.28,1.1,5, 3.5,0.55,-4.25);            // left wall of corner+join
+    wall(3.2,1.1,0.28, 5,0.55,-1.75);            // top of corner (where vert arm begins)
+    // Vertical arm: x:[3.4,6.6], z:[-1.75,4.5]
+    floor(3.2,6.5, 5,1.5);
+    wall(0.28,1.1,6.5, 3.5,0.55,1.5);
+    wall(0.28,1.1,6.5, 6.5,0.55,1.5);
+    wall(3.2,1.1,0.28, 5,0.55,4.75);             // far end cap
+    buildWindmill(5,-2.5,1.4);
+    placeCup(5,4);
   }
   function hole3() {
     floor(13,3.2, 0,0); sideWalls(13,0,0); endCap(-6.5,0); endCap(6.5,0);
@@ -217,28 +217,38 @@ export default (() => {
     placeCup(5.5,0);
   }
   function hole4() {
-    const T3 = window.THREE;
-    floor(5,3.2,-3.5,0); sideWalls(5,-3.5,0); endCap(-6,0);
-    // Ramp
-    const ramp = new T3.Mesh(boxGeo(3,0.22,3.2), phongMat(C.ramp));
-    ramp.position.set(0,0.72,0); ramp.rotation.z=-0.44;
-    scene.add(ramp); holeObjs.push(ramp);
-    // Elevated green
-    floor(4.5,3.2, 3.8,0, C.fairway, 1.35);
-    wall(4.5,1.6,0.28, 3.8,2.15, 1.6); wall(4.5,1.6,0.28, 3.8,2.15,-1.6);
-    wall(0.28,1.6,3.2, 6,2.15,0);
-    wall(3,1.5,0.28, 0,1.1, 1.6); wall(3,1.5,0.28, 0,1.1,-1.6);
-    placeCup(5,0,1.37);
+    // Flat tee section
+    floor(5,3.2,-3.5,0); sideWalls(5,-3.5,0); endCap(-6.5,0);
+    // Ramp as 4 stair-steps (each 0.7 wide, rising 0.34 each step)
+    floor(0.8,3.2,-0.9,0, C.ramp, 0.34);
+    floor(0.8,3.2,-0.1,0, C.ramp, 0.68);
+    floor(0.8,3.2, 0.7,0, C.ramp, 1.01);
+    floor(0.8,3.2, 1.5,0, C.ramp, 1.35);
+    // Side walls covering ramp section
+    wall(2.8,2.0,0.28, -0.1,1.0, 1.6); wall(2.8,2.0,0.28, -0.1,1.0,-1.6);
+    // Elevated green: y=1.35
+    floor(4.5,3.2, 4.0,0, C.fairway, 1.35);
+    wall(4.5,0.45,0.28, 4.0,1.575, 1.6); wall(4.5,0.45,0.28, 4.0,1.575,-1.6);
+    wall(0.28,0.45,3.2, 6.25,1.575,0);
+    // Barrier between tee and ramp
+    wall(0.28,0.45,3.2, 1.9,1.575,0);
+    placeCup(5,0,1.35);
   }
   function hole5() {
-    floor(7,3.2,-2,-4); sideWalls(7,-2,-4); endCap(-5.5,-4);
-    wall(0.28,1.1,3.2, 5.5,0.55,-4);
-    floor(3.2,3.2, 3.5,-2.5);
-    floor(3.2,9, 5,2.5);
-    wall(0.28,1.1,9, 3.5,0.55,2.5); wall(0.28,1.1,9, 6.5,0.55,2.5);
+    // Horizontal arm: x:[-5.5,2.5], z:[-5.6,-2.4]
+    floor(8,3.2,-1.5,-4); sideWalls(8,-1.5,-4);
+    endCap(-5.5,-4);
+    // Corner: x:[1.9,5.1], z:[-5.6,-0.9] — extended to overlap horiz arm
+    floor(3.2,4.8, 3.5,-3.25);
+    wall(0.28,1.1,4.8, 1.9,0.55,-3.25);          // left wall of corner
+    wall(3.2,1.1,0.28, 3.5,0.55,-0.75);          // top of corner
+    // Vertical arm: x:[3.4,6.6], z:[-0.75,7]
+    floor(3.2,7.5, 5,3.25);
+    wall(0.28,1.1,7.5, 3.5,0.55,3.25); wall(0.28,1.1,7.5, 6.5,0.55,3.25);
     wall(3.2,1.1,0.28, 5,0.55,7);
-    [[-1,-2.5],[1,-2.5],[4.5,1],[4.5,-1]].forEach(([x,z])=>addBumper(x,z));
-    placeCup(5,6);
+    // Bumpers in vert arm
+    [[4.5,1],[4.5,-0.5],[5.5,2.5],[4.5,4]].forEach(([x,z])=>addBumper(x,z));
+    placeCup(5,6.5);
   }
   function hole6() {
     floor(13,3.2, 0,0); sideWalls(13,0,0); endCap(-6.5,0); endCap(6.5,0);
@@ -251,20 +261,24 @@ export default (() => {
     placeCup(6.5,0);
   }
   function hole8() {
-    // Tee platform
-    floor(3.2,3.2,-4.5,0); sideWalls(3.2,-4.5,0); endCap(-6,0);
-    wall(0.28,1.1,3.2,-3,0.55,0);
-    // Bridge
-    floor(3,1, 0,0, C.ramp);
-    wall(3,0.5,0.12, 0,0.35, 0.56); wall(3,0.5,0.12, 0,0.35,-0.56);
-    // Green
-    floor(3.2,3.2, 4.5,0); sideWalls(3.2,4.5,0); endCap(6,0);
-    wall(0.28,1.1,3.2, 3,0.55,0);
+    // Tee platform: x:[-6.1,-2.9]
+    floor(3.2,3.2,-4.5,0); sideWalls(3.2,-4.5,0); endCap(-6.5,0);
+    // Bridge connector tee→bridge: fills gap at x:[-2.9,-1.5]
+    floor(1.4,2, -2.2,0, C.ramp);
+    wall(1.4,0.6,0.28, -2.2,0.3, 1.1); wall(1.4,0.6,0.28, -2.2,0.3,-1.1);
+    // Bridge: x:[-1.5,1.5], z:[-1.1,1.1] (wider than before)
+    floor(3,2.2, 0,0, C.ramp);
+    wall(3,0.6,0.28, 0,0.3, 1.1); wall(3,0.6,0.28, 0,0.3,-1.1);
+    // Bridge connector bridge→green: fills gap at x:[1.5,2.9]
+    floor(1.4,2, 2.2,0, C.ramp);
+    wall(1.4,0.6,0.28, 2.2,0.3, 1.1); wall(1.4,0.6,0.28, 2.2,0.3,-1.1);
+    // Green: x:[2.9,6.1]
+    floor(3.2,3.2, 4.5,0); sideWalls(3.2,4.5,0); endCap(6.5,0);
     addBumper(4.5,0);
-    // Water
+    // Water hazard (visual only — ball falling triggers penalty via y<-2.5)
     const T3 = window.THREE;
     const wt = new T3.Mesh(
-      new T3.PlaneGeometry(15,7),
+      new T3.PlaneGeometry(16,8),
       new T3.MeshPhongMaterial({ color:C.water, transparent:true, opacity:0.72, shininess:180 })
     );
     wt.rotation.x=-Math.PI/2; wt.position.set(0,-0.06,0);
@@ -273,10 +287,10 @@ export default (() => {
   }
   function hole9() {
     floor(15,3.2, 0,0); sideWalls(15,0,0); endCap(-7.5,0); endCap(7.5,0);
-    addMovingWall(-4.5,0,'x',1.2,2.1,0);
+    addMovingWall(-4.5,0,'x',0.8,2.1,0);          // reduced range: always a gap
     buildWindmill(0,0,2.2);
     buildTunnel(4.5,0,3.5);
-    [[-2,0.9],[-2,-0.9],[2,0.9],[2,-0.9]].forEach(([x,z])=>addBumper(x+0.5,z));
+    [[-2,0.7],[-2,-0.7],[2,0.7],[2,-0.7]].forEach(([x,z])=>addBumper(x+0.5,z));
     placeCup(6.5,0);
   }
 
@@ -288,8 +302,8 @@ export default (() => {
     { par:3, tee:[-5,-4],   teeY:0,    camT:Math.PI*0.75,  build:hole5 },
     { par:2, tee:[-5.5,0],  teeY:0,    camT:Math.PI,       build:hole6 },
     { par:3, tee:[-6.5,0],  teeY:0,    camT:Math.PI,       build:hole7 },
-    { par:3, tee:[-4.5,0],  teeY:0,    camT:Math.PI,       build:hole8 },
-    { par:2, tee:[-6.5,0],  teeY:0,    camT:Math.PI,       build:hole9 },
+    { par:3, tee:[-5.5,0],  teeY:0,    camT:Math.PI,       build:hole8 },
+    { par:3, tee:[-6.5,0],  teeY:0,    camT:Math.PI,       build:hole9 },
   ];
 
   // ────────────────────────────────────────────────────────────
@@ -334,8 +348,12 @@ export default (() => {
   // ────────────────────────────────────────────────────────────
   function groundY(x) {
     if (currentHole===3) {
-      if (x>-1.9 && x<1.9) return (x+1.9)/3.8*1.35;
-      if (x>=1.9) return 1.37;
+      // Stair steps: each 0.8 wide starting at x=-1.3
+      if (x>=-1.3 && x<-0.5) return 0.34;
+      if (x>=-0.5 && x< 0.3) return 0.68;
+      if (x>= 0.3 && x< 1.1) return 1.01;
+      if (x>= 1.1 && x< 1.9) return 1.35;
+      if (x>=1.9) return 1.35;
     }
     return 0.0;
   }
