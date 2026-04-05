@@ -464,15 +464,16 @@ export default (() => {
   }
 
   function onPtrMove(e) {
-    const pos=ptrPos(e);
     if (isAiming) {
+      const pos=ptrPos(e);
       aimCurrent=pos;
       const pow=dragPow(aimStart,aimCurrent);
       drawAimLine(dragDir(aimStart,aimCurrent), pow);
       setPower(pow/MAX_POWER);
+      e.preventDefault();
     }
-    lastPtr=pos;
-    e.preventDefault();
+    // Do NOT touch lastPtr here — onMouseMove owns it for camera drag.
+    // Overwriting it here zeros the delta every frame and kills rotation.
   }
 
   function onPtrUp() {
@@ -540,12 +541,41 @@ export default (() => {
     ballInMotion=false; ballVel.set(0,0,0); ball.visible=false;
     scorecard[currentHole]=strokes;
     const d=strokes-HOLES[currentHole].par;
-    flash(d<=-2?'🦅 EAGLE!':d===-1?'🐦 BIRDIE!':d===0?'⛳ PAR!':d===1?'😅 BOGEY':d===2?'😬 DOUBLE':'😱 TRIPLE+');
+    const msg=d<=-2?'🦅 EAGLE!':d===-1?'🐦 BIRDIE!':d===0?'⛳ PAR!':d===1?'😅 BOGEY':d===2?'😬 DOUBLE':'😱 TRIPLE+';
+    flash(msg);
     if (mpMode) fbSubmitScore(currentHole,strokes);
     setTimeout(()=>{
-      if (currentHole<8) mpMode ? mpCheckAdvance() : loadHole(currentHole+1);
-      else showScorecard();
-    },2000);
+      if (mpMode) {
+        if (currentHole<8) mpCheckAdvance(); else showScorecard();
+      } else {
+        showHoleResult(msg);
+      }
+    },1800);
+  }
+
+  function showHoleResult(resultMsg) {
+    const isLast = currentHole>=8;
+    const modal  = document.getElementById('golf-hole-modal');
+    if (!modal) {
+      // Fallback: no hole modal in HTML, just advance
+      if (isLast) showScorecard(); else loadHole(currentHole+1);
+      return;
+    }
+    const d = strokes - HOLES[currentHole].par;
+    const cls = d<0?'gf-birdie':d===0?'gf-par':'gf-bogey';
+    document.getElementById('gf-hole-title').textContent  = `HOLE ${currentHole+1} COMPLETE`;
+    document.getElementById('gf-hole-result').textContent = resultMsg;
+    document.getElementById('gf-hole-strokes').innerHTML  =
+      `<span class="${cls}">${strokes} stroke${strokes!==1?'s':''} &nbsp;(Par ${HOLES[currentHole].par})</span>`;
+    const nextBtn = document.getElementById('gf-hole-next-btn');
+    if (nextBtn) {
+      nextBtn.textContent = isLast ? '📊 FINAL SCORECARD' : '⛳ NEXT HOLE';
+      nextBtn.onclick = () => {
+        modal.classList.remove('active');
+        if (isLast) showScorecard(); else loadHole(currentHole+1);
+      };
+    }
+    modal.classList.add('active');
   }
 
   function showScorecard() {
@@ -733,7 +763,7 @@ export default (() => {
   // Expose for HTML onclick
   window._golfHost    = hostGame;
   window._golfJoin    = joinGame;
-  window._golfRestart = ()=>{ gameOver=false; scorecard=new Array(9).fill(null); document.getElementById('golf-scorecard-modal')?.classList.remove('active'); loadHole(0); };
+  window._golfRestart = ()=>{ gameOver=false; scorecard=new Array(9).fill(null); document.getElementById('golf-scorecard-modal')?.classList.remove('active'); document.getElementById('golf-hole-modal')?.classList.remove('active'); loadHole(0); };
   window._golfCamReset= ()=>{ camTheta=HOLES[currentHole].camT; camPhi=1.0; };
   window._golfOpenMP  = ()=>{ switchPanel('lobby'); document.getElementById('golf-mp-modal')?.classList.add('active'); };
 

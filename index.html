@@ -16730,7 +16730,18 @@ window.PERF = (() => {
     </div>
   </div>
 
-  <!-- Scorecard modal -->
+  <!-- Per-hole result modal -->
+  <div id="golf-hole-modal" class="gf-modal">
+    <div class="gf-modal-box">
+      <h2 id="gf-hole-title">HOLE 1 COMPLETE</h2>
+      <div id="gf-hole-result" style="font-size:1.6rem;margin:10px 0;letter-spacing:.05em"></div>
+      <div id="gf-hole-strokes" style="font-size:.85rem;margin-bottom:18px"></div>
+      <button class="gf-btn" id="gf-hole-next-btn">⛳ NEXT HOLE</button>
+      <button class="gf-btn gf-btn-sec" onclick="window.backToGameSelect?.()">🏠 MENU</button>
+    </div>
+  </div>
+
+  <!-- Scorecard modal (end of full round) -->
   <div id="golf-scorecard-modal" class="gf-modal">
     <div class="gf-modal-box">
       <h2>⛳ SCORECARD</h2>
