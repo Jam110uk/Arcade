@@ -26,7 +26,6 @@ export const GAMES = {
   claw:         { label: '🕹 Claw Machine',     module: './claw.js',   screen: 'claw-screen',         init: m => requestAnimationFrame(() => { m.init(); requestAnimationFrame(() => window.dispatchEvent(new Event('resize'))); }) },
   stackit:      { label: '🧱 Stack It',         module: './stackit.js',        screen: 'stackit-screen',        init: m => m.init() },
   spaceinvaders:{ label: '👾 Space Invaders',   module: './spaceinvaders.js',  screen: 'spaceinvaders-screen',  init: m => m.init() },
-  golf:         { label: '⛳ Minigolf',          module: './golf.js',           screen: 'golf-screen',           init: m => m.init() },
 
   // ── VS AI games ────────────────────────────────────────────
   poker:        { label: '🃏 Poker',            module: './pkr.js',    screen: 'poker-screen',        init: m => m.initSolo() },
