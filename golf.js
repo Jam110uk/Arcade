@@ -196,20 +196,24 @@ export default (() => {
   function hole2() {
     // Horizontal arm
     floor(11,3.2, -0.5,-5); sideWalls(11,-0.5,-5);
-    endCap(-6,-5); wall(0.28,1.1,3.2, 5.5,0.55,-5);
+    endCap(-6,-5);
     // Corner
     floor(3.2,3.2, 5,-3.5);
+    // Close the open corner gaps
+    wall(0.28,1.1,3.2, 3.5,0.55,-3.5); // left wall of corner
+    wall(3.2,1.1,0.28, 5,0.55,-2.1);   // bottom of corner / top of horiz arm join
     // Vertical arm
     floor(3.2,8, 5,0.5);
     wall(0.28,1.1,8, 3.5,0.55,0.5); wall(0.28,1.1,8, 6.5,0.55,0.5);
     wall(3.2,1.1,0.28, 5,0.55,4.5);
-    buildWindmill(3.2,-3.5);
-    placeCup(5,4);
+    buildWindmill(5,-3.5,1.4);
+    placeCup(5,3.5);
   }
   function hole3() {
     floor(13,3.2, 0,0); sideWalls(13,0,0); endCap(-6.5,0); endCap(6.5,0);
-    addMovingWall(-2.5,0,'x',1.3,1.6,0);
-    addMovingWall( 2.5,0,'x',1.3,1.6,Math.PI);
+    // Walls offset to opposite sides, each moves 0.9 units — always a gap ≥0.7 units
+    addMovingWall(-2.5,0,'x',0.9,1.4,0);
+    addMovingWall( 2.5,0,'x',0.9,1.4,Math.PI);
     placeCup(5.5,0);
   }
   function hole4() {
@@ -389,7 +393,7 @@ export default (() => {
     const wp=holeCup?._wp;
     if (wp) {
       const dx=ball.position.x-wp.x, dz=ball.position.z-wp.z;
-      if (Math.hypot(dx,dz)<0.3 && Math.abs(ball.position.y-wp.y)<0.55 && ballVel.length()<7) {
+      if (strokes>0 && Math.hypot(dx,dz)<0.28 && Math.abs(ball.position.y-wp.y)<0.28 && ballVel.length()<6) {
         onSunk();
       }
     }
@@ -437,14 +441,17 @@ export default (() => {
     return { x:s.clientX-r.left, y:s.clientY-r.top };
   }
 
-  // Direction derived from pixel-space drag so it works regardless of aspect ratio.
+  // Direction derived from pixel-space drag.
+  // Drag from A→B: the ball shoots in the direction you dragged.
+  // (b - a) gives the drag vector; map screen-x→world-right, screen-y→world-fwd.
   function dragDir(a,b) {
     const T3=window.THREE;
     const fwd=new T3.Vector3(); camera.getWorldDirection(fwd); fwd.y=0; fwd.normalize();
     const right=new T3.Vector3().crossVectors(fwd,new T3.Vector3(0,1,0)).normalize();
+    const dx=b.x-a.x, dy=b.y-a.y;
     return new T3.Vector3()
-      .addScaledVector(fwd,  -(a.y-b.y))
-      .addScaledVector(right,-(a.x-b.x))
+      .addScaledVector(fwd,  dy)   // drag down  → shoot away (forward)
+      .addScaledVector(right, dx)  // drag right → shoot right
       .setY(0).normalize();
   }
 
